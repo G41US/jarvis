@@ -167,6 +167,20 @@ jobs:
               if st2 != 200: ok, why = False, f'chat {st2}: {b2[:200]}'
               print('chat:', st2, b2[:160])
               st3, _ = call('/models', token='wrong'); print('wrong token refused:', st3 == 403)
+              # Can Groq's Qwen model see images? (Jarvis's camera and screen reading need it.) A picture: red left half, blue right half.
+              import zlib, struct, base64
+              def png(w, h, px):
+                  raw = b''.join(b'\x00' + b''.join(bytes(px(x, y)) for x in range(w)) for y in range(h))
+                  ch = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+                  return b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw)) + ch(b'IEND', b'')
+              img = 'data:image/png;base64,' + base64.b64encode(png(64, 32, lambda x, y: (220, 20, 20) if x < 32 else (20, 40, 220))).decode()
+              for vm in ['qwen/qwen3.8-27b']:
+                  sv, bv = call('/chat/completions', {'model': vm, 'max_tokens': 300, 'messages': [{'role': 'user', 'content': [
+                      {'type': 'text', 'text': 'What colour is the left half of this picture, and what colour is the right half? Answer in four words.'},
+                      {'type': 'image_url', 'image_url': {'url': img}}]}]})
+                  try: said = json.loads(bv)['choices'][0]['message'].get('content') or ''
+                  except Exception: said = bv[:200]
+                  print(f'::notice title=Vision test {vm}::{sv}: ' + ' '.join(str(said).split())[:300].replace('%', '%25'))
           if ok: print('The Jarvis service works: users need no Groq key.')
           else: print('::warning title=Jarvis service check failed::' + ' '.join(why.split()).replace('%', '%25'))
           PY
