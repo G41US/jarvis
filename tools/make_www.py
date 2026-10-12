@@ -119,6 +119,12 @@ def main():
     html = sub_once(html, "`${plan.total_min_lo}-${plan.total_min_hi} MIN · ON-TIME RISK ${String(plan.risk || 'low').toUpperCase()}`", "`${plan.total_min_lo}–${plan.total_min_hi} min · on-time risk ${String(plan.risk || 'low')}`", 'route risk')
     html = sub_once(html, "mk('span', 'est', 'ESTIMATED TIMES')", "mk('span', 'est', 'Estimated times')", 'route estimate')
     html = sub_once(html, "row.appendChild(mk('span', 'k', s.kind === 'pickup' ? 'PICK' : 'DROP'));", "row.appendChild(mk('span', 'k', s.kind === 'pickup' ? 'Pick up' : 'Drop off'));", 'route kinds')
+
+    # ---- phone: the mic is off while Jarvis talks, so only near-identical words count as his own echo
+    html = sub_once(html, "const ECHO_SIMILARITY_THRESHOLD = 0.40, POST_TTS_DELAY_MS = 50, ECHO_MEMORY_MS = 15000;",
+                    "const ECHO_SIMILARITY_THRESHOLD = window.JARVIS_NATIVE_MIC ? 0.75 : 0.40, POST_TTS_DELAY_MS = 50, ECHO_MEMORY_MS = window.JARVIS_NATIVE_MIC ? 6000 : 15000;", 'echo filter')
+    # ---- tell the Hearing panel when something you said was ignored, and why
+    html = sub_once(html, "function showDebug(text, kind) {\n", "function showDebug(text, kind) {\n  try { if (window.__jvDebug) window.__jvDebug(text, kind); } catch (e) {}\n", 'debug hook')
     html = sub_once(html, '</style>', MOBILE_CSS + '</style>', 'mobile css')
 
     # no localhost anywhere: the page must only talk to its own origin (which the app answers itself)

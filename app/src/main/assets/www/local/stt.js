@@ -75,20 +75,29 @@ export class SttPipeline {
     try {
       const fd = new FormData();
       fd.append('file', new Blob([wavBytes(f32)], { type: 'audio/wav' }), 'speech.wav');
-      fd.append('model', this.getConfig('stt_model', 'whisper-large-v3-turbo')); fd.append('language', this.getConfig('stt_language', 'en'));
+      const lang = String(this.getConfig('stt_language', 'en') || 'en').trim().toLowerCase();
+      fd.append('model', this.getConfig('stt_model', 'whisper-large-v3-turbo') || 'whisper-large-v3-turbo');
+      if (/^[a-z]{2,3}$/.test(lang)) fd.append('language', lang);                 // a bad value would make Groq reject every clip
+      if (this.onSent) this.onSent();
       fd.append('prompt', this.prompt()); fd.append('response_format', 'json'); fd.append('temperature', '0');
       const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 9000);
       const r = await this.api.fetch('/audio/transcriptions', { method: 'POST', body: fd, signal: ctl.signal, timeoutMs: 9000 }).finally(() => clearTimeout(to));
-      if (r.status === 401) { this.skipUntil = Date.now() + 600000; this.notice('auth', 'Groq rejected my API key, so I can not hear you. Open my settings and paste a fresh one.'); return ''; }
-      if (r.status === 429) { this.skipUntil = Date.now() + 15000; this.notice('rate', "I've hit the speech limit for a moment. Give me a few seconds."); return ''; }
-      if (!r.ok) { this.skipUntil = Date.now() + 5000; this.log('[STT] http', r.status); return ''; }
+      if (r.status === 401) { if (this.onError) this.onError('HTTP 401: key rejected'); this.skipUntil = Date.now() + 600000; this.notice('auth', 'Groq rejected my API key, so I can not hear you. Open my settings and paste a fresh one.'); return ''; }
+      if (r.status === 429) { if (this.onError) this.onError('HTTP 429: speech limit reached'); this.skipUntil = Date.now() + 15000; this.notice('rate', "I've hit the speech limit for a moment. Give me a few seconds."); return ''; }
+      if (!r.ok) {
+        this.skipUntil = Date.now() + 3000;
+        let why = ''; try { const j = JSON.parse(await r.text()); why = (j.error && j.error.message) || ''; } catch {}
+        const msg = `HTTP ${r.status}${why ? ': ' + why : ''}`; this.log('[STT]', msg); if (this.onError) this.onError(msg);
+        this.notice('http', `My speech service turned the audio down (${msg}). I can't hear you until that's fixed.`);
+        return '';
+      }
       let text = ((await r.json()).text || '').trim();
       const norm = text.toLowerCase().replace(/[^a-z ]/g, ''), pn = this.prompt().toLowerCase().replace(/[^a-z ]/g, '');
       if (text.length > 25 && pn.includes(norm)) text = '';              // the prompt echoed back on silence
       const ms = Math.round(performance.now() - t0); this.log(`[STT] groq ${ms} ms: ${JSON.stringify(text)}`); if (this.onTiming) this.onTiming(ms, text);
       return isHallucination(text) ? '' : text;
     } catch (e) {
-      this.skipUntil = Date.now() + 8000; this.log('[STT] failed', e && e.name);
+      this.skipUntil = Date.now() + 8000; this.log('[STT] failed', e && e.name); if (this.onError) this.onError(`network: ${(e && e.message) || e}`);
       if (navigator.onLine === false || (e && e.name !== 'AbortError')) this.notice('net', "I can't reach the speech service. Check the data connection.");
       return '';
     }

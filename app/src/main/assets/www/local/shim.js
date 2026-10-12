@@ -20,7 +20,7 @@ const log = (...a) => console.log('[JARVIS]', ...a);
 W.JARVIS_NATIVE_MIC = has('micStart');                 // the page skips its own microphone code when the app records natively
 
 // ---------------------------------------------------------------- settings
-const cfgStore = { get(k, d = null) { const c = kv.get('config', {}) || {}; return c[k] === undefined ? d : c[k]; }, set(k, v) { const c = kv.get('config', {}) || {}; c[k] = v; kv.set('config', c); },
+const cfgStore = { get(k, d = null) { const c = kv.get('config', {}) || {}; const v = c[k]; return v === undefined || v === null || v === '' ? d : v; },   /* a blank box means 'use the default' */ set(k, v) { const c = kv.get('config', {}) || {}; c[k] = v; kv.set('config', c); },
   all() { return kv.get('config', {}) || {}; }, merge(o) { kv.set('config', { ...this.all(), ...o }); } };
 export const config = cfgStore;
 const api = createApi(cfgStore);
@@ -142,7 +142,7 @@ function deliverTranscript(text) {
   for (const s of audioSockets) { s._deliver(JSON.stringify({ type: 'transcript', text })); s._deliver(JSON.stringify({ type: 'partial', text })); }
 }
 const stt = new SttPipeline({ api, getConfig: (k, d) => cfgStore.get(k, d), onTranscript: deliverTranscript, onNotice: t => { stats.notice = t; broadcast('proactive:' + t); }, log,
-  onTiming: ms => { stats.sttMs = ms; } });
+  onTiming: ms => { stats.sttMs = ms; stats.sttError = ''; }, onSent: () => { stats.sttSent = (stats.sttSent || 0) + 1; }, onError: e => { stats.sttError = e; } });
 const ears = {
   pending: [], pendingLen: 0,
   /** native chunks are 80 ms; the speech detector was tuned on 128 ms frames, so re-cut to 2048 samples */
@@ -156,6 +156,7 @@ const ears = {
   },
   reset() { this.pending = []; this.pendingLen = 0; stt.cut(); },
 };
+W.__jvDebug = (text, kind) => { if (kind !== 'heard') stats.dropped = { text: String(text), kind, at: Date.now() }; };
 const meter = () => document.getElementById('mic-level-fill');
 W.__jvPcm = b64 => { const b = b64ToBytes(b64); ears.feed(new Int16Array(b.buffer, b.byteOffset, b.byteLength >> 1)); };
 W.__jvLevel = (rms, score) => {

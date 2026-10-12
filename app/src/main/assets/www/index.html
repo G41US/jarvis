@@ -1005,7 +1005,7 @@ const HEY_WORDS = ['hey','hi','ok','okay','hay'];
 const END_PHRASES = ['thank you','thanks jarvis','thank you jarvis','goodbye jarvis','good bye jarvis','bye jarvis',"that's all","that's it",'we are done',"we're done",'stop listening'];
 const MIN_CONFIDENCE = 0.15, MIN_WORDS = 2;
 const COMMAND_COOLDOWN_MS = 900, SESSION_SILENCE_MS = 35000;
-const ECHO_SIMILARITY_THRESHOLD = 0.40, POST_TTS_DELAY_MS = 50, ECHO_MEMORY_MS = 15000;
+const ECHO_SIMILARITY_THRESHOLD = window.JARVIS_NATIVE_MIC ? 0.75 : 0.40, POST_TTS_DELAY_MS = 50, ECHO_MEMORY_MS = window.JARVIS_NATIVE_MIC ? 6000 : 15000;
 // Talking over Jarvis. Was 3500 for 4 frames (you had to shout); saying "Hey Jarvis" also interrupts him.
 const BARGE_RMS = 1800, BARGE_FRAMES = 3;
 // Greet out loud only after you've been away a while; otherwise just chime and listen (no waiting through a greeting).
@@ -1019,6 +1019,7 @@ let bargeAbort = null, speakChain = Promise.resolve(), currentAudio = null, comm
 
 let debugTimer = null;
 function showDebug(text, kind) {
+  try { if (window.__jvDebug) window.__jvDebug(text, kind); } catch (e) {}
   const labels = { heard: 'HEARD', rejected: 'REJECTED', echo: 'ECHO-DROP' };
   debugEl.innerHTML = `<span class="${kind}">${labels[kind]}:</span> ${escapeHtml(text)}`;
   debugEl.classList.add('active');

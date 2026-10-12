@@ -43,6 +43,26 @@ def sse(chunks):
     return ''.join('data: ' + json.dumps(c) + '\n\n' for c in chunks) + 'data: [DONE]\n\n'
 def delta(**k): return {'choices': [{'delta': k, 'finish_reason': None}]}
 
+def check_multipart(ctype, body):
+    """Validate a Whisper upload the way Groq does (the mock used to accept anything)."""
+    m = re.search(r'boundary=([^;]+)', ctype)
+    if not ctype.startswith('multipart/form-data') or not m: return 'request must be multipart/form-data'
+    bd = ('--' + m.group(1)).encode(); parts = {}
+    if not body.rstrip().endswith(bd + b'--'): return 'malformed multipart body'
+    for chunk in body.split(bd)[1:-1]:
+        head, _, data = chunk.lstrip(b'\r\n').partition(b'\r\n\r\n')
+        name = re.search(rb'name="([^"]+)"', head)
+        if not name: return 'part without a name'
+        parts[name.group(1).decode()] = (head, data[:-2] if data.endswith(b'\r\n') else data)
+    if 'file' not in parts or not parts['file'][1].startswith(b'RIFF') or b'filename=' not in parts['file'][0]: return 'file is missing or not audio'
+    model = parts.get('model', (b'', b''))[1].decode()
+    if model not in ('whisper-large-v3-turbo', 'whisper-large-v3'): return f'model {model!r} not found'
+    if 'language' in parts:
+        lang = parts['language'][1].decode()
+        if not re.fullmatch(r'[a-z]{2,3}', lang): return f"invalid language '{lang}'"
+    if 'temperature' in parts and not re.fullmatch(r'[0-9.]+', parts['temperature'][1].decode()): return 'invalid temperature'
+    return ''
+
 def groq_handler(route):
     req = route.request; url = req.url
     cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*'}
@@ -52,7 +72,11 @@ def groq_handler(route):
         return route.fulfill(status=200 if ok else 401, headers=cors, body='{"data":[]}')
     if 'audio/transcriptions' in url:
         if 'Bearer gsk_good' not in (req.headers.get('authorization') or ''): return route.fulfill(status=401, headers=cors, content_type='application/json', body='{"error":{"message":"Invalid API Key"}}')
+        err = check_multipart(req.headers.get('content-type') or '', req.post_data_buffer or b'')
         state['stt_calls'] += 1
+        if err:
+            state.setdefault('stt_errors', []).append(err)
+            return route.fulfill(status=400, headers=cors, content_type='application/json', body=json.dumps({'error': {'message': err, 'type': 'invalid_request_error'}}))
         return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'text': state.get('stt_text', 'Hey Jarvis')}))
     if 'Bearer gsk_good' not in (req.headers.get('authorization') or ''):
         return route.fulfill(status=401, headers=cors, content_type='application/json', body='{"error":{"message":"Invalid API Key"}}')
@@ -242,6 +266,15 @@ def main():
           for(let i=0;i<10;i++) send(60); for(let i=0;i<25;i++) send(6000); for(let i=0;i<14;i++) send(40); })()""")
         pg.wait_for_timeout(2500)
         check('VAD sent one clip to Whisper', state['stt_calls'] >= 1, state['stt_calls'])
+        check('Groq accepted the upload (valid multipart, model, language)', not state.get('stt_errors'), state.get('stt_errors'))
+        # a speech-service error must be visible, not silent
+        ev("JARVIS.config.set('stt_model','bogus-model')"); ev("JARVIS.wake()"); pg.wait_for_timeout(300)
+        ev("""(()=>{ const f=(n,a)=>{const x=new Int16Array(n); for(let i=0;i<n;i++) x[i]=Math.round(a*Math.sin(i/7)*(1+Math.sin(i/300))); return x;};
+          const send = a => { const x = f(1280, a), u = new Uint8Array(x.buffer); let s=''; for (const b of u) s+=String.fromCharCode(b); window.__jvPcm(btoa(s)); };
+          for(let i=0;i<10;i++) send(60); for(let i=0;i<25;i++) send(6000); for(let i=0;i<14;i++) send(40); })()"""); pg.wait_for_timeout(2000)
+        check('speech errors are shown (Hearing panel + spoken notice)', 'not found' in (ev('JARVIS.stats.sttError') or '') and 'speech service' in ev('JARVIS.stats.notice'), (ev('JARVIS.stats.sttError'), ev('JARVIS.stats.notice')))
+        ev("JARVIS.config.set('stt_model',''); JARVIS.stats.sttError=''; JARVIS.stt.skipUntil=0"); state.pop('stt_errors', None)
+        check('the words reached Jarvis', ev("JARVIS.stats.heard.length > 0 && JARVIS.stats.heard[0].text === 'Hey Jarvis'"), ev("JARVIS.stats.heard"))
         check('Whisper went through the app (no browser CORS)', any('audio/transcriptions' in u for u in ev('window.__native.streams')))
         ev("JARVIS.say('thank you jarvis')"); pg.wait_for_timeout(800)
         check('session closed -> mic stops streaming', ev('window.__native.listening').count(False) >= 1 and ev('JARVIS.stats.listening') is False, ev('window.__native.listening'))
