@@ -137,6 +137,35 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           APP_TOKEN: ${{ steps.token.outputs.token }}
 
+      - name: Check the Jarvis service answers like the app will call it
+        if: steps.proxy.outputs.deployment-url
+        env:
+          BASE: ${{ steps.proxy.outputs.deployment-url }}
+          APP_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          base, tok = os.environ['BASE'].rstrip('/') + '/v1', os.environ['APP_TOKEN']
+          def call(path, body=None, token=tok):
+              h = {'x-jarvis-token': token, 'x-jarvis-device': 'build-check-000000000000', 'Content-Type': 'application/json'}
+              req = urllib.request.Request(base + path, data=json.dumps(body).encode() if body else None, headers=h)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r: return r.status, r.read().decode()
+              except urllib.error.HTTPError as e: return e.code, e.read().decode()
+              except Exception as e: return 0, str(e)
+          for i in range(12):   # a brand-new workers.dev address can take a minute to come online
+              st, body = call('/models')
+              if st == 200: break
+              print(f'try {i+1}: {st} {body[:120]}'); time.sleep(10)
+          ok = st == 200
+          if ok:
+              st2, b2 = call('/chat/completions', {'model': 'llama-3.1-8b-instant', 'max_tokens': 8, 'messages': [{'role': 'user', 'content': 'Say OK.'}]})
+              ok = st2 == 200; print('chat:', st2, b2[:160])
+              st3, _ = call('/models', token='wrong'); print('wrong token refused:', st3 == 403)
+          if ok: print('The Jarvis service works: users need no Groq key.')
+          else: print(f'::warning title=Jarvis service check failed::The service deployed but did not answer properly ({st}). Check the GROQ_API_KEY secret is a valid Groq key.')
+          PY
+
       - name: Point the app at the Jarvis service (if deployed)
         env:
           API_BASE: ${{ steps.proxy.outputs.deployment-url && format('{0}/v1', steps.proxy.outputs.deployment-url) || secrets.JARVIS_API_BASE }}
