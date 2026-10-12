@@ -17,10 +17,10 @@ You do not need Android Studio. GitHub builds the APK for you, for free.
    (if not: *Add file > Create new file*, name it `.github/workflows/build-apk.yml`, paste the file's contents).
    A model file bigger than 25 MB can't go through the website, use GitHub Desktop.
 4. Open the repository's **Actions** tab. The build **"Build Jarvis APK"** starts by itself (or press *Run workflow*). It takes 5 to 8 minutes.
-5. **Download on your phone:** open the repository in the phone's browser, go to **Releases > Jarvis (latest build) > Jarvis.apk**, tap it, and allow
+5. **Download on your phone:** open the repository in the phone's browser, go to **Releases > Jarvis (latest build) > Jarvis-build-NN.apk** (NN is the build number), tap it, and allow
    "Install unknown apps" for your browser when Android asks. (Prefer a computer? The same file is under the finished run, *Artifacts > Jarvis-apk*.)
 
-New version later? Push the change, wait for the build, install the new `Jarvis.apk` over the old one. Your settings stay.
+New version later? Push the change, wait for the build, install the new `Jarvis-build-NN.apk` over the old one (the highest number is the newest). Your settings stay.
 
 ## First start
 
