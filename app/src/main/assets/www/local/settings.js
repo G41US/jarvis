@@ -9,6 +9,9 @@ const el = (tag, attrs = {}, ...kids) => {
 };
 
 const CSS = `
+/* while settings are open nothing else is drawn: the 3D face stops, so the phone has its graphics memory for this screen */
+body.jv-settings #three, body.jv-settings #hud, body.jv-settings #jv-top, body.jv-settings #jv-cap, body.jv-settings #jv-dock,
+body.jv-settings #bg-base, body.jv-settings #bg-rings, body.jv-settings #bg-halo, body.jv-settings #bg-floor, body.jv-settings #nav-frame, body.jv-settings #nav-orb { visibility: hidden !important; }
 #jv-ov { position: fixed; inset: 0; z-index: 80; background: #03070d; overflow-y: auto; -webkit-overflow-scrolling: touch; display: none; color: #e8f4ff;
   font: 15px/1.45 Roboto, system-ui, sans-serif; }
 #jv-ov.on { display: block; }
@@ -36,7 +39,7 @@ const CSS = `
 /* hearing check */
 #jv-diag { margin-top: 10px; padding: 14px; border-radius: 14px; background: #081321; border: 1px solid #12253a; }
 #jv-diag .meter { position: relative; height: 10px; border-radius: 5px; background: #102235; overflow: hidden; margin: 8px 0 4px; }
-#jv-diag .meter b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #5ef0a0; transition: width .1s linear; }
+#jv-diag .meter b { position: absolute; inset: 0; background: #5ef0a0; transform-origin: 0 50%; transform: scaleX(0); will-change: transform; }
 #jv-diag .meter.wake b { background: #7fd6ff; }
 #jv-diag dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; font-size: 14px; }
 #jv-diag dt { color: #6f8aa3; } #jv-diag dd { margin: 0; color: #e8f4ff; overflow-wrap: anywhere; }
@@ -111,18 +114,18 @@ export function initSettings() {
   diag.append(el('div', {}, 'Your voice'), meter, el('div', {}, 'Wake score (say "Hey Jarvis")'), wmeter, dl);
   sEar.append(diag);
   let diagTimer = null, wakesSeen = 0;
+  const put = (node, text) => { if (node.textContent !== text) node.textContent = text; };
   const paintDiag = () => {
     const s = J().stats; if (!s) return;
-    meter.firstChild.style.width = Math.min(100, Math.sqrt(s.rms || 0) * 2.2) + '%';
-    wmeter.firstChild.style.width = Math.min(100, (s.score || 0) * 100) + '%';
+    meter.firstChild.style.transform = `scaleX(${Math.min(1, Math.sqrt(s.rms || 0) * 0.022).toFixed(3)})`;
+    wmeter.firstChild.style.transform = `scaleX(${Math.min(1, s.score || 0).toFixed(3)})`;
     const micTxt = { listening: 'On', starting: 'Starting…', stopped: 'Stopped', 'no-permission': 'No permission. Allow the microphone in Android settings.', browser: 'Browser microphone' };
-    dMic.textContent = micTxt[s.mic] || (String(s.mic).startsWith('listening-no-wake') ? 'On (wake word model failed to load)' : String(s.mic).replace(/^error:/, 'Error: '));
-    if (s.wakes > wakesSeen) { wakesSeen = s.wakes; dWake.className = 'flash'; dWake.textContent = `Heard you (score ${Number(s.lastWakeScore || 0).toFixed(2)})`; setTimeout(() => { dWake.className = ''; }, 2500); }
-    else if (!dWake.className) dWake.textContent = s.wake ? `Ready · ${s.wakes} so far` : (s.wakeError ? 'Not loaded' : 'Loading…');
-    dHeard.textContent = s.heard && s.heard[0] ? `"${s.heard[0].text}"` : '—';
-    const m = J().api.mode(); dBrain.textContent = m === 'key' ? 'Your Groq key' : m === 'proxy' ? 'Jarvis service' : 'Not set up';
-    dSpeed.textContent = s.sttMs ? `${s.sttMs} ms` : '—';
-    if (s.notice) dSpeed.textContent += ` · ${s.notice}`;
+    put(dMic, micTxt[s.mic] || (String(s.mic).startsWith('listening-no-wake') ? 'On (wake word model failed to load)' : String(s.mic).replace(/^error:/, 'Error: ')));
+    if (s.wakes > wakesSeen) { wakesSeen = s.wakes; dWake.className = 'flash'; put(dWake, `Heard you (score ${Number(s.lastWakeScore || 0).toFixed(2)})`); setTimeout(() => { dWake.className = ''; }, 2500); }
+    else if (!dWake.className) put(dWake, s.wake ? `Ready · ${s.wakes} so far` : (s.wakeError ? 'Not loaded' : 'Loading…'));
+    put(dHeard, s.heard && s.heard[0] ? `"${s.heard[0].text}"` : '—');
+    const m = J().api.mode(); put(dBrain, m === 'key' ? 'Your Groq key' : m === 'proxy' ? 'Jarvis service' : 'Not set up');
+    put(dSpeed, (s.sttMs ? `${s.sttMs} ms` : '—') + (s.notice ? ` · ${s.notice}` : ''));
   };
 
   // ---- navigation & delivery
@@ -144,7 +147,7 @@ export function initSettings() {
   add(adv, 'text', 'stt_language', 'Speech language code', { ph: 'en', hint: 'Leave blank for English.' });
 
   const saveMsg = el('div', { class: 'msg' });
-  const close = () => { ov.classList.remove('on'); clearInterval(diagTimer); };
+  const close = () => { ov.classList.remove('on'); document.body.classList.remove('jv-settings'); window.__jvPaused = false; clearInterval(diagTimer); };
   const save = () => {
     const out = {};
     for (const i of inputs) { let v = i.value.trim(); if (i._key === 'use_gps') v = v !== 'false'; else if (i._num) v = v === '' ? '' : Number(v); out[i._key] = v; }
@@ -155,7 +158,7 @@ export function initSettings() {
   ov.append(el('div', { class: 'bar' }, el('div', { class: 'row' }, el('button', { type: 'button', onclick: close }, 'Close'), el('button', { type: 'button', class: 'pri', onclick: save }, 'Save')), saveMsg));
   document.body.append(ov);
 
-  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); saveMsg.textContent = ''; ov.classList.add('on'); paintDiag(); diagTimer = setInterval(paintDiag, 150); };
+  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(paintDiag, 150); };
   J().openSettings = open;
   if (!J().api.ready()) open();
 }

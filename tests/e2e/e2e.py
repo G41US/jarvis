@@ -267,8 +267,10 @@ def main():
         check('mute button mutes', ev("window.__jv.state().muted") is True and ev("document.querySelector('#jv-status').textContent") == 'Muted')
         ev("document.getElementById('jv-mute').click()"); pg.wait_for_timeout(200)
         ev("JARVIS.openSettings()"); pg.wait_for_timeout(400); pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/settings.png'))
+        check('settings open pauses the 3D face', ev("window.__jvPaused === true && getComputedStyle(document.getElementById('three')).visibility === 'hidden'"))
         check('settings: hearing panel shows mic on', 'On' in ev("document.getElementById('jv-diag').textContent"), ev("document.getElementById('jv-diag').textContent")[:200])
         ev("document.querySelector('#jv-ov .bar button').click()"); pg.wait_for_timeout(200)
+        check('closing settings resumes the face', ev("window.__jvPaused === false && getComputedStyle(document.getElementById('three')).visibility === 'visible'"))
 
         # ---- layout on a phone
         w = ev("[document.documentElement.scrollWidth, innerWidth]")
