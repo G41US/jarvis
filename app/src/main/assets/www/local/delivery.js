@@ -5,7 +5,7 @@ import { pyRound, nominatimThrottle } from './net.js';
 
 export const MAX_STACK = 4;
 export const DEFAULTS = {
-  areas: ['Maysville, KY', 'Louisa, KY'], country_codes: '',
+  areas: [], country_codes: '',                      // your town comes from GPS (or the 'Busy areas' setting)
   pickup_dwell_s: 150, same_stop_dwell_s: 30, drop_dwell_s: 120,
   fresh_limit_min: 20, hard_limit_min: 35, late_weight: 3.0, cold_weight: 1.0, hard_weight: 4.0,
   default_deadline_min: 45, traffic_factor: 1.15, fallback_kmh: 40.0, detour_factor: 1.35,
@@ -113,8 +113,10 @@ export class Copilot {
     const key = text.toLowerCase(), useCache = cache && /\d/.test(text);
     if (useCache) { const g = this._db().geo[key]; if (g) { const h = { lat: g.lat, lon: g.lon, display: g.display, area: '', short: shortAddr(g.display) }; if (g.rank !== undefined) h.rank = g.rank; return h; } }
     const cands = this._candidates(text); let hit = null;
-    for (const q of cands) { hit = await this._nominatim(q); if (hit) break; }
-    if (!hit) for (const q of cands.slice(0, 2)) { hit = await this._photon(q); if (hit) break; }
+    // a delivery stop is never hundreds of miles away: skip matches far from where the driver is (a different town's "Main Street")
+    const loc = this._getState('loc'), near = h => !h || !loc || haversineM(loc.lat, loc.lon, h.lat, h.lon) < 150000;
+    for (const q of cands) { const h = await this._nominatim(q); if (h && near(h)) { hit = h; break; } }
+    if (!hit) for (const q of cands.slice(0, 2)) { const h = await this._photon(q); if (h && near(h)) { hit = h; break; } }
     if (hit && useCache) { const d = this._db(); d.geo[key] = { lat: hit.lat, lon: hit.lon, display: hit.display, ts: Date.now() / 1000 }; if (hit.rank !== undefined) d.geo[key].rank = hit.rank; this._save(d); }
     return hit;
   }
