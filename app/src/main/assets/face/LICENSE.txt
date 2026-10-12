@@ -1,0 +1,10 @@
+Face recognition models used by Jarvis (the same ones OpenCV's FaceDetectorYN and FaceRecognizerSF use on the PC):
+
+yunet.onnx - YuNet face detector (2023mar), from the OpenCV Model Zoo, https://github.com/opencv/opencv_zoo
+  MIT License. Copyright (c) 2020 Shiqi Yu <shiqi.yu@gmail.com>.
+
+sface.onnx - SFace face recognizer (2021dec), from the OpenCV Model Zoo, weights quantized to 8 bits by Jarvis's build.
+  Apache License 2.0. "SFace: Sigmoid-Constrained Hypersphere Loss for Robust Face Recognition", Zhong et al., IEEE TIP 2021.
+  https://www.apache.org/licenses/LICENSE-2.0
+
+Jarvis keeps only face signatures (128 numbers per sample), never photos, and only on the phone.

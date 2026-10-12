@@ -202,6 +202,35 @@ export function registerPhoneTools(ctx) {
   });
   T('open_camera_app', "Open the phone's own camera app. mode: photo, video or selfie.", { mode: { type: 'string', enum: ['photo', 'video', 'selfie'] } }, [], a => opened(call('openCamera', a.mode || 'photo'), 'the camera') || 'Camera open.');
 
+  // faces, like the PC: "remember my face" (front camera), "who is this?", "do you know me?" — signatures stay on the phone
+  const faceFail = e => e === 'unavailable' ? "Face recognition isn't installed in this version." : e === 'noface' ? "I couldn't see a face. Hold the phone at eye level, face the light, and try again." : "Face recognition didn't work just now.";
+  T('remember_face', "Remember a person's face so Jarvis recognises them later (the PC's face enrolment). Uses the front camera unless camera='back' (to remember someone else). title: Mr, Mrs, Ms, Dr, Sir (optional).",
+    { name: { type: 'string' }, title: { type: 'string' }, camera: { type: 'string', enum: ['front', 'back'] } }, ['name'], async a => {
+      if (!has('faceRemember')) return "I can only remember faces on the phone.";
+      const name = String(a.name || '').trim(); if (!name) return "Whose face is it?";
+      const shot = await shoot(a.camera === 'back' ? 'environment' : 'user', 'Look at the camera'); if (!shot.ok) return camFail(shot.error);
+      const r = parse(call('faceRemember', shot.dataUrl, name, String(a.title || ''))) || {}; if (!r.ok) return faceFail(r.error);
+      const who = `${a.title ? a.title + ' ' : ''}${name}`;
+      return r.samples > 1 ? `Got another look. I'll know ${who} even better now.` : `Noted. I'll recognise you as ${who}. Say "remember my face" again in different light and I'll get it even more reliably.`;
+    });
+  T('who_is_this', "Recognise a person with the camera: 'who is this?', 'do you know me?', 'who am I?'. Front camera for the user, back for someone else. Only people Jarvis was asked to remember can be named.",
+    { camera: { type: 'string', enum: ['front', 'back'] } }, [], async a => {
+      if (!has('faceIdentify')) return "I can only recognise faces on the phone.";
+      const front = a.camera !== 'back', shot = await shoot(front ? 'user' : 'environment', front ? 'Look at the camera' : 'Looking…'); if (!shot.ok) return camFail(shot.error);
+      const r = parse(call('faceIdentify', shot.dataUrl)) || {}; if (!r.ok) return faceFail(r.error);
+      if (!r.face) return faceFail('noface');
+      if (r.match) { const who = `${r.match.title ? r.match.title + ' ' : ''}${r.match.name}`; return `That's ${who} (match ${Math.round(r.match.similarity * 100)} percent).`; }
+      const n = (parse(call('faceList')) || []).length;
+      return n ? "I don't recognise this face. Say 'remember this face as' and a name if you want me to." : "I haven't been asked to remember anyone yet. Say 'remember my face' and your name.";
+    });
+  T('list_faces', 'List the people whose faces Jarvis remembers.', {}, [], () => {
+    if (!has('faceList')) return "I can only do that on the phone."; const l = parse(call('faceList')) || [];
+    return l.length ? 'I know ' + l.map(p => `${p.title ? p.title + ' ' : ''}${p.name}`).join(', ') + '.' : "I don't remember anyone's face yet.";
+  });
+  T('forget_face', "Forget a person's face (their name, or 'everyone').", { name: { type: 'string' } }, ['name'], a => {
+    if (!has('faceForget')) return "I can only do that on the phone."; return call('faceForget', String(a.name || '')) ? `Forgotten.` : `I don't have a face for ${a.name}.`;
+  });
+
   const control = (m, ...args) => { if (!has(m)) return "I can only do that on the phone."; const r = call(m, ...args); return needed(r) || (r === 'starting' ? 'Phone control is starting. Ask me again in a second.' : r); };
   T('look_at_screen', "Look at what's on the phone's screen right now (a screenshot) and answer a question about it. Needs Jarvis phone control.", { question: { type: 'string' } }, [], async a => {
     if (!has('screenshot')) return "I can only see the screen on the phone.";

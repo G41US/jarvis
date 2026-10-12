@@ -232,6 +232,10 @@ BRIDGE = r"""
     press(w) { rec('press', w); return 'Done.'; },
     screenshot() { rec('screenshot'); return P.status.control ? '/9j/4AAQSkZJRgABAQ' : 'need-control'; },
     currentApp() { return 'com.whatsapp'; },
+    faceRemember(b, name, title) { rec('faceRemember', b.slice(0, 23), name, title); P.faces = (P.faces || []).concat([{ name, title }]); return JSON.stringify({ ok: true, samples: P.faces.filter(f => f.name === name).length }); },
+    faceIdentify(b) { rec('faceIdentify', b.slice(0, 23)); const f = (P.faces || [])[0]; return JSON.stringify({ ok: true, face: true, match: f ? { name: f.name, title: f.title, similarity: 0.71 } : null }); },
+    faceList() { return JSON.stringify((P.faces || []).map(f => ({ name: f.name, title: f.title, samples: 1 }))); },
+    faceForget(n) { const k = (P.faces || []).length; P.faces = (P.faces || []).filter(f => f.name.toLowerCase() !== n.toLowerCase()); return k !== P.faces.length; },
   };
 })();
 """
@@ -507,6 +511,16 @@ def main():
         check('the camera preview closes afterwards', ev("!document.getElementById('jv-cam')"))
         r = ev("JARVIS.reg.exec('take_photo', '{}')")
         check('take a photo -> saved to the gallery', calls('photoSave') and calls('photoSave')[0][1].startswith('data:image/jpeg') and 'gallery' in r, (calls('photoSave'), r))
+
+        # faces, like the PC
+        reset(); r = ev("JARVIS.reg.exec('who_is_this', '{}')")
+        check('"who am I?" before any face is remembered', "haven't been asked to remember anyone" in r, r)
+        r = ev("JARVIS.reg.exec('remember_face', JSON.stringify({name: 'Marvelous', title: 'Mr'}))")
+        c = calls('faceRemember')
+        check('"remember my face": front camera picture -> stored on the phone', c and c[0][1].startswith('data:image/jpeg') and c[0][2:] == ['Marvelous', 'Mr'] and "recognise you as Mr Marvelous" in r, (c, r))
+        r = ev("JARVIS.reg.exec('who_is_this', '{}')")
+        check('"who am I?" recognises the face', r.startswith("That's Mr Marvelous"), r)
+        check('list and forget faces', 'Mr Marvelous' in ev("JARVIS.reg.exec('list_faces', '{}')") and ev("JARVIS.reg.exec('forget_face', JSON.stringify({name: 'marvelous'}))") == 'Forgotten.')
 
         # phone control: a five-step task in one request (more rounds than the old limit of three)
         reset(); ev("window.__phone.status.control = false")

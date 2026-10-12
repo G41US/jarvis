@@ -276,7 +276,8 @@ async function handle(method, path, query, body, signal) {
     case '/nav/progress': return json(navsvc.progress(body || {}));
     case '/nav/ended': return json(navsvc.ended());
     case '/nav/reroute': { const lat = parseFloat(body && body.lat), lon = parseFloat(body && body.lon); return json(Number.isFinite(lat) && Number.isFinite(lon) ? await navsvc.reroute(lat, lon) : { ok: false, error: 'I need your position to reroute.' }); }
-    case '/faces': case '/documents': return json([]);
+    case '/faces': { let l = []; try { l = JSON.parse(W.AndroidPhone && W.AndroidPhone.faceList ? W.AndroidPhone.faceList() : '[]'); } catch {} return json(l.map((p, i) => ({ id: i + 1, name: p.name, title: p.title }))); }
+    case '/documents': return json([]);
     case '/identify_face': case '/enroll_face_direct': return json({ ok: false, recognized: false, error: 'not available on the phone' });
     case '/wake': return json({ ok: true });
     default:

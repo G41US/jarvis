@@ -22,6 +22,7 @@ else echo "(no android.jar: stand-in check only)"; fi
 # The engines the tests run, with lightweight stand-ins (real android.jar classes only throw "Stub!" when run).
 javac -nowarn -Xlint:-options -cp "$LIBS" -d "$S/out" $(find "$S/src" -name '*.java') app/src/main/java/com/jarvis/assistant/WakeWord.java app/src/main/java/com/jarvis/assistant/SileroVad.java 2>&1 | grep -v "^Note:\|JAVA_TOOL_OPTIONS" || true; echo "java stand-in compile OK"
 javac -d "$S/out" -cp "$S/out" tests/wake/WakeWordTest.java tests/wake/SileroVadTest.java && java -cp "$S/out" WakeWordTest tests/wake/trace.txt | tail -1 && java -cp "$S/out" SileroVadTest tests/wake/vad_trace.txt | tail -1   # wake word == openWakeWord, VAD == Silero
+javac -d "$S/out" app/src/main/java/com/jarvis/assistant/FaceMath.java tests/face/FaceMathTest.java && java -cp "$S/out" FaceMathTest tests/face | tail -1   # face pipeline == OpenCV's
 python3 - <<'PY'
 import glob, xml.dom.minidom as m
 for f in glob.glob('app/src/main/**/*.xml', recursive=True): m.parse(f)

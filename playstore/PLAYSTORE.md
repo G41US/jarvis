@@ -40,7 +40,10 @@ Also set up the no-key service (`server/README.md`) first, so Play users never s
   > • Plans your stack: tell Jarvis the orders you accepted (up to four) and he works out the fastest pickup and drop-off order.
   > • Turn-by-turn navigation anywhere, with spoken directions and a car-style map.
   > • Tracks your earnings, per hour and per mile.
-  > • Everyday help: weather, timers, reminders, music, calls and texts, quick answers.
+  > • Everyday help: reminders and alarms that ring even when Jarvis is closed, calls and texts by name, read and reply to messages,
+  >   calendar, weather, music, quick answers.
+  > • Eyes: "what is this?", "read this sign", "what's on my screen?".
+  > • Hands-free phone control: "open WhatsApp and message John", flashlight, volume, Do Not Disturb, settings.
   >
   > Jarvis works alongside the DoorDash and Uber Driver apps. He is not affiliated with or endorsed by DoorDash or Uber.
 - **Graphics:** `icon-512.png` and `feature-1024x500.png` in this folder. Add 4 to 8 phone screenshots from your phone
@@ -69,6 +72,20 @@ Data is encrypted in transit: **Yes** (HTTPS). Users can delete data: **Yes** (s
 Google reviews this closely and may reject it, because it isn't an accessibility tool for people with disabilities.
 If they do, publish without it (remove the service from `AndroidManifest.xml`), keep it in the sideloaded APK, and appeal later.
 Record a short screen video of the offer reader working; they often ask for one.
+
+**Phone control** (a second accessibility service, `PhoneControlService`): Google usually rejects accessibility use that isn't for
+people with disabilities. Declare it honestly as a hands-free voice assistant that operates the phone on spoken request (useful while
+driving and for people with motor impairments), with a short video. If Google refuses, remove that one `<service>` from
+`AndroidManifest.xml` for the Play build; everything else still works, and the sideloaded APK keeps it.
+
+**Other sensitive permissions** Google asks about:
+- `SCHEDULE_EXACT_ALARM`: reminders the user sets ring on time (user-granted; Jarvis falls back to inexact alarms without it).
+- `READ_CONTACTS`, `CALL_PHONE`, `READ_CALENDAR`, `WRITE_CALENDAR`, `CAMERA`: each asked for the first time the user uses that feature.
+  Add Contacts, Calendar, Photos and Messages (notifications) rows to the Data safety form: collected only when the user asks, shared with
+  Groq as part of the request, not stored.
+- Notification access (`NotifListener`): read and reply to messages by voice. Declared in the listing and the privacy policy.
+- `SYSTEM_ALERT_WINDOW` ("display over other apps"): only so Jarvis can open apps the user asks for while in the background.
+- `WRITE_SETTINGS`, `ACCESS_NOTIFICATION_POLICY`: brightness and Do Not Disturb by voice, user-granted.
 
 **Foreground service declaration** (microphone and location types):
 > Jarvis keeps a foreground service with a visible notification so the driver can say "Hey Jarvis" and get spoken
