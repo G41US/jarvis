@@ -191,6 +191,19 @@ jobs:
       - name: Name the file
         run: cp app/build/outputs/apk/debug/app-debug.apk Jarvis.apk
 
+      - name: Check the APK will install (Android's own tools)
+        id: apkcheck
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --verbose Jarvis.apk | head -6
+          "$BT/zipalign" -c -P 16 4 Jarvis.apk && echo "zipalign OK (16 KB pages)"
+          "$BT/aapt2" dump badging Jarvis.apk | grep -E "^package|sdkVersion|native-code"
+          BYTES=$(stat -c %s Jarvis.apk)
+          echo "mb=$(python3 -c "print(f'{$BYTES/1e6:.1f}')")" >> "$GITHUB_OUTPUT"
+          echo "mib=$(python3 -c "print(f'{$BYTES/1048576:.2f}')")" >> "$GITHUB_OUTPUT"
+          echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
+          echo "sha=$(sha256sum Jarvis.apk | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
           name: Jarvis-apk
@@ -226,5 +239,10 @@ jobs:
         with:
           tag_name: latest
           name: Jarvis (latest build)
-          body: Install Jarvis.apk on your phone. Built automatically from the latest push.
+          body: |
+            Install Jarvis.apk on your phone. Built automatically from the latest push.
+
+            **Size: ${{ steps.apkcheck.outputs.mb }} MB** (${{ steps.apkcheck.outputs.bytes }} bytes; some phones show ${{ steps.apkcheck.outputs.mib }} MB).
+            If the file on your phone is smaller, the download was cut off: delete it and download again on Wi-Fi.
+            Checked with Android's apksigner, zipalign and aapt2. SHA-256 starts ${{ steps.apkcheck.outputs.sha }}.
           files: Jarvis.apk
