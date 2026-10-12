@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.GROQ_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,6 +42,30 @@ jobs:
           cp node_modules/maplibre-gl/dist/maplibre-gl.js node_modules/maplibre-gl/dist/maplibre-gl.css "$W/maplibre/"
           du -sh "$W"/*
 
+      # The PC's Piper voices run through sherpa-onnx (Apache-2.0). Its ONNX runtime is renamed so it can live next to the
+      # one the wake word uses; patchelf rewrites the library names and the check below fails the build if it didn't take.
+      - name: Bundle the PC voice engine (sherpa-onnx)
+        run: |
+          set -e
+          V=1.13.8
+          curl -sSL -o /tmp/sherpa.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v$V/sherpa-onnx-$V.aar
+          echo "633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96  /tmp/sherpa.aar" | sha256sum -c -
+          sudo apt-get install -y -qq patchelf >/dev/null
+          rm -rf /tmp/sh && mkdir -p /tmp/sh && unzip -q -o /tmp/sherpa.aar -d /tmp/sh
+          mkdir -p app/libs && cp /tmp/sh/classes.jar app/libs/sherpa-onnx.jar
+          for abi in arm64-v8a armeabi-v7a; do
+            d=/tmp/sh/jni/$abi; o=app/src/main/jniLibs/$abi; mkdir -p $o
+            cp $d/libonnxruntime.so $o/libonnxruntime_sherpa.so
+            patchelf --set-soname libonnxruntime_sherpa.so $o/libonnxruntime_sherpa.so
+            cp $d/libsherpa-onnx-jni.so $o/
+            patchelf --replace-needed libonnxruntime.so libonnxruntime_sherpa.so $o/libsherpa-onnx-jni.so
+            readelf -d $o/libsherpa-onnx-jni.so | grep -q 'libonnxruntime_sherpa.so'
+            ! readelf -d $o/libsherpa-onnx-jni.so | grep -q '\[libonnxruntime.so\]'
+            ! readelf -V $o/libsherpa-onnx-jni.so | grep -q 'File: libonnxruntime.so '
+            readelf -d $o/libonnxruntime_sherpa.so | grep -q 'soname: \[libonnxruntime_sherpa.so\]'
+            echo "$abi ok"
+          done
+
       - name: Build the phone page from the PC page (if pc_source/ is present)
         run: |
           if [ -f pc_source/index.html ]; then python3 tools/make_www.py; fi
@@ -48,11 +74,38 @@ jobs:
         run: |
           if [ -f app/src/main/assets/www/models/adam.glb ]; then echo "adam.glb found"; else echo "::warning::models/adam.glb is not in the repo - Jarvis will use the online face instead. See README step 3."; fi
 
-      # Rollout mode: if the repo has the JARVIS_API_BASE secret, the app talks to your Jarvis proxy and users need no Groq key.
-      - name: Point the app at the Jarvis proxy (if set up)
+      # ---- No Groq key for users: deploy the Jarvis service (server/worker.js) to Cloudflare with YOUR Groq key,
+      #      then build the app pointed at it. Needs three repo secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, GROQ_API_KEY.
+      - name: Make the app's access token
+        id: token
+        if: env.HAS_CLOUDFLARE == 'true'
         env:
-          API_BASE: ${{ secrets.JARVIS_API_BASE }}
-          APP_TOKEN: ${{ secrets.JARVIS_APP_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          t=$(printf '%s' "jarvis:$GROQ_API_KEY:$GITHUB_REPOSITORY" | sha256sum | cut -c1-40)
+          echo "::add-mask::$t"
+          echo "token=$t" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy the Jarvis service to Cloudflare
+        id: proxy
+        if: env.HAS_CLOUDFLARE == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: server
+          command: deploy
+          secrets: |
+            GROQ_API_KEY
+            APP_TOKEN
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          APP_TOKEN: ${{ steps.token.outputs.token }}
+
+      - name: Point the app at the Jarvis service (if deployed)
+        env:
+          API_BASE: ${{ steps.proxy.outputs.deployment-url && format('{0}/v1', steps.proxy.outputs.deployment-url) || secrets.JARVIS_API_BASE }}
+          APP_TOKEN: ${{ steps.token.outputs.token || secrets.JARVIS_APP_TOKEN }}
         run: |
           if [ -n "$API_BASE" ]; then
             python3 -c "import json,os; open('app/src/main/assets/www/local/build_config.js','w').write('export const BUILD = ' + json.dumps({'apiBase': os.environ['API_BASE'], 'appToken': os.environ.get('APP_TOKEN', '')}) + ';\n')"

@@ -85,6 +85,18 @@ export function initSettings() {
   let gender = J().config.get('avatar_gender', 'male');
   const vsel = el('select', { 'aria-label': 'Voice' }); const vw = el('div'); vw.append(el('label', {}, 'Voice'), vsel); sVoice.append(vw);
   const vnote = el('p', { class: 'hint' }); sVoice.append(vnote);
+  // the PC voice for this face: status + download
+  const pcRow = el('div', { class: 'row', style: 'align-items:center' }), pcText = el('div', { style: 'flex:2;font-size:14px;color:#b9cfe3' }), pcBtn = el('button', { type: 'button' }, 'Download');
+  pcRow.append(pcText, pcBtn); sVoice.append(pcRow);
+  const paintPc = () => {
+    const st = J().pcVoices ? J().pcVoices() : {}; if (!st || st.unavailable) { pcRow.style.display = 'none'; return; }
+    const name = gender === 'female' ? 'amy' : 'alan', who = name === 'amy' ? 'Amy' : 'Alan', s = String(st[name] || 'missing');
+    pcBtn.style.display = s === 'ready' || s.startsWith('downloading') ? 'none' : '';
+    pcText.textContent = s === 'ready' ? `${who}, your PC voice, is on this phone.` : s.startsWith('downloading') ? `Downloading ${who}, your PC voice… ${s.split(':')[1] || 0}%`
+      : s.startsWith('error') ? `${who} didn't download (${s.slice(6)}). Try again.` : `${who}, your PC voice, isn't on this phone yet (67 MB, once).`;
+  };
+  pcBtn.onclick = () => { J().ensurePcVoice(true); setTimeout(paintPc, 200); };
+  J().onVoices = () => { if (ov.classList.contains('on')) { paintPc(); fillVoices(); } };
   const paintSeg = () => { bMale.setAttribute('aria-pressed', String(gender === 'male')); bFemale.setAttribute('aria-pressed', String(gender === 'female')); };
   const fillVoices = () => {
     vsel.replaceChildren();
@@ -94,9 +106,9 @@ export function initSettings() {
     vsel.append(el('option', { value: '' }, 'Best match'));
     for (const v of list) vsel.append(el('option', { value: v.id }, v.name));
     const cur = J().config.get('voice', ''); if (cur && list.some(v => v.id === cur)) vsel.value = cur;
-    vnote.textContent = mine.length ? '' : `This phone has no ${gender} voice installed, so Jarvis changes the pitch. More voices: Android Settings, Text-to-speech, Speech Services by Google, Install voice data.`;
+    vnote.textContent = mine.some(v => !v.pc) || mine.some(v => v.pc && !/\(/.test(v.name)) ? '' : `This phone has no ${gender} voice installed, so Jarvis changes the pitch. More voices: Android Settings, Text-to-speech, Speech Services by Google, Install voice data.`;
   };
-  const choose = g => { gender = g; paintSeg(); J().config.merge({ avatar_gender: g, voice: '' }); fillVoices(); J().announceVoice(); };
+  const choose = g => { gender = g; paintSeg(); J().config.merge({ avatar_gender: g, voice: '' }); fillVoices(); J().announceVoice(); J().ensurePcVoice(); paintPc(); };
   bMale.onclick = () => choose('male'); bFemale.onclick = () => choose('female');
   vsel.onchange = () => { J().config.set('voice', vsel.value); J().announceVoice(); };
   sVoice.append(el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { type: 'button', onclick: () => J().speakTest(gender === 'female' ? 'Hello. This is how I sound.' : 'Good evening. This is how I sound.') }, 'Hear it')));
@@ -163,7 +175,7 @@ export function initSettings() {
   ov.append(el('div', { class: 'bar' }, el('div', { class: 'row' }, el('button', { type: 'button', onclick: close }, 'Close'), el('button', { type: 'button', class: 'pri', onclick: save }, 'Save')), saveMsg));
   document.body.append(ov);
 
-  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(paintDiag, 150); };
+  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(paintDiag, 150); };
   J().openSettings = open;
   if (!J().api.ready()) open();
 }

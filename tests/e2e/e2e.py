@@ -132,7 +132,8 @@ BRIDGE = r"""
 (() => {
   const of = window.fetch.bind(window);
   const b64 = u8 => { let s = ''; for (const x of u8) s += String.fromCharCode(x); return btoa(s); };
-  window.__native = { tts: [], ttsPitch: [], opened: [], stopped: 0, http: [], streams: [], media: [], voice: null, listening: [], speaking: [], tones: 0, mic: 0 };
+  window.__pc = { alan: 'missing', amy: 'missing', active: '' }; window.__wifi = true;
+  window.__native = { pcDownloads: [], pcUse: [], listen: [], tts: [], ttsPitch: [], opened: [], stopped: 0, http: [], streams: [], media: [], voice: null, listening: [], speaking: [], tones: 0, mic: 0 };
   window.__fakeVoices = [{ id: 'en-us-x-iom-local', label: 'English US', lang: 'en-US' }, { id: 'en-us-x-tpf-local', label: 'English US', lang: 'en-US' },
                          { id: 'en-gb-x-gbb-local', label: 'English UK', lang: 'en-GB' }, { id: 'en-us-x-sfg-network', label: 'English US', lang: 'en-US' }];
   window.AndroidBridge = {
@@ -161,8 +162,14 @@ BRIDGE = r"""
     micStart() { window.__native.mic++; setTimeout(() => window.__jvMic && window.__jvMic('listening'), 10); return 'ok'; },
     micStatus() { return JSON.stringify({ running: true, wake: true, wakeError: '', permission: true }); },
     setListening(on) { window.__native.listening.push(on); }, setSpeaking(on) { window.__native.speaking.push(on); },
+    listen(on, pre) { window.__native.listening.push(on); window.__native.listen.push({ on, pre, t: performance.now() }); },
     setMuted(on) {}, setWakeThreshold(t) { window.__native.threshold = t; },
     tone(f, ms, v) { window.__native.tones++; },
+    pcVoices() { return JSON.stringify(window.__pc); },
+    pcVoiceDownload(n) { window.__native.pcDownloads.push(n); window.__pc[n] = 'downloading:40'; window.__jvVoices(JSON.stringify(window.__pc));
+      setTimeout(() => { window.__pc[n] = 'ready'; window.__jvVoices(JSON.stringify(window.__pc)); }, 300); },
+    pcVoiceUse(n) { window.__native.pcUse.push(n); window.__pc.active = n; },
+    unmetered() { return !!window.__wifi; },
   };
 })();
 """
@@ -197,8 +204,25 @@ def main():
         pg.wait_for_function("document.getElementById('log').textContent.includes('Jarvis online')", timeout=8000)
         check('page initialised (mic + audio socket)', True)
         check('greeting endpoint', ev("fetch('/greeting').then(r=>r.json()).then(j=>j.name)") == 'Marcus')
+        # ---- the PC voices (Alan / Amy)
+        pg.wait_for_timeout(2200)
+        check('on Wi-Fi, the PC voice for the face downloads by itself (Alan for male)', ev('window.__native.pcDownloads') == ['alan'], ev('window.__native.pcDownloads'))
+        pg.wait_for_function("window.__pc.alan === 'ready'", timeout=3000); pg.wait_for_timeout(200)
+        check('once downloaded, Jarvis switches to Alan', ev('window.__native.pcUse')[-1:] == ['alan'] and ev("JARVIS.chosenVoice().raw") == 'pc:alan', (ev('window.__native.pcUse'), ev("JARVIS.chosenVoice()")))
+        check('...and the face stays male', ev("fetch('/get_voice').then(r=>r.json()).then(j=>j.voice)").startswith('adam~'))
+        ev("window.__wifi = false")
+        r = ev("fetch('/set_voice',{method:'POST',body:JSON.stringify({voice:'female'})}).then(r=>r.json())")
+        check('female on mobile data: no surprise download, phone female voice meanwhile', ev('window.__native.pcDownloads') == ['alan'] and ev('window.__native.pcUse')[-1] == '' and ev('window.__native.voice') == 'en-us-x-tpf-local', (ev('window.__native.pcDownloads'), ev('window.__native.pcUse')[-3:], ev('window.__native.voice')))
+        ev("JARVIS.ensurePcVoice(true)"); pg.wait_for_function("window.__pc.amy === 'ready'", timeout=3000); pg.wait_for_timeout(200)
+        check('download on request, then Amy speaks', ev('window.__native.pcUse')[-1] == 'amy' and ev("JARVIS.chosenVoice().raw") == 'pc:amy')
+        ev("fetch('/set_voice',{method:'POST',body:JSON.stringify({voice:'male'})})"); pg.wait_for_timeout(100)
+        check('back to male -> Alan (already downloaded)', ev('window.__native.pcUse')[-1] == 'alan')
+        ev("JARVIS.config.merge({voice:'adam~en-gb-x-gbb-local'}); JARVIS.announceVoice()")
+        check('picking a phone voice by hand turns the PC voice off', ev('window.__native.pcUse')[-1] == '' and ev('window.__native.voice') == 'en-gb-x-gbb-local')
+        ev("window.__pc = { alan: 'missing', amy: 'missing', active: '' }; JARVIS.config.merge({voice:''}); JARVIS.announceVoice(); window.__wifi = true")
+
         vl = ev("fetch('/voices').then(r=>r.json())")
-        check('voices listed with genders', len(vl) == 4 and any('Male' in v['name'] for v in vl) and any('Female' in v['name'] for v in vl), vl)
+        check('voices listed with genders', len(vl) == 6 and any('Male' in v['name'] for v in vl) and any('Female' in v['name'] for v in vl), vl)
         check('default male face -> British male voice', ev('window.__native.voice') == 'en-gb-x-gbb-local', ev('window.__native.voice'))
         r = ev("fetch('/set_voice',{method:'POST',body:JSON.stringify({voice:'female'})}).then(r=>r.json())")
         check('"female voice" switches to a real female voice', r.get('ok') and ev('window.__native.voice') == 'en-us-x-tpf-local' and r['voice'].startswith('amy~'), (r, ev('window.__native.voice')))
@@ -225,6 +249,25 @@ def main():
         ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev("JARVIS.say('how are you doing today')")
         pg.wait_for_function("window.__native.tts.join(' ').includes('All systems')", timeout=8000)
         check('plain streamed reply spoken in sentences', True)
+
+        # ---- echo: Jarvis must never hear his own reply as a question
+        ev("window.__native.listen.length=0; window.__native.tts.length=0; window.__ttsDoneAt=0"); pg.wait_for_timeout(1200)
+        ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev("JARVIS.say('give me a status report please')")
+        try: pg.wait_for_function("window.__native.tts.join(' ').includes('All systems')", timeout=8000)
+        except Exception: print('DBG', ev("document.getElementById('log').textContent.slice(-300)"), ev('JARVIS.stats.dropped'), ev('window.__jv.state()'), ev('window.__native.tts')); raise
+        pg.wait_for_function("!window.__jv.state().speaking", timeout=8000); t_quiet = ev("performance.now()")
+        pg.wait_for_timeout(1300)
+        L = ev("window.__native.listen")
+        after = [x for x in L if x['on'] and x['t'] >= t_quiet - 50]
+        check('after Jarvis speaks, the mic reopens WITHOUT the buffered audio (his own voice)', after and all(not x['pre'] for x in after), L)
+        check('...and only after the echo tail (0.9 s), not straight away', after and after[0]['t'] - t_quiet >= 750, [round(x['t'] - t_quiet) for x in after])
+        before = ev("JARVIS.stats.heard.length")
+        ev("JARVIS.say('Hello. All systems are online. How can I help?')"); pg.wait_for_timeout(1200)
+        check('a transcript of his own reply is dropped as echo', ev("JARVIS.stats.dropped && JARVIS.stats.dropped.kind") == 'echo' and 'All systems' not in ''.join(m for m in ev("[...document.querySelectorAll('#log .msg.user .body')].map(e=>e.textContent)")), ev("JARVIS.stats.dropped"))
+        ev("JARVIS.say('thank you jarvis')"); pg.wait_for_timeout(800)
+        ev("window.__native.listen.length=0"); ev("window.__jvWake(0.9)"); pg.wait_for_timeout(200)
+        check('"Hey Jarvis" while idle opens the mic WITH the second before it', any(x['on'] and x['pre'] for x in ev("window.__native.listen")), ev("window.__native.listen"))
+        ev("JARVIS.say('thank you jarvis')"); pg.wait_for_timeout(1500)
 
         # ---- navigation: origin from page GPS post, voice command bypasses the LLM
         n_before = len(state['groq_calls'])

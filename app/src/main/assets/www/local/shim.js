@@ -51,31 +51,60 @@ function LocalAwareWebSocket(url, protocols) { return isLocalWS(url) ? new FakeW
 Object.assign(LocalAwareWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 }); LocalAwareWebSocket.prototype = RealWS.prototype;
 W.WebSocket = LocalAwareWebSocket;
 
-// ---------------------------------------------------------------- voices (male / female that actually sound different)
+// ---------------------------------------------------------------- voices
+// First choice: the PC's own Piper voices, Alan (male) and Amy (female), run on the phone (PiperTts.java).
+// Until one is downloaded (about 67 MB, once), the phone's own voices stand in, matched by gender.
 const tts = { active: new Map(), uid: 0, pitchMul: 1 };
-let rawVoices = [];
+const PC = { m: { name: 'alan', label: 'Alan · your PC voice' }, f: { name: 'amy', label: 'Amy · your PC voice' } };
+let rawVoices = [], pcState = {};
 function loadVoices() { if (!rawVoices.length && has('ttsVoices')) { try { rawVoices = JSON.parse(bridge().ttsVoices() || '[]'); } catch { rawVoices = []; } } return rawVoices; }
+function readPc() { if (has('pcVoices')) { try { pcState = JSON.parse(bridge().pcVoices() || '{}'); } catch { pcState = {}; } } return pcState; }
+const pcReady = name => readPc()[name] === 'ready';
 const gender = () => (cfgStore.get('avatar_gender', 'male') === 'female' ? 'f' : 'm');
 const hint = g => (g === 'f' ? 'amy' : 'adam');                 // the page picks the face from these words in the voice id
 const described = () => describeVoices(loadVoices());
-const voiceList = () => described().map(v => ({ id: `${hint(v.gender || gender())}~${v.raw}`, name: v.name, raw: v.raw, gender: v.gender }));
+const pcStateText = name => { const st = String(readPc()[name] || 'missing'); return st === 'ready' ? '' : st.startsWith('downloading') ? ` (downloading ${st.split(':')[1] || 0}%)` : ' (not downloaded)'; };
+const voiceList = () => {
+  const pc = has('pcVoices') && !readPc().unavailable ? ['m', 'f'].map(g => ({ id: `${hint(g)}~pc:${PC[g].name}`, name: PC[g].label + pcStateText(PC[g].name), raw: `pc:${PC[g].name}`, gender: g, pc: true })) : [];
+  return [...pc, ...described().map(v => ({ id: `${hint(v.gender || gender())}~${v.raw}`, name: v.name, raw: v.raw, gender: v.gender }))];
+};
 function chosenVoice() {
-  const g = gender(), list = described(), cur = String(cfgStore.get('voice', '') || ''), raw = cur.includes('~') ? cur.split('~').slice(1).join('~') : cur;
-  let v = list.find(x => x.raw === raw);
+  const g = gender(), cur = String(cfgStore.get('voice', '') || ''), raw = cur.includes('~') ? cur.split('~').slice(1).join('~') : cur;
+  // the PC voice when it's chosen (or "best match") and downloaded
+  if ((!raw || raw === `pc:${PC[g].name}`) && pcReady(PC[g].name)) return { raw: `pc:${PC[g].name}`, name: PC[g].label, pitch: 1, id: `${hint(g)}~pc:${PC[g].name}`, gender: g, pc: PC[g].name };
+  const list = described();
+  let v = raw.startsWith('pc:') ? null : list.find(x => x.raw === raw);
   if (!v || (v.gender && v.gender !== g)) v = pickVoice(list, g) || (v && !v.gender ? v : null);
   const real = !!(v && v.gender === g);
-  return { raw: v ? v.raw : '', name: v ? v.name : (g === 'm' ? 'Phone voice, deeper' : 'Phone voice, higher'), pitch: real ? 1 : fallbackPitch(g), id: `${hint(g)}~${v ? v.raw : 'default'}`, gender: g };
+  return { raw: v ? v.raw : '', name: v ? v.name : (g === 'm' ? 'Phone voice, deeper' : 'Phone voice, higher'), pitch: real ? 1 : fallbackPitch(g), id: `${hint(g)}~${v ? v.raw : 'default'}`, gender: g, pc: '' };
 }
-function applyVoice() { const c = chosenVoice(); tts.pitchMul = c.pitch; try { if (has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {} return c; }
+function applyVoice() {
+  const c = chosenVoice(); tts.pitchMul = c.pitch;
+  try { if (has('pcVoiceUse')) bridge().pcVoiceUse(c.pc || ''); if (!c.pc && has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {}
+  return c;
+}
 function announceVoice() { const c = applyVoice(); broadcast(`voice_changed:${c.id}|${c.name}`); return c; }
+/** Fetch the PC voice for the current face: automatically on Wi-Fi, or when asked (force). */
+function ensurePcVoice(force = false) {
+  if (!has('pcVoiceDownload')) return; const want = PC[gender()].name, st = String(readPc()[want] || '');
+  if (st === 'ready' || st.startsWith('downloading')) return;
+  let wifi = false; try { wifi = has('unmetered') && bridge().unmetered(); } catch {}
+  if (force || wifi) bridge().pcVoiceDownload(want);
+}
+let pcWasReady = {};
+W.__jvVoices = json => {
+  try { pcState = JSON.parse(json); } catch { return; }
+  for (const n of ['alan', 'amy']) { const now = pcState[n] === 'ready'; if (now && !pcWasReady[n] && PC[gender()].name === n) announceVoice(); pcWasReady[n] = now; }
+  if (W.JARVIS && W.JARVIS.onVoices) try { W.JARVIS.onVoices(pcState); } catch {}
+};
 function setVoice(q) {
   const t = String(q || '').toLowerCase().trim();
-  if (/\b(female|woman|girl|lady|her|she)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'female', voice: '' }); return announceVoice().name; }
-  if (/\b(male|man|guy|him|he|deeper)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'male', voice: '' }); return announceVoice().name; }
+  if (/\b(female|woman|girl|lady|her|she|amy)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'female', voice: '' }); ensurePcVoice(); return announceVoice().name; }
+  if (/\b(male|man|guy|him|he|deeper|alan)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'male', voice: '' }); ensurePcVoice(); return announceVoice().name; }
   const hit = voiceList().find(v => v.id.toLowerCase() === t || v.raw.toLowerCase() === t || v.name.toLowerCase().includes(t));
   if (!hit) return null;
   const up = { voice: hit.id }; if (hit.gender) up.avatar_gender = hit.gender === 'f' ? 'female' : 'male';
-  cfgStore.merge(up); return announceVoice().name;
+  cfgStore.merge(up); if (hit.pc) ensurePcVoice(true); return announceVoice().name;
 }
 
 // ---------------------------------------------------------------- text to speech (Android's engine)
@@ -157,7 +186,9 @@ W.__jvWake = score => {
   stats.wakes++; stats.lastWakeAt = Date.now(); stats.lastWakeScore = score;
   log(`wake word (${Number(score).toFixed(2)})`);
   const st = pageState(); if (st && st.muted) return;
-  setListening(true);                                    // start sending audio right away (with the second before the wake word)
+  // Idle: open the mic at once, with the second before the wake word ("Hey Jarvis, what's the time" in one breath).
+  // Talking over Jarvis: the page stops his voice; the mic reopens after the echo tail, without that second (it holds his voice).
+  if (!(st && st.speaking) && !ttsBusy()) setListening(true, true);
   broadcast('wake');
 };
 W.__jvMic = state => {
@@ -168,20 +199,33 @@ W.__jvMic = state => {
 function micStart() { if (!has('micStart')) return; const r = bridge().micStart(); stats.mic = r === 'ok' ? 'starting' : r; }
 
 const pageState = () => { try { return W.__jv && W.__jv.state(); } catch { return null; } };
-function setListening(on) { if (stats.listening === on) return; stats.listening = on; if (has('setListening')) bridge().setListening(on); if (!on) ears.reset(); }
-let lastSpeaking = null, lastMuted = null;
+function setListening(on, withPreroll = false) {
+  if (stats.listening === on) return; stats.listening = on;
+  if (has('listen')) bridge().listen(on, !!withPreroll); else if (has('setListening')) bridge().setListening(on);
+  if (!on) ears.reset();
+}
+// Jarvis's voice keeps coming out of the speaker (longer over Bluetooth) after the speech engine says "done";
+// the mic stays closed for this long after he stops so he never hears his own last words as your question.
+const ECHO_TAIL_MS = 900;
+const ttsBusy = () => { try { return !!(W.speechSynthesis && W.speechSynthesis.speaking); } catch { return false; } };
+let lastSpeaking = null, lastMuted = null, quietSince = 0;
 setInterval(() => {                                      // follow the page: listen only while a session is open and Jarvis is quiet
   const st = pageState(); if (!st) return;
-  setListening(!!(st.active && st.session && !st.speaking && !st.muted));
+  const talking = !!(st.speaking || ttsBusy());
+  if (talking) quietSince = 0; else if (!quietSince) quietSince = performance.now();
+  const settled = quietSince && performance.now() - quietSince >= ECHO_TAIL_MS;
+  if (talking || !st.session || st.muted || !st.active) setListening(false);
+  else if (settled && !stats.listening) setListening(true, false);
   if (st.speaking !== lastSpeaking) { lastSpeaking = st.speaking; if (has('setSpeaking')) bridge().setSpeaking(!!st.speaking); }
   const mute = !!(st.muted || !st.active); if (mute !== lastMuted) { lastMuted = mute; if (has('setMuted')) bridge().setMuted(mute); }
 }, 100);
 micStart();
 applySettings();
+setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady('amy') }; ensurePcVoice(); }, 1500);   // PC voice for this face (Wi-Fi only)
 
 W.JARVIS = {
   wake: () => W.__jvWake(1), say: t => deliverTranscript(t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
-  verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, refreshVoices: () => { rawVoices = []; return applyVoice(); },
+  verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };
 

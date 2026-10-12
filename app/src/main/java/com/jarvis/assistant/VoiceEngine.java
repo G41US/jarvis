@@ -40,6 +40,7 @@ public final class VoiceEngine implements Runnable {
     private Thread thread;
     private WakeWord wake;
     private SileroVad vad;                                   // speech probability per chunk (-1 when the model is missing)
+    private android.media.audiofx.AcousticEchoCanceler aec;     // removes Jarvis's own voice from the mic where the phone supports it
     private String wakeError = "";
     private final ArrayDeque<short[]> preroll = new ArrayDeque<>();
     private final ArrayDeque<Float> prerollSpeech = new ArrayDeque<>();
@@ -60,17 +61,20 @@ public final class VoiceEngine implements Runnable {
     public boolean hasVad() { return vad != null; }
     public String wakeError() { return wakeError; }
 
-    /** Page says whether Jarvis is listening to the user right now (session open, not talking). */
-    public void setListening(boolean on) {
+    /** Page says whether Jarvis is listening to the user right now (session open, not talking).
+     *  withPreroll: also send the second of audio from just before - ONLY right after "Hey Jarvis", so a command said in the
+     *  same breath isn't clipped. Never after Jarvis has been talking: that second would be his own voice. */
+    public void setListening(boolean on, boolean withPreroll) {
         synchronized (preroll) {
-            if (on && !listening) {
+            if (on && !listening && withPreroll) {
                 java.util.Iterator<Float> sp = prerollSpeech.iterator();
                 for (short[] c : preroll) out.onPcm(c, sp.hasNext() ? sp.next() : -1f);
-                preroll.clear(); prerollSpeech.clear();
             }
+            if (on != listening) { preroll.clear(); prerollSpeech.clear(); }
             listening = on;
         }
     }
+    public void setListening(boolean on) { setListening(on, false); }
     public void setSpeaking(boolean on) { speaking = on; }
     public void setMuted(boolean on) { muted = on; }
     public void setThreshold(float t) { if (t > 0.05f && t < 0.95f) { threshold = t; speakingThreshold = Math.max(t, Math.min(0.9f, t + 0.2f)); } }
@@ -170,6 +174,12 @@ public final class VoiceEngine implements Runnable {
                 } catch (Exception e) { rec = null; }
             }
             if (rec == null) { out.onState("error:microphone unavailable"); running = false; return; }
+            try {
+                if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) {
+                    aec = android.media.audiofx.AcousticEchoCanceler.create(rec.getAudioSessionId());
+                    if (aec != null) aec.setEnabled(true);
+                }
+            } catch (Exception e) { Log.w(TAG, "echo canceller unavailable", e); }
             rec.startRecording();
             out.onState(wake != null ? "listening" : "listening-no-wake:" + wakeError);
 
@@ -221,6 +231,7 @@ public final class VoiceEngine implements Runnable {
             Log.e(TAG, "mic loop stopped", e);
             out.onState("error:" + e.getMessage());
         } finally {
+            if (aec != null) { try { aec.release(); } catch (Exception ignored) { } aec = null; }
             if (rec != null) { try { rec.stop(); } catch (Exception ignored) { } rec.release(); }
             running = false;
             out.onState("stopped");
