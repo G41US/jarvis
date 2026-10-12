@@ -99,6 +99,8 @@ def asset_handler(route):
     elif path.startswith('/vendor/three/examples/jsm/'): f = os.path.join(STUBS, 'addon.js')
     else: f = os.path.join(WWW, path.lstrip('/'))
     if not os.path.isfile(f): return route.fulfill(status=404, body='nf')
+    if route.request.method == 'HEAD': return route.fulfill(status=200, body=b'')
+    if f.endswith('.glb'): return route.fulfill(status=200, body=b'glTF', content_type='model/gltf-binary')   # the stand-in face loader never reads it
     ct = {'.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json'}.get(os.path.splitext(f)[1], 'application/octet-stream')
     route.fulfill(status=200, body=open(f, 'rb').read(), content_type=ct)
 
