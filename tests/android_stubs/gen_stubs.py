@@ -140,6 +140,25 @@ c('android.accessibilityservice.AccessibilityService', """public abstract class 
  public boolean onUnbind(android.content.Intent i){return false;} public abstract void onInterrupt(); public abstract void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent e);
  public android.view.accessibility.AccessibilityNodeInfo getRootInActiveWindow(){return null;} }""")
 
+# R is generated from the real resources, so a missing string or drawable fails the check.
+import glob, re, xml.dom.minidom as _m
+_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'app', 'src', 'main', 'res')
+_kinds = {}
+for f in glob.glob(os.path.join(_root, 'values*', '*.xml')):
+    for tag, kind in (('string', 'string'), ('color', 'color'), ('style', 'style'), ('bool', 'bool'), ('integer', 'integer')):
+        for e in _m.parse(f).getElementsByTagName(tag): _kinds.setdefault(kind, set()).add(e.getAttribute('name').replace('.', '_'))
+for d in glob.glob(os.path.join(_root, '*')):
+    kind = os.path.basename(d).split('-')[0]
+    if kind in ('drawable', 'mipmap', 'xml', 'raw', 'layout'):
+        for f in glob.glob(os.path.join(d, '*')): _kinds.setdefault(kind, set()).add(os.path.splitext(os.path.basename(f))[0])
+_n = iter(range(0x7f000001, 0x7fffffff))
+S['com.jarvis.assistant.R'] = 'public final class R { ' + ' '.join(
+    f'public static final class {k} {{ ' + ' '.join(f'public static final int {n}={next(_n)};' for n in sorted(v)) + ' }' for k, v in sorted(_kinds.items())) + ' }'
+
+# With the real android.jar (API 36) on the class path, only the libraries that aren't in it need stand-ins.
+if '--non-android' in sys.argv:
+    S = {k: v for k, v in S.items() if not k.startswith(('android.', 'org.json.'))}
+
 for fq, body in S.items():
     pkg, name = fq.rsplit('.', 1)
     d = os.path.join(OUT, *pkg.split('.')); os.makedirs(d, exist_ok=True)
