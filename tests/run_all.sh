@@ -12,7 +12,15 @@ python3 tests/e2e/e2e.py | tail -1                                 # the whole p
 S=$(mktemp -d); python3 tests/android_stubs/gen_stubs.py "$S/src" >/dev/null; mkdir "$S/out"
 X=/opt/gradle-8.14.3/lib; LIBS=app/libs/sherpa-onnx.jar:$X/kotlin-stdlib-2.0.21.jar:$X/commons-compress-1.26.1.jar:$X/commons-io-2.15.1.jar:$X/commons-lang3-3.14.0.jar
 [ -f app/libs/sherpa-onnx.jar ] || { echo "run the Bundle the PC voice engine step from .github/workflows/build-apk.yml first"; exit 1; }
-javac -nowarn -Xlint:-options -cp "$LIBS" -d "$S/out" $(find "$S/src" -name '*.java') $(find app/src/main/java -name '*.java') 2>&1 | grep -v "^Note:"; echo "java type-check OK"
+# Real type-check: every Java file against the actual Android 16 framework (android.jar, API 36), when it's available.
+AJ=${ANDROID_JAR:-/home/claude/androidjar/android-36.jar}
+if [ -f "$AJ" ]; then
+  R=$(mktemp -d); python3 tests/android_stubs/gen_stubs.py "$R/src" --non-android >/dev/null; mkdir "$R/out"
+  javac -nowarn -Xlint:-options -cp "$AJ:$LIBS" -d "$R/out" $(find "$R/src" -name '*.java') $(find app/src/main/java -name '*.java') 2>&1 | grep -v "^Note:\|JAVA_TOOL_OPTIONS" || true
+  [ -f "$R/out/com/jarvis/assistant/MainActivity.class" ] && echo "java check against real Android 16 OK" || { echo "FAILURES: java does not compile against Android 16"; exit 1; }
+else echo "(no android.jar: stand-in check only)"; fi
+# The engines the tests run, with lightweight stand-ins (real android.jar classes only throw "Stub!" when run).
+javac -nowarn -Xlint:-options -cp "$LIBS" -d "$S/out" $(find "$S/src" -name '*.java') app/src/main/java/com/jarvis/assistant/WakeWord.java app/src/main/java/com/jarvis/assistant/SileroVad.java 2>&1 | grep -v "^Note:\|JAVA_TOOL_OPTIONS" || true; echo "java stand-in compile OK"
 javac -d "$S/out" -cp "$S/out" tests/wake/WakeWordTest.java tests/wake/SileroVadTest.java && java -cp "$S/out" WakeWordTest tests/wake/trace.txt | tail -1 && java -cp "$S/out" SileroVadTest tests/wake/vad_trace.txt | tail -1   # wake word == openWakeWord, VAD == Silero
 python3 - <<'PY'
 import glob, xml.dom.minidom as m
