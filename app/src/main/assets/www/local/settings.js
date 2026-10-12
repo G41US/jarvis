@@ -67,14 +67,21 @@ export function initSettings() {
   box.append(el('h1', {}, 'Jarvis'), el('p', { class: 'lead' }, 'Settings stay on this phone.'));
 
   // ---- brain
-  const sBrain = section('Brain', 'Jarvis thinks and listens through Groq. A free key from console.groq.com/keys is enough.');
-  const keyIn = add(sBrain, 'password', 'groq_key', 'Groq API key', { ph: 'gsk_…' });
+  // A build linked to the Jarvis service needs no key: the key field only exists under Advanced, as an optional override.
+  // A build that isn't linked yet (the service secrets aren't set) still needs one, and says why.
+  const proxy = J().api.hasProxy();
+  const sBrain = section('Brain', proxy ? 'Jarvis is connected to the Jarvis service. No key or account needed.'
+    : 'This copy of Jarvis isn\'t linked to the Jarvis service yet, so it needs a free Groq key from console.groq.com/keys. Copies built after the service is set up won\'t ask for one.');
+  sBrain.id = 'jv-brain';
+  let keyIn = null;
   const testMsg = el('div', { class: 'msg' });
-  sBrain.append(el('div', { class: 'row' }, el('button', { id: 'jv-test', onclick: async () => {
-    J().config.set('groq_key', keyIn.value.trim()); testMsg.className = 'msg'; testMsg.textContent = 'Checking…';
+  const testBtn = el('button', { id: 'jv-test', onclick: async () => {
+    if (keyIn) J().config.set('groq_key', keyIn.value.trim());
+    testMsg.className = 'msg'; testMsg.textContent = 'Checking…';
     const r = await J().verifyKey(); testMsg.className = 'msg ' + (r.ok ? 'ok' : 'bad'); testMsg.textContent = r.message;
-  } }, 'Test connection')), testMsg);
-  if (J().api.hasProxy()) sBrain.querySelector('.hint').textContent = 'Jarvis works without a key. Add your own Groq key only if you want to use it instead.';
+  } }, 'Test connection');
+  if (!proxy) keyIn = add(sBrain, 'password', 'groq_key', 'Groq API key', { ph: 'gsk_…' });
+  sBrain.append(el('div', { class: 'row' }, testBtn), testMsg);
   add(sBrain, 'text', 'user_name', 'Your name', { ph: 'What should I call you?' });
 
   // ---- voice and face
@@ -178,6 +185,7 @@ export function initSettings() {
   add(adv, 'select', 'reasoning', 'Thinking effort', { def: 'low', options: [['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High']] });
   add(adv, 'text', 'groq_model', 'Model', { ph: 'openai/gpt-oss-120b' });
   add(adv, 'text', 'stt_language', 'Speech language code', { ph: 'en', hint: 'Leave blank for English.' });
+  if (proxy) keyIn = add(adv, 'password', 'groq_key', 'Your own Groq key (optional)', { ph: 'gsk_…', hint: 'Not needed. Only if you want Jarvis to use your own Groq account instead of the Jarvis service.' });
 
   const saveMsg = el('div', { class: 'msg' });
   const close = () => { ov.classList.remove('on'); document.body.classList.remove('jv-settings'); window.__jvPaused = false; clearInterval(diagTimer); };

@@ -194,6 +194,7 @@ def main():
 
         # ---- first run: settings opens by itself, key test works
         pg.wait_for_selector('#jv-ov.on', timeout=5000)
+        check('key build: settings explains why a key is needed', "isn't linked to the Jarvis service" in ev("document.getElementById('jv-brain').textContent"))
         check('settings opens on first run', True)
         pg.fill('#jv-ov input[type=password] >> nth=0', 'gsk_bad'); pg.click('#jv-test'); pg.wait_for_function("document.querySelector('#jv-ov .msg').textContent.includes('rejected')", timeout=5000)
         check('bad key is reported', True)
@@ -407,6 +408,17 @@ def main():
         ctx2.route(re.compile(r'https://(?!appassets|jarvis-proxy).*'), other_handler)
         p2 = ctx2.new_page(); p2.goto(ORIGIN + '/index.html'); p2.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000); p2.wait_for_timeout(800)
         check('proxy build: settings does not demand a key', p2.evaluate("!document.getElementById('jv-ov').classList.contains('on')") and p2.evaluate("JARVIS.api.mode()") == 'proxy')
+        p2.evaluate("JARVIS.openSettings()"); p2.wait_for_timeout(200)
+        sv = p2.evaluate("""(() => { const b = document.getElementById('jv-brain'), adv = [...document.querySelectorAll('#jv-ov details')].find(d => d.querySelector('summary').textContent === 'Advanced');
+          return { brainInputs: b.querySelectorAll('input[type=password]').length, brainText: b.textContent,
+                   advKey: [...adv.querySelectorAll('input')].some(i => i._key === 'groq_key'), advOpen: adv.open,
+                   visibleKey: [...document.querySelectorAll('#jv-ov input[type=password]')].filter(i => i._key === 'groq_key' && i.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })).map(i => i.closest('section,details').firstChild.textContent) }; })()""")
+        check('proxy build: settings shows "no key needed" and no key field', sv['brainInputs'] == 0 and 'No key' in sv['brainText'] and not sv['visibleKey'], sv)
+        check('proxy build: optional own key lives under Advanced (closed)', sv['advKey'] and not sv['advOpen'], sv)
+        p2.click('#jv-test'); p2.wait_for_function("document.querySelector('#jv-ov .msg.ok')", timeout=5000)
+        check('proxy build: Test connection checks the service', 'Jarvis service' in p2.evaluate("document.querySelector('#jv-ov .msg.ok').textContent"))
+        p2.evaluate("document.querySelector('#jv-ov .bar button').click()"); p2.wait_for_timeout(200)
+        check('proxy build: closing settings stores no key', not p2.evaluate("JARVIS.config.get('groq_key')"))
         p2.wait_for_function("document.getElementById('log').textContent.includes('Jarvis online')", timeout=8000)
         p2.evaluate("JARVIS.wake()"); p2.wait_for_timeout(300); p2.evaluate("JARVIS.say('tell me a fact about owls')")
         p2.wait_for_function("window.__native.tts.join(' ').includes('No key needed')", timeout=8000)
