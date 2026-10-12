@@ -54,4 +54,14 @@ r = await c.addOrder('Chipotle', 'near the Tempe Marketplace', '', 6, 'doordash'
 check('"near the Tempe Marketplace" finds the landmark (exact)', r.ok && !r.approx, r);
 r = await c.addOrder('Chipotle', 'zzz nowhere', '', 6, 'doordash');
 check('not found -> asks for a nearby street, landmark or neighbourhood (not "street number")', !r.ok && /landmark or neighbourhood/.test(r.error), r);
+// a same-named street in another state is ignored; the driver's own town is used
+PLACES.unshift([/^main street, tempe/, { lat: 33.4150, lon: -111.9350, place_rank: 26, address: { road: 'Main Street', ...A } }]);
+PLACES.unshift([/^main street$/, { lat: 38.6400, lon: -83.7600, place_rank: 26, address: { road: 'Main Street', city: 'Maysville', state: 'Kentucky' } }]);
+c._setState('area', 'Tempe, Arizona');
+r = await c.addOrder('Panda Express', 'Main Street', '', 5, 'doordash');
+const ms = c.activeOrders().find(x => x.id === r.id);
+check('"Main Street" goes to the one in your town, not Kentucky', r.ok && Math.abs(ms.drop_lat - 33.415) < 1e-6, ms);
+const c3 = new Copilot(kv, {}, { http, matrixFn, noThrottle: true }); c3._setState('loc', { lat: 6.5244, lon: 3.3792, label: 'Lagos' });
+r = await c3.geocode('Main Street', false);
+check('from Lagos, a Main Street in Kentucky is rejected (too far away)', r === null, r);
 console.log('FAILURES:', fails); process.exit(fails ? 1 : 0);
