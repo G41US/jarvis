@@ -4,16 +4,17 @@ plugins {
 
 android {
     namespace 'com.jarvis.assistant'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.jarvis.assistant"
         minSdk 26
-        targetSdk 34
-        versionCode 2
-        versionName "1.1"
+        targetSdk 36
+        // every GitHub build gets a higher number, which the Play Store requires for each upload
+        versionCode 100 + (System.getenv('GITHUB_RUN_NUMBER') ?: '0').toInteger()
+        versionName "1.3"
         ndk {
-            abiFilters 'arm64-v8a', 'armeabi-v7a'     // phones; keeps the APK small
+            abiFilters 'arm64-v8a'                    // 64-bit phones (every current Android phone); keeps the APK small
         }
     }
 
@@ -25,11 +26,19 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Play Store upload key: created once by the build workflow (needs the UPLOAD_KEY_PASSWORD repo secret)
+        release {
+            storeFile file('upload.keystore')
+            storePassword System.getenv('UPLOAD_KEY_PASSWORD') ?: ''
+            keyAlias 'upload'
+            keyPassword System.getenv('UPLOAD_KEY_PASSWORD') ?: ''
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.release
         }
     }
 

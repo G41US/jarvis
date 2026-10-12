@@ -84,12 +84,36 @@ public class Bridge {
             });
         } catch (Throwable e) { Log.e(TAG, "PC voices unavailable", e); }
         piper = p;
+        OfferReaderService.listener = new OfferReaderService.Listener() {
+            @Override public void onOffer(OfferParser.Offer o, String spoken) {
+                JSONObject j = new JSONObject();
+                try {
+                    j.put("platform", o.platform); j.put("store", o.store); j.put("payout", o.payout); j.put("miles", o.miles);
+                    j.put("minutes", o.minutes); j.put("estimated", o.minutesEstimated); j.put("orders", o.orders); j.put("spoken", spoken);
+                } catch (Exception ignored) { }
+                if (visible) js("window.__jvOffer&&window.__jvOffer(" + JSONObject.quote(j.toString()) + ",true)");     // Jarvis on screen: he says it
+                else { sayNow(spoken); js("window.__jvOffer&&window.__jvOffer(" + JSONObject.quote(j.toString()) + ",false)"); }
+            }
+        };
+    }
+
+    private volatile boolean visible = true;
+    /** MainActivity tells us when Jarvis is on screen (otherwise offers are spoken straight from here). */
+    public void setVisible(boolean v) { visible = v; }
+    private long sayIds = -1;
+    /** Speak without the page (Jarvis is in the background while the driver looks at the offer). */
+    private void sayNow(String text) {
+        long id;
+        synchronized (this) { id = sayIds--; }
+        if (piper != null && piper.speaksNow()) { synchronized (this) { if (speaking == 0) takeFocus(); speaking++; } piper.speak(id, text); return; }
+        if (tts != null && ttsReady) { synchronized (this) { if (speaking == 0) takeFocus(); speaking++; } tts.speak(text, TextToSpeech.QUEUE_ADD, null, "u" + id); }
     }
 
     public void destroy() {
         try { if (tts != null) { tts.stop(); tts.shutdown(); } } catch (Exception ignored) { }
         try { if (voice != null) voice.stop(); } catch (Exception ignored) { }
         try { if (piper != null) piper.shutdown(); } catch (Exception ignored) { }
+        OfferReaderService.listener = null;
         pool.shutdownNow();
     }
 
@@ -513,6 +537,29 @@ public class Bridge {
     @JavascriptInterface public boolean unmetered() {
         try { ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE); return cm != null && !cm.isActiveNetworkMetered(); }
         catch (Exception e) { return false; }
+    }
+
+    // ------------------------------------------------------------------ offer reader
+    @JavascriptInterface
+    public void setOfferPrefs(double minPerHour, double minPerMile, String currency, boolean enabled) {
+        activity.getSharedPreferences(OfferReaderService.PREFS, Context.MODE_PRIVATE).edit()
+                .putFloat("min_hr", (float) minPerHour).putFloat("min_mi", (float) minPerMile)
+                .putString("currency", currency == null || currency.isEmpty() ? "$" : currency).putBoolean("enabled", enabled).apply();
+    }
+    @JavascriptInterface
+    public String offerReaderStatus() {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("enabled", OfferReaderService.isEnabled(activity)); o.put("running", OfferReaderService.running);
+            o.put("lastScreen", OfferReaderService.lastScreen); o.put("lastScreenAt", OfferReaderService.lastScreenAt);
+        } catch (Exception ignored) { }
+        return o.toString();
+    }
+    @JavascriptInterface
+    public void openOfferReaderSettings() {
+        activity.runOnUiThread(new Runnable() { @Override public void run() {
+            launch(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        } });
     }
 
     /** Short sine chime (wake / end of session / timers), played natively so it always sounds. */

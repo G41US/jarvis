@@ -170,6 +170,9 @@ BRIDGE = r"""
       setTimeout(() => { window.__pc[n] = 'ready'; window.__jvVoices(JSON.stringify(window.__pc)); }, 300); },
     pcVoiceUse(n) { window.__native.pcUse.push(n); window.__pc.active = n; },
     unmetered() { return !!window.__wifi; },
+    setOfferPrefs(h, m, c, on) { window.__native.offerPrefs = [h, m, c, on]; },
+    offerReaderStatus() { return JSON.stringify({ enabled: !!window.__offerOn, running: !!window.__offerOn, lastScreen: '', lastScreenAt: 0 }); },
+    openOfferReaderSettings() { window.__native.opened.push('accessibility-settings'); },
   };
 })();
 """
@@ -350,6 +353,25 @@ def main():
         # ---- hung-up behaviours
         ev("speechSynthesis.cancel()"); check('tts cancel reaches native', ev('window.__native.stopped') >= 1)
         ev("JARVIS.speakTest('hi')"); pg.wait_for_timeout(100); check('speakTest goes to native', 'hi' in ev('window.__native.tts'))
+
+        # ---- offer reader
+        check('pay floors reach the offer reader', ev('window.__native.offerPrefs') == [18, 1.5, '$', True], ev('window.__native.offerPrefs'))
+        ev("window.__native.tts.length=0")
+        ev("""window.__jvOffer(JSON.stringify({platform:'DoorDash', store:'Chipotle', payout:9.5, miles:6.3, minutes:27, estimated:true, orders:1,
+            spoken:'Take it. $9.50 for 6.3 miles, $1.51 a mile, about $21 an hour if it takes 27 minutes.'}), true)""")
+        pg.wait_for_function("window.__native.tts.join(' ').includes('Take it')", timeout=5000)
+        check('an offer read off the screen is spoken by Jarvis', True)
+        check('...and shows in the conversation', 'Take it. $9.50' in ev("document.getElementById('log').textContent"))
+        r = ev("JARVIS.reg.exec('screen_offer','{}')")
+        check('"what was that offer?" answers from the last offer', 'Chipotle' in r and 'Take it' in r and 'You accept it in the app' in r, r)
+        ev("JARVIS.openSettings()"); pg.wait_for_timeout(500)
+        txt = ev("document.getElementById('jv-ov').textContent")
+        check('settings explains the offer reader before turning it on', 'never taps, accepts or declines' in txt and 'Turn on the offer reader' in txt, txt[:200])
+        ev("[...document.querySelectorAll('#jv-ov button')].find(b => b.textContent === 'Turn on the offer reader').click()")
+        check('"Turn on" opens Android accessibility settings', 'accessibility-settings' in ev('window.__native.opened'))
+        ev("window.__offerOn = true"); pg.wait_for_timeout(500)
+        check('settings shows it on, with the last offer', 'On. Offers' in ev("document.getElementById('jv-ov').textContent") and 'Last offer: Take it' in ev("document.getElementById('jv-ov').textContent"))
+        ev("document.querySelector('#jv-ov .bar button').click()"); pg.wait_for_timeout(300)
 
         # ---- new phone UI
         check('status pill shows plain-language state', ev("document.querySelector('#jv-status').textContent") in ('Say “Hey Jarvis”', 'Listening', 'Speaking', 'Thinking…'), ev("document.querySelector('#jv-status').textContent"))

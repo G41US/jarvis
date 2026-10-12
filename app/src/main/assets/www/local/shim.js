@@ -160,8 +160,28 @@ export function applySettings({ voiceChanged = false } = {}) {
   navigator_.cfg.units = cfgStore.get('units', 'auto'); navigator_.cfg.language = cfgStore.get('nav_language', 'en-US');
   brain.refreshPrompt(); if (voiceChanged) announceVoice(); else applyVoice();
   const th = Number(cfgStore.get('wake_sensitivity', 0.3)); if (has('setWakeThreshold') && th) bridge().setWakeThreshold(th);
+  if (typeof pushOfferPrefs === 'function') pushOfferPrefs();
   broadcast('nav:' + JSON.stringify({ cmd: 'provider', value: cfgStore.get('map_provider', 'jarvis'), cfg: navsvc.config() }));
   broadcast('nav:' + JSON.stringify({ cmd: 'theme', value: cfgStore.get('map_theme', 'auto') }));
+}
+
+// ---------------------------------------------------------------- offer reader (OfferReaderService.java)
+let lastOffer = null;
+W.__jvOffer = (json, speakHere) => {
+  try { lastOffer = { ...JSON.parse(json), at: Date.now() }; } catch { return; }
+  stats.lastOffer = lastOffer;
+  if (speakHere) broadcast('proactive:' + lastOffer.spoken);          // Jarvis on screen: he says it (and the mic stays shut while he does)
+};
+reg.add('screen_offer', "The last DoorDash or Uber Eats offer Jarvis read off the driver's screen, with the verdict (take it / your call / pass). Use for 'what was that offer', 'should I take it', 'was that worth it'.",
+  {}, [], () => {
+    if (!lastOffer) return "I haven't seen an offer yet. Turn on the offer reader in my settings, then offers in the Dasher or Uber Driver app are read automatically.";
+    const ago = Math.round((Date.now() - lastOffer.at) / 1000);
+    return `${lastOffer.spoken} That was ${lastOffer.platform || 'an'} offer${lastOffer.store ? ' from ' + lastOffer.store : ''}, ${ago < 90 ? ago + ' seconds' : Math.round(ago / 60) + ' minutes'} ago. You accept it in the app; tell me if you do and I'll add it to your route.`;
+  });
+function pushOfferPrefs() {
+  if (!has('setOfferPrefs')) return;
+  const c = deliveryConfig();
+  try { bridge().setOfferPrefs(Number(c.min_per_hour || 18), Number(c.min_per_mile || 1.5), c.currency || '$', cfgStore.get('read_offers', true) !== false); } catch {}
 }
 
 // ---------------------------------------------------------------- ears: native mic + wake word -> speech to text
@@ -225,7 +245,7 @@ setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady(
 
 W.JARVIS = {
   wake: () => W.__jvWake(1), say: t => deliverTranscript(t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
-  verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, refreshVoices: () => { rawVoices = []; return applyVoice(); },
+  verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };
 

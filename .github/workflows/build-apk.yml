@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.GROQ_API_KEY != '' }}
+      HAS_UPLOAD_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -53,7 +54,7 @@ jobs:
           sudo apt-get install -y -qq patchelf >/dev/null
           rm -rf /tmp/sh && mkdir -p /tmp/sh && unzip -q -o /tmp/sherpa.aar -d /tmp/sh
           mkdir -p app/libs && cp /tmp/sh/classes.jar app/libs/sherpa-onnx.jar
-          for abi in arm64-v8a armeabi-v7a; do
+          for abi in arm64-v8a; do
             d=/tmp/sh/jni/$abi; o=app/src/main/jniLibs/$abi; mkdir -p $o
             cp $d/libonnxruntime.so $o/libonnxruntime_sherpa.so
             patchelf --set-soname libonnxruntime_sherpa.so $o/libonnxruntime_sherpa.so
@@ -116,7 +117,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.14.3'
 
       - name: Build APK
         run: gradle assembleDebug --no-daemon --stacktrace
@@ -128,6 +129,29 @@ jobs:
         with:
           name: Jarvis-apk
           path: Jarvis.apk
+
+      # ---- Play Store bundle (.aab). Needs one repo secret: UPLOAD_KEY_PASSWORD (any long password you keep).
+      #      The first time, the upload key is created with that password and saved to this private repo.
+      - name: Play Store bundle
+        if: env.HAS_UPLOAD_PASSWORD == 'true'
+        env:
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ ! -f app/upload.keystore ]; then
+            keytool -genkeypair -keystore app/upload.keystore -storetype PKCS12 -alias upload -keyalg RSA -keysize 4096 -validity 10000 \
+              -storepass "$UPLOAD_KEY_PASSWORD" -keypass "$UPLOAD_KEY_PASSWORD" -dname "CN=Jarvis, O=Jarvis, C=US"
+            git config user.name "Jarvis build" && git config user.email "actions@users.noreply.github.com"
+            git add app/upload.keystore && git commit -m "Play Store upload key (password is the UPLOAD_KEY_PASSWORD secret)" && git push
+          fi
+          gradle bundleRelease --no-daemon
+          cp app/build/outputs/bundle/release/app-release.aab Jarvis.aab
+
+      - uses: actions/upload-artifact@v4
+        if: env.HAS_UPLOAD_PASSWORD == 'true'
+        with:
+          name: Jarvis-playstore-aab
+          path: Jarvis.aab
 
       # A Release page is the easiest way to download on the phone: open the repo in the phone's browser > Releases > Jarvis.apk
       - name: Publish to Releases

@@ -4,4 +4,7 @@
     <string name="notif_title">Jarvis is listening</string>
     <string name="notif_text">Say \"Hey Jarvis\". Tap to open.</string>
     <string name="notif_quit">Quit</string>
+    <string name="offer_reader_label">Jarvis offer reader</string>
+    <string name="offer_reader_summary">Says take it or pass for DoorDash and Uber Eats offers</string>
+    <string name="offer_reader_description">When the DoorDash Dasher or Uber Driver app shows you a delivery offer, Jarvis reads the pay, distance and time on that offer and tells you out loud whether it meets your pay per mile and per hour. It only looks at those two apps. It never taps, accepts or declines anything; you stay in control. Nothing it reads is saved or sent anywhere.</string>
 </resources>
