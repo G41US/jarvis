@@ -83,8 +83,22 @@ def groq_handler(route):
     body = json.loads(req.post_data or '{}'); state['groq_calls'].append(body)
     msgs = body.get('messages', [])
     if not body.get('stream'):
+        if body.get('model') == 'qwen/qwen3.8-27b':                   # Jarvis's eyes
+            state.setdefault('vision', []).append(body)
+            return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'choices': [{'message': {'role': 'assistant', 'content': 'A red coffee mug on a wooden desk.'}}]}))
         return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'choices': [{'message': {'role': 'assistant', 'content': 'summary'}}]}))
     last = msgs[-1]
+    # "!script [[tool, args], ...]" as the user's words: the fake model calls those tools one round at a time, like the real one does
+    ui = max(i for i, m in enumerate(msgs) if m['role'] == 'user'); uc = msgs[ui].get('content') or ''
+    if isinstance(uc, str) and uc.lstrip('!').startswith('script ['):          # (the page drops the "!")
+        steps = json.JSONDecoder().raw_decode(uc.lstrip('!')[7:])[0]; done = sum(1 for m in msgs[ui + 1:] if m['role'] == 'tool')
+        state.setdefault('script_rounds', []).append(done)
+        if done < len(steps) and body.get('tool_choice') != 'none':
+            name, args = steps[done]
+            chunks = [delta(tool_calls=[{'index': 0, 'id': f's{done}', 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}])]
+        else:
+            chunks = [delta(content='Done. ' + (last.get('content') or '')[:300].replace('\n', ' '))]
+        return route.fulfill(status=200, headers={**cors, 'Content-Type': 'text/event-stream'}, body=sse(chunks))
     if last['role'] == 'tool':
         txt = "That's " + re.sub(r'[^0-9.]', '', last['content']) + '.' if last['name'] == 'calculate' else 'Done. ' + last['content'][:200]
         chunks = [delta(content=txt[:8]), delta(content=txt[8:])]
@@ -155,7 +169,8 @@ BRIDGE = r"""
     ttsStop() { window.__native.stopped++; },
     ttsVoices() { return JSON.stringify(window.__fakeVoices); },
     ttsSetVoice(v) { window.__native.voice = v; },
-    openUrl(u) { window.__native.opened.push(u); },
+    openUrl(u) { window.__native.opened.push(u); return 'ok'; },
+    setAnnounceMessages(on) { window.__native.announce = on; },
     openApp(n) { window.__native.opened.push('app:' + n); return 'ok'; },
     media(a, q, p) { window.__native.media.push([a, q, p]); return 'ok'; },
     battery() { return JSON.stringify({ level: 77, charging: false, network: 'wifi' }); },
@@ -174,13 +189,57 @@ BRIDGE = r"""
     offerReaderStatus() { return JSON.stringify({ enabled: !!window.__offerOn, running: !!window.__offerOn, lastScreen: '', lastScreenAt: 0 }); },
     openOfferReaderSettings() { window.__native.opened.push('accessibility-settings'); },
   };
+  // ---- PhoneActions.java stand-in: records every call
+  window.__phone = { calls: [], reminders: [], docs: [], events: [], clip: 'copied text', visible: true,
+    status: { notifications: true, exactAlarms: false, overlay: false, control: false, controlRunning: false, notifAccess: false, camera: true, contacts: true, calls: false, calendar: true, dnd: false, brightness: false, screenshots: true } };
+  const rec = (m, ...a) => window.__phone.calls.push([m, ...a]);
+  const P = window.__phone;
+  window.AndroidPhone = {
+    status() { return JSON.stringify(P.status); },
+    request(n) { rec('request', n); return 'opened'; },
+    reminderAdd(j) { rec('reminderAdd', j); const o = JSON.parse(j); P.reminders = P.reminders.filter(r => r.id !== o.id).concat([o]); return 'inexact'; },
+    reminderList() { return JSON.stringify(P.reminders); },
+    reminderCancel(id) { rec('reminderCancel', id); const n = P.reminders.length; P.reminders = P.reminders.filter(r => r.id !== id); return n !== P.reminders.length; },
+    clockAlarm(h, m, l, d) { rec('clockAlarm', h, m, l, d); return 'ok'; },
+    showClockAlarms() { rec('showClockAlarms'); return 'ok'; },
+    flashlight(s) { rec('flashlight', s); return s === 'off' ? 'Flashlight off.' : 'Flashlight on.'; },
+    volume(a, l, s) { rec('volume', a, l, s); return 'Volume 60 percent.'; },
+    ringer(m) { rec('ringer', m); return 'need-dnd'; },
+    dnd(on) { rec('dnd', on); return P.status.dnd ? 'Do Not Disturb on.' : 'need-dnd'; },
+    brightness(l) { rec('brightness', l); return 'need-brightness'; },
+    openSettings(p) { rec('openSettings', p); return P.visible ? 'ok' : 'notified'; },
+    openCamera(m) { rec('openCamera', m); return 'ok'; },
+    bringToFront() { rec('bringToFront'); P.visible = true; return 'ok'; },
+    isVisible() { return !!P.visible; },
+    findContact(n) { rec('findContact', n); return /john/i.test(n) ? JSON.stringify([{ name: 'John Smith', number: '+15551234567', type: 'mobile' }]) : '[]'; },
+    call(n) { rec('call', n); return P.status.calls ? 'calling' : 'dialer'; },
+    sms(n, t) { rec('sms', n, t); return 'ok'; },
+    whatsapp(n, t) { rec('whatsapp', n, t); return 'ok'; },
+    notifications(m, app, max) { rec('notifications', m, app, max); if (!P.status.notifAccess) return 'need-notifAccess'; return JSON.stringify([{ n: 1, app: 'WhatsApp', title: 'John Smith', text: 'Where are you?', message: true, canReply: true, ago: 2 }]); },
+    replyTo(w, t) { rec('replyTo', w, t); return 'Sent to John Smith on WhatsApp.'; },
+    calendarEvents(f, t) { rec('calendarEvents', f, t); return JSON.stringify(P.events); },
+    calendarAdd(title, s, e, loc, all) { rec('calendarAdd', title, s, e, loc, all); P.events.push({ title, begin: s, end: e, allDay: all, location: loc }); return 'ok:Personal'; },
+    clipboardGet() { return P.clip; }, clipboardSet(t) { P.clip = t; return 'ok'; },
+    docSave(k, t, c) { rec('docSave', k, t, c); const o = { name: t + ' 2026-10-12 2200.' + k, uri: 'content://media/external/file/' + (P.docs.length + 1), mime: 'application/pdf' }; P.docs.unshift(o); return JSON.stringify(o); },
+    docList() { return JSON.stringify(P.docs); },
+    docOpen(u, m, sh) { rec('docOpen', u, m, sh); return 'ok'; },
+    docDelete(u) { rec('docDelete', u); P.docs = P.docs.filter(d => d.uri !== u); return true; },
+    photoSave(b) { rec('photoSave', b.slice(0, 23)); return 'Jarvis 1.jpg'; },
+    screenRead() { rec('screenRead'); if (!P.status.control) return 'need-control'; return 'App on screen: WhatsApp\n[1] tap: Chats\n[2] tap: John Smith\n[3] field: Message'; },
+    screenTap(t, l) { rec('screenTap', t, l); return P.status.control ? 'Tapped John Smith.' : 'need-control'; },
+    screenType(t, f, sub) { rec('screenType', t, f, sub); return 'Typed it.'; },
+    screenScroll(d) { rec('screenScroll', d); return 'Scrolled ' + d + '.'; },
+    press(w) { rec('press', w); return 'Done.'; },
+    screenshot() { rec('screenshot'); return P.status.control ? '/9j/4AAQSkZJRgABAQ' : 'need-control'; },
+    currentApp() { return 'com.whatsapp'; },
+  };
 })();
 """
 
 def main():
     with sync_playwright() as p:
         b = p.chromium.launch(args=['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'])
-        ctx = b.new_context(viewport={'width': 412, 'height': 860}, permissions=['microphone', 'geolocation'], geolocation={'latitude': A[0], 'longitude': A[1]}, is_mobile=True, has_touch=True)
+        ctx = b.new_context(viewport={'width': 412, 'height': 860}, permissions=['microphone', 'camera', 'geolocation'], geolocation={'latitude': A[0], 'longitude': A[1]}, is_mobile=True, has_touch=True)
         ctx.add_init_script(BRIDGE)
         ctx.route(ORIGIN + '/**', asset_handler)
         ctx.route('https://api.groq.com/**', groq_handler)
@@ -391,6 +450,125 @@ def main():
         w = ev("[document.documentElement.scrollWidth, innerWidth]")
         check('no horizontal scroll', w[0] <= w[1], w)
         pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/phone.png'))
+
+        # ================================================================== phone powers (tools_phone.js + PhoneActions)
+        def ask(text, until, timeout=10000):
+            ev("window.__native.tts.length=0"); pg.wait_for_timeout(1300)
+            ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev(f"JARVIS.say({json.dumps(text)})")
+            try: pg.wait_for_function(f"window.__native.tts.join(' ').includes({json.dumps(until)})", timeout=timeout)
+            except Exception: pass
+            pg.wait_for_timeout(900)                                   # the rest of the reply
+            return ev("window.__native.tts.join(' ')")
+        script = lambda *steps: '!script ' + json.dumps([list(x) for x in steps]) + ' on my phone for me please'   # words after it, like a real request
+        calls = lambda name: [c for c in ev('window.__phone.calls') if c[0] == name]
+        reset = lambda: ev('window.__phone.calls.length = 0')
+        ev("JARVIS.config.set('groq_key', 'gsk_good'); JARVIS.brain.state.bad = false; JARVIS.brain.state.announced = false")
+
+        # reminders: native alarms at the exact local time the model worked out
+        tomorrow8 = ev("(()=>{ const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); return d.getTime(); })()")
+        iso = ev("(()=>{ const d = new Date(); d.setDate(d.getDate() + 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') + 'T08:00'; })()")
+        said = ask(script(('set_reminder', {'text': 'call mom', 'at': iso})), 'Reminder set')
+        rem = ev('window.__phone.reminders')
+        check('reminder goes to Android alarms at the exact local time', len(rem) == 1 and rem[0]['at'] == tomorrow8 and rem[0]['kind'] == 'reminder' and rem[0]['text'] == 'call mom', rem)
+        check('...and Jarvis confirms it (with the "may be late" hint once)', 'Reminder set for 8:00 AM tomorrow: call mom' in said and 'Alarms and reminders' in said, said[:300])
+        sp = [c for c in state['groq_calls'] if c.get('stream')][-1]['messages'][0]['content']
+        check('the brain knows the current local time', 'CURRENT LOCAL TIME' in sp and re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}', sp.split('CURRENT LOCAL TIME')[1]), sp[-200:])
+        said = ask(script(('set_timer', {'seconds': 90, 'label': 'pizza'})), 'Timer set')
+        check('timer -> native alarm, 90 seconds', any(r['kind'] == 'timer' and abs(r['at'] - ev('Date.now()') - 90000) < 8000 for r in ev('window.__phone.reminders')) and 'Timer set for 1 minute 30 seconds' in said, said[:200])
+        r = ev("JARVIS.reg.exec('list_reminders', '{}')")
+        check('list reminders (native)', 'pizza timer ends' in r and 'call mom' in r, r)
+        r = ev("JARVIS.reg.exec('cancel_reminder', JSON.stringify({which: 'timer'}))")
+        check('cancel the timer', r.startswith('Cancelled') and not any(x['kind'] == 'timer' for x in ev('window.__phone.reminders')), r)
+        ev("window.__native.tts.length=0"); pg.wait_for_timeout(1300)
+        ev("window.__jvAlarm(JSON.stringify({ id: 'x', kind: 'reminder', text: 'call mom' }), true)")
+        try: pg.wait_for_function("window.__native.tts.join(' ').includes('call mom')", timeout=6000)
+        except Exception: pass
+        check('a reminder ringing while Jarvis is on screen is spoken', 'Reminder' in ev("window.__native.tts.join(' ')") and 'call mom' in ev("window.__native.tts.join(' ')"), ev('window.__native.tts'))
+        reset(); r = ev("JARVIS.reg.exec('set_alarm', JSON.stringify({time: '06:30', days: 'mon,tue,wed,thu,fri'}))")
+        check('wake-up alarm goes to the Clock app', calls('clockAlarm') == [['clockAlarm', 6, 30, '', 'mon,tue,wed,thu,fri']] and '6:30' in r, (calls('clockAlarm'), r))
+
+        # websites
+        ev('window.__native.opened.length = 0')
+        said = ask(script(('open_website', {'site': 'youtube'})), 'Opening')
+        check('open a website by name', 'https://www.youtube.com' in ev('window.__native.opened') and 'Opening youtube' in said, (ev('window.__native.opened'), said[:100]))
+        r = ev("JARVIS.reg.exec('play_youtube', JSON.stringify({query: 'lofi beats'}))")
+        check('YouTube search', any('youtube.com/results?search_query=lofi%20beats' in u for u in ev('window.__native.opened')), ev('window.__native.opened'))
+        r = ev("JARVIS.reg.exec('show_public_cam', JSON.stringify({location: 'Times Square'}))")
+        check('live public cam (from the PC list)', any('earthcam.com/usa/newyork/timessquare' in u for u in ev('window.__native.opened')) and 'times square' in r.lower(), r)
+
+        # eyes: the camera (Chromium's fake camera) -> Groq vision
+        state['vision'] = []; reset()
+        ev("window.__phone.visible = false")
+        said = ask(script(('look_with_camera', {'question': 'what is this?'})), 'coffee mug', timeout=15000)
+        v = state['vision']
+        img = v and v[-1]['messages'][-1]['content'][1]['image_url']['url']
+        check('"what is this?" brings Jarvis to the front, takes a picture and asks the vision model', calls('bringToFront') and v and v[-1]['model'] == 'qwen/qwen3.8-27b' and img.startswith('data:image/jpeg;base64,') and len(img) > 2000, (calls('bringToFront'), len(v), (img or '')[:40]))
+        check('...and says what it sees', 'A red coffee mug on a wooden desk' in said, said[:200])
+        check('the camera preview closes afterwards', ev("!document.getElementById('jv-cam')"))
+        r = ev("JARVIS.reg.exec('take_photo', '{}')")
+        check('take a photo -> saved to the gallery', calls('photoSave') and calls('photoSave')[0][1].startswith('data:image/jpeg') and 'gallery' in r, (calls('photoSave'), r))
+
+        # phone control: a five-step task in one request (more rounds than the old limit of three)
+        reset(); ev("window.__phone.status.control = false")
+        said = ask(script(('read_screen', {})), 'Accessibility')
+        check('phone control off -> Jarvis opens the setting and says the one step', calls('request') == [['request', 'control']] and 'Jarvis phone control' in said, (calls('request'), said[:200]))
+        reset(); ev("window.__phone.status.control = true; window.__phone.status.controlRunning = true"); ev('window.__native.opened.length = 0')
+        said = ask(script(('open_app', {'name': 'WhatsApp'}), ('read_screen', {}), ('tap_on_screen', {'target': '2'}), ('type_on_screen', {'text': 'On my way', 'field': '3'}), ('press_button', {'button': 'back'})), 'Done.', timeout=15000)
+        seq = [c[0] for c in ev('window.__phone.calls')]
+        check('multi-step phone control runs every step in order', 'app:WhatsApp' in ev('window.__native.opened') and seq == ['screenRead', 'screenTap', 'screenType', 'press'], (seq, ev('window.__native.opened')))
+        check('...with the right arguments', calls('screenTap')[:1] == [['screenTap', '2', False]] and calls('screenType')[:1] == [['screenType', 'On my way', '3', False]] and calls('press')[:1] == [['press', 'back']], ev('window.__phone.calls'))
+        state['vision'] = []
+        r = ev("JARVIS.reg.exec('look_at_screen', JSON.stringify({question: 'what app is this?'}))")
+        check('"what\'s on my screen" -> screenshot -> vision', state['vision'] and state['vision'][-1]['messages'][-1]['content'][1]['image_url']['url'].startswith('data:image/jpeg;base64,/9j/') and 'coffee mug' in r, r)
+
+        # device
+        reset()
+        check('flashlight', ev("JARVIS.reg.exec('flashlight', JSON.stringify({state: 'on'}))") == 'Flashlight on.' and calls('flashlight') == [['flashlight', 'on']])
+        check('volume', ev("JARVIS.reg.exec('set_volume', JSON.stringify({action: 'set', level: 60}))") == 'Volume 60 percent.' and calls('volume') == [['volume', 'set', 60, 'media']])
+        r = ev("JARVIS.reg.exec('do_not_disturb', JSON.stringify({on: true}))")
+        check('Do Not Disturb without access -> asks for it', 'Do Not Disturb access' in r and ['request', 'dnd'] in calls('request'), r)
+        ev("window.__phone.visible = false"); r = ev("JARVIS.reg.exec('open_settings', JSON.stringify({page: 'wifi'}))")
+        check('from the background, opening something becomes a tap-to-open notification', 'notifications' in r and 'Open apps from the background' in r, r); ev("window.__phone.visible = true")
+
+        # people
+        reset(); r = ev("JARVIS.reg.exec('phone_call', JSON.stringify({who: 'John'}))")
+        check('call by name: contacts lookup, then the dialer (no call permission yet)', calls('call') == [['call', '+15551234567']] and 'John Smith' in r and 'dialer' in r, (calls('call'), r))
+        ev("window.__phone.status.calls = true"); r = ev("JARVIS.reg.exec('phone_call', JSON.stringify({who: 'John'}))")
+        check('...and calls straight away once allowed', r == 'Calling John Smith.', r)
+        r = ev("JARVIS.reg.exec('phone_call', JSON.stringify({who: 'Zelda'}))")
+        check('unknown name -> asks for the number', "don't see Zelda" in r, r)
+        r = ev("JARVIS.reg.exec('send_text', JSON.stringify({who: 'John', message: 'running late'}))")
+        check('text by name opens ready to send', calls('sms') == [['sms', '+15551234567', 'running late']] and 'Tap send' in r, r)
+        r = ev("JARVIS.reg.exec('whatsapp_message', JSON.stringify({who: 'John', message: 'hi'}))")
+        check('WhatsApp by name', calls('whatsapp') == [['whatsapp', '+15551234567', 'hi']], calls('whatsapp'))
+        r = ev("JARVIS.reg.exec('read_notifications', '{}')")
+        check('read messages without access -> opens notification access', 'notification access' in r and ['request', 'notifAccess'] in calls('request'), r)
+        ev("window.__phone.status.notifAccess = true"); r = ev("JARVIS.reg.exec('read_notifications', '{}')")
+        check('read messages', 'John Smith on WhatsApp' in r and 'Where are you?' in r and 'can reply' in r, r)
+        r = ev("JARVIS.reg.exec('reply_to_message', JSON.stringify({who: 'John', message: 'On my way'}))")
+        check('reply through the notification', calls('replyTo') == [['replyTo', 'John', 'On my way']] and 'Sent' in r, r)
+
+        # calendar, clipboard, documents
+        reset(); r = ev("JARVIS.reg.exec('add_calendar_event', JSON.stringify({title: 'Dentist', start: '%s', duration_minutes: 30}))" % iso.replace('08:00', '15:00'))
+        c = calls('calendarAdd')
+        check('add a calendar event at the local time', c and c[0][1] == 'Dentist' and c[0][2] == tomorrow8 + 7 * 3600000 and c[0][3] == tomorrow8 + 7 * 3600000 + 1800000 and 'Dentist' in r, (c, r))
+        r = ev("JARVIS.reg.exec('get_calendar', JSON.stringify({day: 'tomorrow'}))")
+        check("what's on tomorrow", 'Dentist at 3:00 PM' in r, r)
+        check('clipboard', 'copied text' in ev("JARVIS.reg.exec('get_clipboard', '{}')") and ev("JARVIS.reg.exec('copy_to_clipboard', JSON.stringify({text: 'abc'}))") == 'Copied.' and ev('window.__phone.clip') == 'abc')
+        r = ev("JARVIS.reg.exec('create_document', JSON.stringify({kind: 'pdf', title: 'Shift notes', content: 'Line one.\\nLine two.'}))")
+        check('create a PDF document', calls('docSave') == [['docSave', 'pdf', 'Shift notes', 'Line one.\nLine two.']] and 'Saved' in r, r)
+        r = ev("JARVIS.reg.exec('open_document', JSON.stringify({name: 'it', share: true}))")
+        check('share the last document', calls('docOpen') and calls('docOpen')[0][3] is True, calls('docOpen'))
+
+        # settings: phone powers
+        ev("JARVIS.openSettings()"); pg.wait_for_timeout(700)
+        rows = ev("[...document.querySelectorAll('#jv-powers .pw')].map(r => [r.querySelector('b').textContent, r.querySelector('.pw-st').textContent, getComputedStyle(r.querySelector('button')).display !== 'none'])")
+        check('settings lists the phone powers with on/off', len(rows) == 11 and ['Camera', 'On', False] in rows and ['Phone control', 'On', False] in rows and ['Brightness', 'Off', True] in rows, rows)
+        reset(); ev("document.querySelector('#jv-powers button[data-power=overlay]').click()")
+        check('"Allow" asks Android for it', calls('request') == [['request', 'overlay']], calls('request'))
+        ev("document.getElementById('jv-powers').scrollIntoView()"); pg.wait_for_timeout(200)
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/powers.png'))
+        ev("document.querySelector('#jv-ov .bar button').click()"); pg.wait_for_timeout(200)
 
         # ---- rollout mode: no key on the phone, the build points at the Jarvis proxy
         state['proxy'] = []

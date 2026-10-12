@@ -7,7 +7,8 @@ import { Navigator } from './navlib.js';
 import { Copilot } from './delivery.js';
 import { createNavService } from './navsvc.js';
 import { registerDeliveryTools } from './tools_delivery.js';
-import { registerGeneralTools, timeOfDay } from './tools_general.js';
+import { registerGeneralTools, timeOfDay, parseWhen } from './tools_general.js';
+import { registerPhoneTools } from './tools_phone.js';
 import { createBrain } from './brain.js';
 import { SttPipeline } from './stt.js';
 import { createApi } from './api.js';
@@ -149,6 +150,8 @@ const dtools = registerDeliveryTools({ reg, delivery, navsvc, openUrl });
 let brain = null;
 const gctx = { reg, kv, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
 registerGeneralTools(gctx);
+Object.assign(gctx, { api, parseWhen });
+const phone = registerPhoneTools(gctx);                 // also gives gctx reminderItems / calendarToday for the briefing
 const briefingFast = async text => (/\b(morning briefing|brief me|briefing|what.?s my day|what.?s on today)\b/i.test(text) ? (await gctx.briefingText())[0] : null);
 brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log });
 log(`on-device Jarvis ready: ${reg.schemas.length} tools, native http: ${nativeHttp()}, native mic: ${W.JARVIS_NATIVE_MIC}, brain: ${api.mode() || 'no key'}`);
@@ -245,7 +248,7 @@ setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady(
 
 W.JARVIS = {
   wake: () => W.__jvWake(1), say: t => deliverTranscript(t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
-  verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
+  phone, verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };
 

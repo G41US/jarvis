@@ -1,5 +1,5 @@
-// tools_general.js - everyday tools that work on a phone: time, weather, search, math, timers, reminders, memory, notes,
-// news, crypto, currency, translate, music/phone controls. (PC-only tools such as files, clipboard and screen reading are not here.)
+// tools_general.js - everyday tools that work on a phone: time, weather, search, math, memory, notes,
+// news, crypto, currency, translate, music. Phone abilities (reminders, camera, calls, screen, documents...) are in tools_phone.js.
 import { httpRaw, buildUrl } from './net.js';
 
 export const timeOfDay = (d = new Date()) => { const h = d.getHours(); return h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
@@ -108,31 +108,7 @@ export function registerGeneralTools(ctx) {
     return `Here it is: ${pw}. I won't keep a copy.`;
   });
 
-  // ---- timers and reminders (kept across restarts)
-  const timers = () => kv.get('timers', []), setTimers = v => kv.set('timers', v);
-  T('set_timer', 'Set a timer in seconds.', { seconds: { type: 'integer' }, label: { type: 'string' } }, ['seconds'], a => {
-    const s = parseInt(a.seconds, 10); if (!Number.isFinite(s)) return 'Invalid duration.'; if (s <= 0) return 'Duration must be positive.'; if (s > 86400) return 'I can do up to 24 hours.';
-    const list = timers(); list.push({ at: Date.now() + s * 1000, label: a.label || 'timer' }); setTimers(list);
-    if (s < 60) return `Timer set for ${s} seconds.`;
-    if (s < 3600) { const m = Math.floor(s / 60), r = s % 60; return `Timer set for ${m} minutes` + (r ? ` ${r} seconds.` : '.'); }
-    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return `Timer set for ${h} hours` + (m ? ` ${m} minutes.` : '.');
-  });
-  T('set_reminder', 'Set a reminder at a natural language time.', { when: { type: 'string' }, text: { type: 'string' } }, ['when', 'text'], a => {
-    const p = parseWhen(a.when); if (!p) return `Couldn't parse '${a.when}'.`;
-    const list = kv.get('reminders', []); list.push({ at: p.at, text: a.text, fired: false }); kv.set('reminders', list);
-    if (p.relative) return `Reminder set for ${p.n} ${p.unit}${p.n !== 1 ? 's' : ''} from now.`;
-    return fixSpace(`Reminder set for ${new Date(p.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} on ${new Date(p.at).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.`);
-  });
-  T('list_reminders', 'List pending reminders.', {}, [], () => { const l = kv.get('reminders', []).filter(r => !r.fired).sort((x, y) => x.at - y.at); return l.length ? 'Reminders: ' + l.map(r => `${r.text} at ${fmtClockMs(r.at)}`).join('; ') : 'No reminders.'; });
-  function tick() {
-    const now = Date.now();
-    const tl = timers(), due = tl.filter(t => t.at <= now);
-    if (due.length) { setTimers(tl.filter(t => t.at > now)); due.forEach(t => broadcast('timer:' + t.label)); }
-    const rl = kv.get('reminders', []); let ch = false;
-    for (const r of rl) if (!r.fired && r.at <= now) { r.fired = true; ch = true; broadcast('proactive:Reminder. ' + r.text); }
-    if (ch) kv.set('reminders', rl.filter(r => !r.fired || now - r.at < 86400000));
-  }
-  const iv = setInterval(tick, 1000); ctx.stopTimers = () => clearInterval(iv);
+  // timers, reminders and alarms: tools_phone.js (they ring natively, even when Jarvis is closed)
 
   // ---- memory, preferences, notes
   const changed = () => ctx.onMemoryChange && ctx.onMemoryChange();
@@ -179,12 +155,13 @@ export function registerGeneralTools(ctx) {
     const parts = [timeOfDay() + '.'];
     try { const w = await reg.exec('get_weather', {}); if (w && !/couldn't|Tell me which/.test(w)) parts.push(w); } catch {}
     try { const n = await newsText(); if (n) parts.push(n); } catch {}
-    const rem = kv.get('reminders', []).filter(r => !r.fired && new Date(r.at).toDateString() === new Date().toDateString());
+    try { if (ctx.calendarToday) { const c = await ctx.calendarToday(); if (c) parts.push(c); } } catch {}
+    const rem = (ctx.reminderItems ? ctx.reminderItems() : kv.get('reminders', [])).filter(r => !r.fired && r.kind !== 'timer' && new Date(r.at).toDateString() === new Date().toDateString());
     if (rem.length) parts.push('Reminders today: ' + rem.map(r => `${r.text} at ${fmtClockMs(r.at)}`).join('; ') + '.');
     return [parts.join(' '), parts.length > 1];
   }
   ctx.briefingText = briefingText;
-  T('morning_briefing', 'Deliver the morning briefing: weather, reminders and news.', {}, [], async () => (await briefingText())[0]);
+  T('morning_briefing', 'Deliver the morning briefing: weather, calendar, reminders and news.', {}, [], async () => (await briefingText())[0]);
 
   // ---- phone controls
   const nb = () => bridge();
@@ -194,19 +171,19 @@ export function registerGeneralTools(ctx) {
     return "I can't read the battery here.";
   });
   T('open_app', 'Open an app installed on this phone by name.', { name: { type: 'string' } }, ['name'], a => {
-    if (!nb() || !nb().openApp) return 'I can only open apps on the phone.'; const r = nb().openApp(String(a.name || '')); return r === 'ok' ? `Opening ${a.name}.` : (r || `I couldn't find an app called ${a.name}.`);
+    if (!nb() || !nb().openApp) return 'I can only open apps on the phone.'; const r = nb().openApp(String(a.name || ''));
+    if (r === 'notified') return `I've put ${a.name} in your notifications: tap it to open. To skip that step, switch on "Open apps from the background" in my settings.`;
+    return r === 'ok' ? `Opening ${a.name}.` : (r || `I couldn't find an app called ${a.name}.`);
   });
   const media = (action, query = '', pkg = '') => { if (!nb() || !nb().media) return 'I can only control music on the phone.'; return nb().media(action, query, pkg); };
   T('play_music', 'Play a song, artist or playlist in a music app on this phone (Spotify by default).', { query: { type: 'string' }, app: { type: 'string', description: 'spotify, youtube music; default spotify' } }, ['query'], a => {
-    const r = media('play_search', a.query, /youtube/i.test(a.app || '') ? 'com.google.android.apps.youtube.music' : 'com.spotify.music'); return r === 'ok' ? `Playing ${a.query}.` : r;
+    const r = media('play_search', a.query, /youtube/i.test(a.app || '') ? 'com.google.android.apps.youtube.music' : 'com.spotify.music'); return r === 'ok' ? `Playing ${a.query}.` : r === 'notified' ? `Tap the notification to start ${a.query}.` : r;
   });
   T('spotify_play', 'Play something on Spotify, or resume playback.', { query: { type: 'string' } }, [], a => { if (!a.query) { const r = media('play'); return r === 'ok' ? 'Playing.' : r; } const r = media('play_search', a.query, 'com.spotify.music'); return r === 'ok' ? `Playing ${a.query} on Spotify.` : r; });
   T('spotify_pause', 'Pause music.', {}, [], () => { const r = media('pause'); return r === 'ok' ? 'Paused.' : r; });
   T('spotify_next', 'Skip to the next track.', {}, [], () => { const r = media('next'); return r === 'ok' ? 'Skipped.' : r; });
   T('spotify_previous', 'Go back to the previous track.', {}, [], () => { const r = media('previous'); return r === 'ok' ? 'Previous track.' : r; });
   T('spotify_now_playing', "Say what's playing.", {}, [], () => "Android doesn't let me read what's playing, but I can pause, skip or play something.");
-  T('phone_call', 'Open the phone dialer with a number (the user taps call).', { number: { type: 'string' } }, ['number'], a => { const n = String(a.number || '').replace(/[^\d+*#]/g, ''); if (!n) return 'I need a number.'; ctx.openUrl('tel:' + n); return `Dialer ready with ${n}.`; });
-  T('send_text', 'Open a text message with a number and message ready (the user taps send).', { number: { type: 'string' }, message: { type: 'string' } }, ['number', 'message'], a => { const n = String(a.number || '').replace(/[^\d+]/g, ''); if (!n) return 'I need a number.'; ctx.openUrl(`sms:${n}?body=${encodeURIComponent(a.message || '')}`); return 'Message ready. Tap send.'; });
   T('list_voices', 'List the speaking voices available on this phone.', {}, [], () => { const v = ctx.voices ? ctx.voices() : []; return v.length ? 'Available voices: ' + v.slice(0, 8).map(x => x.name).join(', ') + '.' : 'Only the default voice is available.'; });
   T('set_voice', 'Change the speaking voice.', { voice_name: { type: 'string' } }, ['voice_name'], a => { const r = ctx.setVoice ? ctx.setVoice(a.voice_name) : null; return r ? `Voice switched to ${r}.` : `I don't have a voice called '${a.voice_name}'.`; });
 }
