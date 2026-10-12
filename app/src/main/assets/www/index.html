@@ -210,7 +210,7 @@ const FADE_OUT_RATE = 5.0, FADE_IN_RATE = 3.0;
 
 const container = document.getElementById('three');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? 1.25 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -447,7 +447,7 @@ const particleMat = new THREE.PointsMaterial({ color: 0x88aacc, size: 0.045, tra
 const particles = new THREE.Points(particleGeo, particleMat); faceGroup.add(particles);
 
 const composer = new EffectComposer(renderer);
-composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+composer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? 1.25 : 2));
 composer.setSize(window.innerWidth, window.innerHeight);
 composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.6, 0.85);
@@ -517,7 +517,9 @@ function driveLipSync(t, amt) {
 }
 const clock = new THREE.Clock();
 let t0 = 0, diagTimer = 0;
+let _lastFrame = 0;
 function animate() {
+  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
   const dt = clock.getDelta(); t0 += dt; const t = t0;
   lerpColors(STATE_COLORS[appState] || STATE_COLORS.idle, dt);
   applyColors();
@@ -890,6 +892,7 @@ function setState(s) {
 
 let audioCtx = null;
 function beep(freq, duration, volume) {
+  if (window.AndroidBridge && window.AndroidBridge.tone) { try { window.AndroidBridge.tone(freq, Math.round(duration * 1000), volume || 0.06); return; } catch (e) {} }
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
@@ -1010,6 +1013,7 @@ const GREET_EVERY_MS = 10 * 60 * 1000;
 let lastGreetAt = 0;
 
 let active = false, sessionActive = false, recognizing = false, speaking = false, muted = false;
+window.__jv = { state: () => ({ active, session: sessionActive, speaking, muted, guide: typeof guideSpeaking !== 'undefined' && guideSpeaking, appState }) };
 let lastCommandTime = 0, sessionSilenceTimer = null, recentJarvisReplies = [];
 let bargeAbort = null, speakChain = Promise.resolve(), currentAudio = null, commandId = 0, jarvisMsgEl = null;
 
@@ -1100,7 +1104,7 @@ async function startSession() {
 
   if (!currentUser) identifyUser().catch(() => {});   // in the background; never hold the session for the camera
 
-  if (Date.now() - lastGreetAt < GREET_EVERY_MS) { speaking = false; setState('session'); armSessionSilenceTimer(); return; }
+  if (window.JARVIS_NATIVE || Date.now() - lastGreetAt < GREET_EVERY_MS) { speaking = false; setState('session'); armSessionSilenceTimer(); return; }
   lastGreetAt = Date.now();
 
   const user = currentUser;
@@ -1324,11 +1328,14 @@ function guidanceSay(text, opts = {}) {
 
 async function initialize() {
   try {
+    if (window.JARVIS_NATIVE_MIC) { connectAudioWs(); }       // phone: native mic + on-device wake word
+    else {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true } });
     await setupMicAnalyser(micStream);
     startMicLevelLoop();
     connectAudioWs();
     await setupAudioCapture(micStream);
+    }
     setTimeout(() => {
       if (!serverSttAvailable && active && !muted) { console.log('[STT] fallback'); startRecognition(); }
     }, 4000);
@@ -1408,22 +1415,22 @@ function renderRoute(plan) {
   if (!lastRoute) { routePanel.classList.remove('show'); return; }
   routePanel.classList.add('show');
   routeHead.textContent = '';
-  routeHead.appendChild(mk('span', '', `ROUTE · ${plan.orders} ORDER${plan.orders === 1 ? '' : 'S'} · ${plan.total_min} MIN · ${plan.total_miles} ${(plan.unit || 'mi').toUpperCase()}`));
+  routeHead.appendChild(mk('span', '', `${plan.orders} order${plan.orders === 1 ? '' : 's'} · ${plan.total_min} min · ${plan.total_miles} ${plan.unit || 'mi'}`));
   if (plan.payout) {
     routeHead.appendChild(document.createElement('br'));
-    routeHead.appendChild(mk('span', 'money', `${plan.currency || '$'}${plan.payout.toFixed(2)}` + (plan.per_hour ? ` · ${plan.currency || '$'}${Math.round(plan.per_hour)}/HR` : '')));
+    routeHead.appendChild(mk('span', 'money', `${plan.currency || '$'}${plan.payout.toFixed(2)}` + (plan.per_hour ? ` · ${plan.currency || '$'}${Math.round(plan.per_hour)} an hour` : '')));
   }
   if (plan.total_min_hi) {
     routeHead.appendChild(document.createElement('br'));
-    routeHead.appendChild(mk('span', plan.risk === 'low' ? 'money' : 'est', `${plan.total_min_lo}-${plan.total_min_hi} MIN · ON-TIME RISK ${String(plan.risk || 'low').toUpperCase()}`));
+    routeHead.appendChild(mk('span', plan.risk === 'low' ? 'money' : 'est', `${plan.total_min_lo}–${plan.total_min_hi} min · on-time risk ${String(plan.risk || 'low')}`));
   }
-  if (plan.source === 'estimate') { routeHead.appendChild(document.createElement('br')); routeHead.appendChild(mk('span', 'est', 'ESTIMATED TIMES')); }
+  if (plan.source === 'estimate') { routeHead.appendChild(document.createElement('br')); routeHead.appendChild(mk('span', 'est', 'Estimated times')); }
   routeStops.textContent = '';
   plan.stops.forEach((s, i) => {
     const d = mk('div', `rs ${s.kind}${i === 0 ? ' first' : ''}`);
     const row = mk('div', 'row');
     row.appendChild(mk('span', 't', s.eta_clock));
-    row.appendChild(mk('span', 'k', s.kind === 'pickup' ? 'PICK' : 'DROP'));
+    row.appendChild(mk('span', 'k', s.kind === 'pickup' ? 'Pick up' : 'Drop off'));
     row.appendChild(mk('span', 'n', s.kind === 'pickup' ? s.restaurant : s.short_addr));
     d.appendChild(row);
     const bits = [];

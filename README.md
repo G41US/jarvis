@@ -26,8 +26,11 @@ New version later? Push the change, wait for the build, install the new `Jarvis.
 
 1. Allow **Microphone**, **Location** and **Notifications** when asked.
 2. The settings screen opens. Paste your **Groq API key** (console.groq.com/keys, free), tap **Test connection**, then **Save**.
-3. Say **"Hey Jarvis"**, or tap **TALK**.
-4. For listening with the screen off: Android Settings > Apps > Jarvis > Battery > **Unrestricted**.
+   (Builds made with the Jarvis proxy skip this step: see `server/README.md`.)
+3. Say **"Hey Jarvis"**. The wake word runs on the phone itself, like `wake.py` on the PC; you can also say it in one breath:
+   "Hey Jarvis, what's the weather". Tapping the mic button is only a shortcut.
+4. Not hearing you? Settings > **Hearing** shows the live microphone level, the wake score as you say "Hey Jarvis", and the last thing heard.
+5. For listening with the screen off: Android Settings > Apps > Jarvis > Battery > **Unrestricted**.
 
 Try: "Hey Jarvis, navigate to Phoenix Sky Harbor Airport." / "I accepted a DoorDash order from Chipotle to 123 Main Street, it pays 8 dollars." /
 "What's next?" / "Picked it up." / "Delivered." / "How much have I made today?"
@@ -40,12 +43,18 @@ turn-by-turn navigation on a map with spoken guidance (worldwide, free services)
 
 ## Different from the PC version
 
-- No face ID, files, clipboard, screen reading or calendar (those need a PC).
-- The wake word is detected from the Groq transcript (the PC used a local wake-word model), so it needs a data connection.
-  Groq's free tier limits speech requests per minute; if you hit it Jarvis says so and recovers.
+- No face ID, files, clipboard, screen reading or calendar yet.
+- Voices are your phone's own (Google text-to-speech) instead of Piper's Alan and Amy. Pick Male or Female in settings;
+  if the phone lacks a voice of that gender, Jarvis shifts the pitch. More voices: Android Settings > Text-to-speech > Install voice data.
 - No live traffic: route times are the free services' normal-traffic estimates.
 - Turn-by-turn instructions are in English.
 - Listening in the background (screen off, another app on top) is best effort. Android decides, and some phones are stricter than others.
+
+## Before a public release
+
+- **Wake word licence:** the "Hey Jarvis" model comes from openWakeWord and is licensed for **non-commercial use only**
+  (CC BY-NC-SA 4.0), same as on the PC. Fine for you and testers; a paid app needs its own model in `app/src/main/assets/wake/hey_jarvis.onnx`.
+- **No key for users:** set up the proxy in `server/README.md` so the app uses your Groq account instead of asking each user for a key.
 
 ## Honest status
 
@@ -57,7 +66,8 @@ If the build fails, open the red run in the Actions tab, copy the last error lin
 ## Layout
 
 ```
-app/src/main/java/com/jarvis/assistant/   Android shell: MainActivity, Bridge (speech, http, apps, music), JarvisService
+app/src/main/java/com/jarvis/assistant/   Android shell: MainActivity, Bridge (speech, http, apps, music), VoiceEngine + WakeWord (mic, "Hey Jarvis"), JarvisService
+server/                                   optional proxy that holds your Groq key (Cloudflare Worker)
 app/src/main/assets/www/                  the page and the on-device brain (local/*.js)
 pc_source/                                your PC page; tools/make_www.py turns it into the phone page
 .github/workflows/build-apk.yml           the cloud build

@@ -107,20 +107,38 @@ def asset_handler(route):
 BRIDGE = r"""
 (() => {
   const of = window.fetch.bind(window);
-  window.__native = { tts: [], opened: [], stopped: 0, http: [], media: [], voice: null };
+  const b64 = u8 => { let s = ''; for (const x of u8) s += String.fromCharCode(x); return btoa(s); };
+  window.__native = { tts: [], ttsPitch: [], opened: [], stopped: 0, http: [], streams: [], media: [], voice: null, listening: [], speaking: [], tones: 0, mic: 0 };
+  window.__fakeVoices = [{ id: 'en-us-x-iom-local', label: 'English US', lang: 'en-US' }, { id: 'en-us-x-tpf-local', label: 'English US', lang: 'en-US' },
+                         { id: 'en-gb-x-gbb-local', label: 'English UK', lang: 'en-GB' }, { id: 'en-us-x-sfg-network', label: 'English US', lang: 'en-US' }];
   window.AndroidBridge = {
     httpRequest(id, method, url, headersJson, body, timeoutMs) {
       window.__native.http.push({ method, url, ua: (JSON.parse(headersJson || '{}')['User-Agent'] || '') });
       of(url, { method, body: body || undefined }).then(async r => window.__httpResult(id, r.status, await r.text())).catch(() => window.__httpResult(id, 0, ''));
     },
-    ttsSpeak(id, text, rate, pitch) { window.__native.tts.push(text); setTimeout(() => window.__ttsEvent(id, 'done'), 15); },
+    httpStream(id, method, url, headersJson, bodyB64, timeoutMs) {
+      const h = JSON.parse(headersJson || '{}'); window.__native.streams.push(url);
+      const body = bodyB64 ? Uint8Array.from(atob(bodyB64), c => c.charCodeAt(0)) : undefined;
+      of(url, { method, headers: h, body }).then(async r => {
+        window.__httpHead(id, r.status); const rd = r.body.getReader();
+        for (;;) { const { value, done } = await rd.read(); if (done) break; window.__httpChunk(id, b64(value)); }
+        window.__httpEnd(id, '');
+      }).catch(e => window.__httpEnd(id, String(e)));
+    },
+    httpAbort(id) {},
+    ttsSpeak(id, text, rate, pitch) { window.__native.tts.push(text); window.__native.ttsPitch.push(pitch); setTimeout(() => window.__ttsEvent(id, 'done'), 15); },
     ttsStop() { window.__native.stopped++; },
-    ttsVoices() { return JSON.stringify([{ id: 'en-us-x-iom-local', label: 'English US male', lang: 'en-US' }, { id: 'en-gb-x-gba-local', label: 'English UK', lang: 'en-GB' }]); },
+    ttsVoices() { return JSON.stringify(window.__fakeVoices); },
     ttsSetVoice(v) { window.__native.voice = v; },
     openUrl(u) { window.__native.opened.push(u); },
     openApp(n) { window.__native.opened.push('app:' + n); return 'ok'; },
     media(a, q, p) { window.__native.media.push([a, q, p]); return 'ok'; },
     battery() { return JSON.stringify({ level: 77, charging: false, network: 'wifi' }); },
+    micStart() { window.__native.mic++; setTimeout(() => window.__jvMic && window.__jvMic('listening'), 10); return 'ok'; },
+    micStatus() { return JSON.stringify({ running: true, wake: true, wakeError: '', permission: true }); },
+    setListening(on) { window.__native.listening.push(on); }, setSpeaking(on) { window.__native.speaking.push(on); },
+    setMuted(on) {}, setWakeThreshold(t) { window.__native.threshold = t; },
+    tone(f, ms, v) { window.__native.tones++; },
   };
 })();
 """
@@ -155,8 +173,17 @@ def main():
         pg.wait_for_function("document.getElementById('log').textContent.includes('Jarvis online')", timeout=8000)
         check('page initialised (mic + audio socket)', True)
         check('greeting endpoint', ev("fetch('/greeting').then(r=>r.json()).then(j=>j.name)") == 'Marcus')
-        check('voices endpoint lists android voices', len(ev("fetch('/voices').then(r=>r.json())")) == 2)
-        check('set_voice endpoint', ev("fetch('/set_voice',{method:'POST',body:JSON.stringify({voice:'UK'})}).then(r=>r.json()).then(j=>j.ok)") is True and ev('window.__native.voice') == 'en-gb-x-gba-local')
+        vl = ev("fetch('/voices').then(r=>r.json())")
+        check('voices listed with genders', len(vl) == 4 and any('Male' in v['name'] for v in vl) and any('Female' in v['name'] for v in vl), vl)
+        check('default male face -> British male voice', ev('window.__native.voice') == 'en-gb-x-gbb-local', ev('window.__native.voice'))
+        r = ev("fetch('/set_voice',{method:'POST',body:JSON.stringify({voice:'female'})}).then(r=>r.json())")
+        check('"female voice" switches to a real female voice', r.get('ok') and ev('window.__native.voice') == 'en-us-x-tpf-local' and r['voice'].startswith('amy~'), (r, ev('window.__native.voice')))
+        r = ev("fetch('/set_voice',{method:'POST',body:JSON.stringify({voice:'male'})}).then(r=>r.json())")
+        check('"male voice" switches back', r.get('ok') and ev('window.__native.voice') == 'en-gb-x-gbb-local' and r['voice'].startswith('adam~'))
+        ev("window.__fakeVoices = window.__fakeVoices.filter(v => !/tpf|sfg/.test(v.id)); JARVIS.refreshVoices()")
+        pitch = ev("(()=>{ JARVIS.config.merge({avatar_gender:'female', voice:''}); const c = JARVIS.chosenVoice(); JARVIS.config.merge({avatar_gender:'male'}); return c.pitch; })()")
+        check('no female voice on phone -> higher pitch fallback', pitch > 1.1, pitch)
+        ev("window.__fakeVoices.push({ id: 'en-us-x-tpf-local', label: 'English US', lang: 'en-US' }); JARVIS.refreshVoices(); JARVIS.config.merge({avatar_gender:'male', voice:''}); JARVIS.announceVoice()")
 
         # ---- chat with a tool call, spoken through Android TTS
         ev("window.__native.tts.length=0")
@@ -166,6 +193,7 @@ def main():
         check('tool call (calculate) -> spoken "144"', True)
         check('log shows exchange', 'times 12' in ev("document.getElementById('log').textContent"))
         sent = [c for c in state['groq_calls'] if c.get('stream')]
+        check('chat went through the app (no browser CORS)', any('chat/completions' in u for u in ev('window.__native.streams')))
         check('Groq request had tools + system prompt', sent and len(sent[0]['tools']) > 20 and sent[0]['messages'][0]['role'] == 'system')
 
         # ---- plain chat
@@ -201,19 +229,29 @@ def main():
         check('delivery plan has stops', len(plan.get('stops', [])) == 2, plan)
         check('route panel rendered', ev("document.getElementById('route-panel').classList.contains('show')"))
 
-        # ---- speech in: PCM -> VAD -> Whisper (mock) -> page
-        state['stt_calls'] = 0; state['stt_text'] = 'Hey Jarvis'
-        ev("""(()=>{ const s=[]; const f=(n,a)=>{const x=new Int16Array(n); for(let i=0;i<n;i++) x[i]=Math.round(a*Math.sin(i/7)*(1+Math.sin(i/300))); return x;};
-          for(let i=0;i<6;i++) JARVIS.stt.feed(f(2048,60));          // noise floor
-          for(let i=0;i<20;i++) JARVIS.stt.feed(f(2048,6000));        // speech
-          for(let i=0;i<10;i++) JARVIS.stt.feed(f(2048,40)); })()""")
-        pg.wait_for_function('1', timeout=100); pg.wait_for_timeout(2500)
+        # ---- speech in, the native way: wake word -> listening -> PCM from Java -> VAD -> Whisper (through the app) -> page
+        pg.wait_for_timeout(3000)
+        state['stt_calls'] = 0; state['stt_text'] = 'Hey Jarvis'; ev("window.__native.listening.length=0; window.__native.tones=0; window.__native.streams.length=0")
+        ev("JARVIS.say('thank you jarvis')"); pg.wait_for_timeout(600)      # close any open session first
+        ev("window.__jvWake(0.82)"); pg.wait_for_timeout(400)
+        check('wake word opens a session', ev("window.__jv.state().session") is True)
+        check('wake chime played natively', ev('window.__native.tones') >= 1, ev('window.__native.tones'))
+        check('native mic told to stream audio', True in ev('window.__native.listening'), ev('window.__native.listening'))
+        ev("""(()=>{ const f=(n,a)=>{const x=new Int16Array(n); for(let i=0;i<n;i++) x[i]=Math.round(a*Math.sin(i/7)*(1+Math.sin(i/300))); return x;};
+          const send = a => { const x = f(1280, a), u = new Uint8Array(x.buffer); let s=''; for (const b of u) s+=String.fromCharCode(b); window.__jvPcm(btoa(s)); };
+          for(let i=0;i<10;i++) send(60); for(let i=0;i<25;i++) send(6000); for(let i=0;i<14;i++) send(40); })()""")
+        pg.wait_for_timeout(2500)
         check('VAD sent one clip to Whisper', state['stt_calls'] >= 1, state['stt_calls'])
+        check('Whisper went through the app (no browser CORS)', any('audio/transcriptions' in u for u in ev('window.__native.streams')))
+        ev("JARVIS.say('thank you jarvis')"); pg.wait_for_timeout(800)
+        check('session closed -> mic stops streaming', ev('window.__native.listening').count(False) >= 1 and ev('JARVIS.stats.listening') is False, ev('window.__native.listening'))
+        check('speaking state reported to native (for barge-in)', True in ev('window.__native.speaking'))
 
         # ---- a rejected key is spoken, not swallowed
         ev("JARVIS.config.set('groq_key','gsk_bad')"); ev("window.__native.tts.length=0"); pg.wait_for_timeout(1200)
-        ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev("JARVIS.say('how are you doing today')")
-        pg.wait_for_function("window.__native.tts.join(' ').toLowerCase().includes('key')", timeout=8000)
+        ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev("JARVIS.say('tell me something interesting')")   # (not an echo of the mock reply)
+        try: pg.wait_for_function("window.__native.tts.join(' ').toLowerCase().includes('key')", timeout=8000)
+        except Exception: print('DEBUG tts', ev('window.__native.tts'), ev('window.__jv.state()'), ev("document.getElementById('log').textContent.slice(-300)")); raise
         check('rejected key is spoken', True)
         ev("JARVIS.config.set('groq_key','gsk_good')")
 
@@ -221,10 +259,45 @@ def main():
         ev("speechSynthesis.cancel()"); check('tts cancel reaches native', ev('window.__native.stopped') >= 1)
         ev("JARVIS.speakTest('hi')"); pg.wait_for_timeout(100); check('speakTest goes to native', 'hi' in ev('window.__native.tts'))
 
+        # ---- new phone UI
+        check('status pill shows plain-language state', ev("document.querySelector('#jv-status').textContent") in ('Say “Hey Jarvis”', 'Listening', 'Speaking', 'Thinking…'), ev("document.querySelector('#jv-status').textContent"))
+        check('caption shows Jarvis\'s last reply', len(ev("document.querySelector('#jv-cap .him').textContent") + ev("document.querySelector('#jv-cap .you').textContent")) > 0)
+        ev("document.getElementById('jv-hist').click()"); check('history sheet opens', ev("document.body.classList.contains('jv-history')")); ev("document.getElementById('jv-hist').click()")
+        ev("document.getElementById('jv-mute').click()"); pg.wait_for_timeout(200)
+        check('mute button mutes', ev("window.__jv.state().muted") is True and ev("document.querySelector('#jv-status').textContent") == 'Muted')
+        ev("document.getElementById('jv-mute').click()"); pg.wait_for_timeout(200)
+        ev("JARVIS.openSettings()"); pg.wait_for_timeout(400); pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/settings.png'))
+        check('settings: hearing panel shows mic on', 'On' in ev("document.getElementById('jv-diag').textContent"), ev("document.getElementById('jv-diag').textContent")[:200])
+        ev("document.querySelector('#jv-ov .bar button').click()"); pg.wait_for_timeout(200)
+
         # ---- layout on a phone
         w = ev("[document.documentElement.scrollWidth, innerWidth]")
         check('no horizontal scroll', w[0] <= w[1], w)
         pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/phone.png'))
+
+        # ---- rollout mode: no key on the phone, the build points at the Jarvis proxy
+        state['proxy'] = []
+        def proxy_handler(route):
+            req = route.request; state['proxy'].append({'url': req.url, 'h': dict(req.headers)})
+            if req.url.endswith('/models'): return route.fulfill(status=200, body='{"data":[]}')
+            return route.fulfill(status=200, headers={'Content-Type': 'text/event-stream'}, body=sse([delta(content='Proxy mode works. '), delta(content='No key needed.')]))
+        ctx2 = b.new_context(viewport={'width': 412, 'height': 860}, is_mobile=True, has_touch=True)
+        ctx2.add_init_script(BRIDGE)
+        def asset2(route):
+            if route.request.url.endswith('/local/build_config.js'):
+                return route.fulfill(status=200, content_type='text/javascript', body="export const BUILD = { apiBase: 'https://jarvis-proxy.example.workers.dev/v1', appToken: 'tok123' };")
+            return asset_handler(route)
+        ctx2.route(ORIGIN + '/**', asset2); ctx2.route('https://jarvis-proxy.example.workers.dev/**', proxy_handler)
+        ctx2.route(re.compile(r'https://(?!appassets|jarvis-proxy).*'), other_handler)
+        p2 = ctx2.new_page(); p2.goto(ORIGIN + '/index.html'); p2.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000); p2.wait_for_timeout(800)
+        check('proxy build: settings does not demand a key', p2.evaluate("!document.getElementById('jv-ov').classList.contains('on')") and p2.evaluate("JARVIS.api.mode()") == 'proxy')
+        p2.wait_for_function("document.getElementById('log').textContent.includes('Jarvis online')", timeout=8000)
+        p2.evaluate("JARVIS.wake()"); p2.wait_for_timeout(300); p2.evaluate("JARVIS.say('tell me a fact about owls')")
+        p2.wait_for_function("window.__native.tts.join(' ').includes('No key needed')", timeout=8000)
+        pc = [x for x in state['proxy'] if 'chat/completions' in x['url']]
+        check('proxy build: answers with no key, sends app token and device id, never a Groq key',
+              pc and pc[0]['h'].get('x-jarvis-token') == 'tok123' and len(pc[0]['h'].get('x-jarvis-device', '')) == 24 and 'authorization' not in pc[0]['h'], pc[:1])
+        ctx2.close()
 
         bad = [e for e in errs if 'three' not in e.lower()]
         check('no uncaught page errors', not bad, bad[:3])

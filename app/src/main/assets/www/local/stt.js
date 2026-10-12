@@ -1,6 +1,5 @@
 // stt.js - speech to text on the phone: the page streams 16 kHz mic audio here; we cut it into utterances (adaptive
 // voice-activity detection, same logic as server.py) and transcribe each one with Groq's hosted Whisper.
-import { realFetch } from './net.js';
 
 const SR = 16000, FRAMES_END = 3, MIN_SPEECH = 2, MAX_SAMPLES = SR * 15, MIN_SAMPLES = SR / 2;
 const HALLU = new Set(['you', 'thank you', 'thanks', 'please subscribe', 'subscribe', 'thank you for watching', 'thank you for watching.', '.', '..', '...', '...?', '…', '[blank_audio]', '[music]', '[applause]', '[laughter]', '♪', '♪♪', '♪ ♪', 'amara.org', 'subtitles by', 'transcription by', 'subtitle by', 'please subscribe to my channel']);
@@ -26,7 +25,7 @@ export function wavBytes(f32) {
 }
 
 export class SttPipeline {
-  /** opts: {getKey, getConfig(k,d), onTranscript(text), onNotice(text), log, transcribe} */
+  /** opts: {api, getConfig(k,d), onTranscript(text), onNotice(text), log, transcribe} */
   constructor(opts) {
     Object.assign(this, { log: () => {}, onNotice: () => {}, ...opts });
     this.vad = new Vad(); this.chunks = []; this.total = 0; this.sil = 0; this.spk = 0; this.queue = []; this.busy = false;
@@ -52,6 +51,8 @@ export class SttPipeline {
       this._enqueue(normalize(f));
     }
   }
+  /** Drop whatever is half-recorded (Jarvis started talking or the session closed). */
+  cut() { this.chunks = []; this.total = 0; this.sil = 0; this.spk = 0; }
   _keepTail(n) {
     let have = 0; const keep = [];
     for (let i = this.chunks.length - 1; i >= 0 && have < n; i--) { keep.unshift(this.chunks[i]); have += this.chunks[i].length; }
@@ -65,7 +66,7 @@ export class SttPipeline {
   }
   async _transcribe(f32) {
     if (this.transcribe) return this.transcribe(f32);               // tests
-    const key = this.getKey(); if (!key) { this.notice('nokey', 'I need my Groq key to hear you. Open my settings and paste it in.'); return ''; }
+    if (!this.api.ready()) { this.notice('nokey', 'I need my Groq key to hear you. Open my settings and paste it in.'); return ''; }
     const now = Date.now(); if (now < this.skipUntil) return '';
     this.recent = this.recent.filter(t => now - t < 60000);
     if (this.recent.length >= 18) { this.notice('rate', "I'm hearing a lot of noise, so I'm skipping some audio to stay under the speech limit."); return ''; }
@@ -77,14 +78,14 @@ export class SttPipeline {
       fd.append('model', this.getConfig('stt_model', 'whisper-large-v3-turbo')); fd.append('language', this.getConfig('stt_language', 'en'));
       fd.append('prompt', this.prompt()); fd.append('response_format', 'json'); fd.append('temperature', '0');
       const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 9000);
-      const r = await realFetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd, signal: ctl.signal }).finally(() => clearTimeout(to));
+      const r = await this.api.fetch('/audio/transcriptions', { method: 'POST', body: fd, signal: ctl.signal, timeoutMs: 9000 }).finally(() => clearTimeout(to));
       if (r.status === 401) { this.skipUntil = Date.now() + 600000; this.notice('auth', 'Groq rejected my API key, so I can not hear you. Open my settings and paste a fresh one.'); return ''; }
       if (r.status === 429) { this.skipUntil = Date.now() + 15000; this.notice('rate', "I've hit the speech limit for a moment. Give me a few seconds."); return ''; }
       if (!r.ok) { this.skipUntil = Date.now() + 5000; this.log('[STT] http', r.status); return ''; }
       let text = ((await r.json()).text || '').trim();
       const norm = text.toLowerCase().replace(/[^a-z ]/g, ''), pn = this.prompt().toLowerCase().replace(/[^a-z ]/g, '');
       if (text.length > 25 && pn.includes(norm)) text = '';              // the prompt echoed back on silence
-      this.log(`[STT] groq ${Math.round(performance.now() - t0)} ms: ${JSON.stringify(text)}`);
+      const ms = Math.round(performance.now() - t0); this.log(`[STT] groq ${ms} ms: ${JSON.stringify(text)}`); if (this.onTiming) this.onTiming(ms, text);
       return isHallucination(text) ? '' : text;
     } catch (e) {
       this.skipUntil = Date.now() + 8000; this.log('[STT] failed', e && e.name);

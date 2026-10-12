@@ -1,0 +1,4 @@
+Wake word models from openWakeWord v0.5.1 (https://github.com/dscripka/openWakeWord).
+melspectrogram.onnx, embedding_model.onnx, hey_jarvis.onnx: Creative Commons BY-NC-SA 4.0 (non-commercial).
+Fine for personal use and testing. A commercial release needs a wake-word model you are licensed to ship
+(train your own with openWakeWord's training notebook, or license a commercial engine), dropped in as hey_jarvis.onnx.

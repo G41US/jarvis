@@ -1,5 +1,4 @@
 // brain.js - Jarvis's brain on the phone: Groq streaming + tool calling (same loop as server.py), memory, short history.
-import { realFetch } from './net.js';
 
 export const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const SENTENCE_SPLIT = /(?<=[.!?])\s+/, CLAUSE_SPLIT = /(?<=[,;:])\s+/g;
@@ -52,12 +51,12 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
 
 export class GroqError extends Error { constructor(msg, status, body) { super(msg); this.status = status; this.body = body; } }
 
-export function createBrain({ reg, kv, config, fastpaths = [], log = (...a) => console.log(...a) }) {
+export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a) => console.log(...a) }) {
   const G = { bad: false, announced: false, noEffort: false, offlineAnnounced: false };
   let conversation = [], summarising = false;
   const model = () => config.get('groq_model', '') || DEFAULT_MODEL;
-  const key = () => String(config.get('groq_key', '') || '').trim().replace(/^["']|["']$/g, '').split(/\s+/)[0] || '';
-  const usable = () => !!key() && !G.bad;
+  const key = () => (api.ready() ? (api.userKey() || 'proxy') : '');   // truthy when Jarvis has a way to think
+  const usable = () => api.ready() && !G.bad;
   const effort = () => (config.get('reasoning', 'low') || '').toLowerCase();
 
   function prompt() { return buildSystemPrompt({ prefs: kv.get('prefs', []), memories: kv.get('memories', []).map(m => m.fact), summary: kv.get('summary', ''), name: config.get('user_name', '') }); }
@@ -71,7 +70,7 @@ export function createBrain({ reg, kv, config, fastpaths = [], log = (...a) => c
   async function groqFetch(body, signal) {
     const extra = {};
     if (effort() && model().startsWith('openai/gpt-oss') && !G.noEffort) extra.reasoning_effort = effort();
-    const send = async b => realFetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', signal, headers: { Authorization: 'Bearer ' + key(), 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+    const send = async b => api.fetch('/chat/completions', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
     let r = await send({ ...body, ...extra });
     if (!r.ok && extra.reasoning_effort) {
       const t = await r.clone().text();
@@ -159,8 +158,8 @@ export function createBrain({ reg, kv, config, fastpaths = [], log = (...a) => c
   }
 
   function noBrainMessage() {
-    if (!key()) return "I need my Groq key to think. Open my settings, paste it in, and I'm back.";
-    if (G.bad) return 'Groq rejected my API key. Open my settings and paste a fresh one from console dot groq dot com.';
+    if (!api.ready()) return "I need my Groq key to think. Open my settings, paste it in, and I'm back.";
+    if (G.bad) return api.mode() === 'proxy' ? "My service turned me away. Try again in a minute." : 'Groq rejected my API key. Open my settings and paste a fresh one from console dot groq dot com.';
     return "I can't reach my brain right now. Check the data connection.";
   }
 
@@ -173,7 +172,7 @@ export function createBrain({ reg, kv, config, fastpaths = [], log = (...a) => c
         catch (e) { log('[FASTPATH]', e && e.message); }
       }
       const useTools = needsTool(userText), t0 = performance.now(), scratch = [];
-      if (!key() || G.bad) { const m = noBrainMessage(); yield { type: 'sentence', text: m }; conversation.push({ role: 'assistant', content: m }); yield { type: 'done' }; return; }
+      if (!api.ready() || G.bad) { const m = noBrainMessage(); yield { type: 'sentence', text: m }; conversation.push({ role: 'assistant', content: m }); yield { type: 'done' }; return; }
       if (useTools) yield { type: 'status', text: 'thinking' };
       let full = '', buffer = '', sent = false; CLAUSE_SPLIT.lastIndex = 0;
       const src = useTools ? streamTools(conversation, scratch, signal) : streamSync(conversation, signal);
@@ -201,11 +200,11 @@ export function createBrain({ reg, kv, config, fastpaths = [], log = (...a) => c
   }
 
   async function verifyKey() {
-    if (!key()) return { ok: false, message: 'No key entered.' };
+    if (!api.ready()) return { ok: false, message: 'No key entered.' };
     try {
-      const r = await realFetch('https://api.groq.com/openai/v1/models', { headers: { Authorization: 'Bearer ' + key() } });
-      if (r.ok) { G.bad = false; return { ok: true, message: 'Key works.' }; }
-      if (r.status === 401) { G.bad = true; return { ok: false, message: 'Groq rejected this key (401). Make a new one at console.groq.com/keys.' }; }
+      const r = await api.fetch('/models', { method: 'GET' });
+      if (r.ok) { G.bad = false; return { ok: true, message: api.mode() === 'proxy' ? 'Connected to the Jarvis service.' : 'Key works.' }; }
+      if (r.status === 401 || r.status === 403) { G.bad = true; return { ok: false, message: api.mode() === 'proxy' ? 'The Jarvis service refused this app.' : 'Groq rejected this key (401). Make a new one at console.groq.com/keys.' }; }
       return { ok: false, message: `Groq answered ${r.status}.` };
     } catch (e) { return { ok: false, message: "Couldn't reach Groq. Check the data connection." }; }
   }

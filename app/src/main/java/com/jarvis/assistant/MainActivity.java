@@ -172,6 +172,7 @@ public class MainActivity extends Activity {
             pendingGeoCallback.invoke(pendingGeoOrigin, has(Manifest.permission.ACCESS_FINE_LOCATION) || has(Manifest.permission.ACCESS_COARSE_LOCATION), true);
             pendingGeoCallback = null;
         }
+        if (bridge != null && has(Manifest.permission.RECORD_AUDIO)) bridge.onMicPermission();   // the page starts the native mic now
         startKeepAlive();
     }
 

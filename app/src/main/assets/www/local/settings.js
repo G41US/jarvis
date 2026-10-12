@@ -1,38 +1,53 @@
-// settings.js - the phone's settings screen. Opens by itself the first time (no Groq key yet), and from the gear button afterwards.
-// Everything is stored on the phone (localStorage); keys never go anywhere except to the service they belong to.
+// settings.js - the phone's settings screen. Opens by itself the first time (when Jarvis has no way to think yet),
+// and from the gear afterwards. Everything is stored on this phone only.
 const J = () => window.JARVIS;
 const el = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) { if (k === 'style') e.style.cssText = v; else if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v); }
+  for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v); }
   for (const k of kids) e.append(k && k.nodeType ? k : document.createTextNode(k == null ? '' : String(k)));
   return e;
 };
 
 const CSS = `
-#jv-gear,#jv-talk{position:fixed;z-index:60;top:calc(env(safe-area-inset-top,0px) + 10px);height:38px;border-radius:19px;border:1px solid rgba(90,170,220,.5);background:rgba(8,18,30,.78);color:#8fd0ff;
-  font:600 12px/38px Consolas,Monaco,monospace;letter-spacing:1px;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(6px)}
-#jv-gear{right:10px;width:38px;font-size:19px}
-#jv-talk{right:56px;padding:0 14px}
-#jv-ov{position:fixed;inset:0;z-index:80;background:rgba(2,6,12,.94);overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;color:#cfe6fa;font:14px/1.4 system-ui,sans-serif}
-#jv-ov.on{display:block}
-#jv-ov .box{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 16px) 16px 40px}
-#jv-ov h1{margin:6px 0 2px;font:700 20px Consolas,monospace;letter-spacing:3px;color:#7fd0ff}
-#jv-ov h2{margin:22px 0 6px;font:700 12px Consolas,monospace;letter-spacing:2px;color:#5fa8d8;text-transform:uppercase;border-bottom:1px solid rgba(90,170,220,.25);padding-bottom:4px}
-#jv-ov p.hint{margin:2px 0 8px;font-size:12px;color:#7d9bb5}
-#jv-ov label{display:block;margin:10px 0 3px;font-size:13px;color:#a8c8e8}
-#jv-ov input,#jv-ov select{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:8px;border:1px solid rgba(90,170,220,.35);background:#0a1522;color:#e6f3ff;font-size:15px}
-#jv-ov .row{display:flex;gap:8px;align-items:center}#jv-ov .row>*{flex:1}
-#jv-ov button{padding:11px 14px;border-radius:8px;border:1px solid rgba(90,170,220,.6);background:#0f2236;color:#bfe4ff;font-size:14px;font-weight:600}
-#jv-ov button.pri{background:#0d6aa8;color:#fff;border-color:#2aa0e8}
-#jv-ov .msg{min-height:18px;margin-top:6px;font-size:13px}#jv-ov .ok{color:#6fe39a}#jv-ov .bad{color:#ff8a80}
-#jv-ov .bar{position:sticky;bottom:0;margin-top:22px;padding:12px 0;background:linear-gradient(transparent,#02060c 40%)}
+#jv-ov { position: fixed; inset: 0; z-index: 80; background: #03070d; overflow-y: auto; -webkit-overflow-scrolling: touch; display: none; color: #e8f4ff;
+  font: 15px/1.45 Roboto, system-ui, sans-serif; }
+#jv-ov.on { display: block; }
+#jv-ov .box { max-width: 560px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 18px) 18px 120px; }
+#jv-ov h1 { margin: 4px 0 4px; font: 600 28px/1.1 'Saira', system-ui, sans-serif; font-stretch: 90%; color: #7fd6ff; }
+#jv-ov .lead { margin: 0 0 8px; color: #6f8aa3; }
+#jv-ov section { margin-top: 26px; }
+#jv-ov h2 { margin: 0 0 4px; font: 600 18px/1.2 'Saira', system-ui, sans-serif; color: #e8f4ff; }
+#jv-ov p.hint { margin: 2px 0 10px; font-size: 13px; color: #6f8aa3; }
+#jv-ov label { display: block; margin: 12px 0 4px; font-size: 14px; color: #b9cfe3; }
+#jv-ov input, #jv-ov select { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid #1d3347; background: #081321; color: #e8f4ff; font-size: 16px; }
+#jv-ov input:focus, #jv-ov select:focus, #jv-ov button:focus-visible { outline: 2px solid #7fd6ff; outline-offset: 1px; }
+#jv-ov input[type=range] { padding: 0; border: 0; background: none; accent-color: #7fd6ff; height: 32px; }
+#jv-ov .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; } #jv-ov .row > * { flex: 1; }
+#jv-ov button { text-transform: none; letter-spacing: normal; text-shadow: none; font-family: Roboto, system-ui, sans-serif; padding: 12px 14px; border-radius: 10px; border: 1px solid #2a4a66; background: #0c1c2e; color: #cfe9ff; font-size: 15px; font-weight: 500; }
+#jv-ov button.pri { background: #7fd6ff; color: #03121f; border-color: #7fd6ff; font-weight: 600; }
+#jv-ov .seg { display: flex; border: 1px solid #1d3347; border-radius: 12px; overflow: hidden; }
+#jv-ov .seg button { flex: 1; border: 0; border-radius: 0; background: transparent; color: #9fb7cc; padding: 13px; }
+#jv-ov .seg button[aria-pressed=true] { background: #12324c; color: #e8f4ff; box-shadow: inset 0 -2px 0 #7fd6ff; }
+#jv-ov .msg { min-height: 20px; margin-top: 8px; font-size: 14px; } #jv-ov .ok { color: #5ef0a0; } #jv-ov .bad { color: #ff7a7a; }
+#jv-ov .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 18px calc(env(safe-area-inset-bottom, 0px) + 14px); background: linear-gradient(transparent, #03070d 30%); }
+#jv-ov .bar .row { max-width: 560px; margin: 0 auto; }
+#jv-ov details { margin-top: 26px; border-top: 1px solid #12253a; padding-top: 14px; }
+#jv-ov summary { font: 600 18px/1.2 'Saira', system-ui, sans-serif; color: #e8f4ff; cursor: pointer; }
+/* hearing check */
+#jv-diag { margin-top: 10px; padding: 14px; border-radius: 14px; background: #081321; border: 1px solid #12253a; }
+#jv-diag .meter { position: relative; height: 10px; border-radius: 5px; background: #102235; overflow: hidden; margin: 8px 0 4px; }
+#jv-diag .meter b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #5ef0a0; transition: width .1s linear; }
+#jv-diag .meter.wake b { background: #7fd6ff; }
+#jv-diag dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; font-size: 14px; }
+#jv-diag dt { color: #6f8aa3; } #jv-diag dd { margin: 0; color: #e8f4ff; overflow-wrap: anywhere; }
+#jv-diag .flash { color: #5ef0a0; font-weight: 600; }
 `;
 
 function field(kind, key, label, opts = {}) {
   const c = J().config, cur = c.get(key, opts.def ?? '');
   const wrap = el('div'); wrap.append(el('label', {}, label));
   let inp;
-  if (kind === 'select') { inp = el('select'); for (const [v, t] of opts.options) { const o = el('option', { value: v }, t); inp.append(o); } inp.value = String(cur); if (inp.value !== String(cur)) inp.value = opts.options[0][0]; }
+  if (kind === 'select') { inp = el('select'); for (const [v, t] of opts.options) inp.append(el('option', { value: v }, t)); inp.value = String(cur); if (inp.value !== String(cur)) inp.value = opts.options[0][0]; }
   else { inp = el('input', { type: kind, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' }); if (opts.ph) inp.placeholder = opts.ph; if (opts.inputmode) inp.setAttribute('inputmode', opts.inputmode); inp.value = cur == null ? '' : String(cur); }
   wrap.append(inp); if (opts.hint) wrap.append(el('p', { class: 'hint' }, opts.hint));
   inp._key = key; inp._num = !!opts.num; return [wrap, inp];
@@ -41,67 +56,106 @@ function field(kind, key, label, opts = {}) {
 export function initSettings() {
   if (document.getElementById('jv-ov')) return;
   const st = el('style'); st.textContent = CSS; document.head.append(st);
-  const ov = el('div', { id: 'jv-ov' }), box = el('div', { class: 'box' }); ov.append(box);
+  const ov = el('div', { id: 'jv-ov', role: 'dialog', 'aria-label': 'Settings' }), box = el('div', { class: 'box' }); ov.append(box);
   const inputs = [];
-  const add = (kind, key, label, opts) => { const [w, i] = field(kind, key, label, opts); inputs.push(i); box.append(w); return i; };
-  const section = (t, hint) => { box.append(el('h2', {}, t)); if (hint) box.append(el('p', { class: 'hint' }, hint)); };
+  const add = (parent, kind, key, label, opts) => { const [w, i] = field(kind, key, label, opts); inputs.push(i); parent.append(w); return i; };
+  const section = (title, hint) => { const s = el('section'); s.append(el('h2', {}, title)); if (hint) s.append(el('p', { class: 'hint' }, hint)); box.append(s); return s; };
 
-  box.append(el('h1', {}, 'JARVIS'), el('p', { class: 'hint' }, 'Everything here is stored on this phone only.'));
+  box.append(el('h1', {}, 'Jarvis'), el('p', { class: 'lead' }, 'Settings stay on this phone.'));
 
-  section('Brain (required)', 'Jarvis thinks and listens through Groq. The free plan is enough. Get a key at console.groq.com/keys, then paste it here.');
-  const keyIn = add('password', 'groq_key', 'Groq API key', { ph: 'gsk_...' });
+  // ---- brain
+  const sBrain = section('Brain', 'Jarvis thinks and listens through Groq. A free key from console.groq.com/keys is enough.');
+  const keyIn = add(sBrain, 'password', 'groq_key', 'Groq API key', { ph: 'gsk_…' });
   const testMsg = el('div', { class: 'msg' });
-  box.append(el('div', { class: 'row' }, el('button', { id: 'jv-test', onclick: async () => {
-    J().config.set('groq_key', keyIn.value.trim()); testMsg.className = 'msg'; testMsg.textContent = 'Testing...';
+  sBrain.append(el('div', { class: 'row' }, el('button', { id: 'jv-test', onclick: async () => {
+    J().config.set('groq_key', keyIn.value.trim()); testMsg.className = 'msg'; testMsg.textContent = 'Checking…';
     const r = await J().verifyKey(); testMsg.className = 'msg ' + (r.ok ? 'ok' : 'bad'); testMsg.textContent = r.message;
   } }, 'Test connection')), testMsg);
-  add('text', 'user_name', 'Your name', { ph: 'What should I call you?' });
+  if (J().api.hasProxy()) sBrain.querySelector('.hint').textContent = 'Jarvis works without a key. Add your own Groq key only if you want to use it instead.';
+  add(sBrain, 'text', 'user_name', 'Your name', { ph: 'What should I call you?' });
 
-  section('Voice');
-  const vsel = el('select'); const vw = el('div'); vw.append(el('label', {}, 'Voice (from your phone\'s speech engine)'), vsel); box.append(vw);
-  const fillVoices = () => { vsel.replaceChildren(); const list = J().voices(); if (!list.length) vsel.append(el('option', { value: '' }, 'Phone default')); for (const v of list) vsel.append(el('option', { value: v.id }, v.name)); const cur = J().config.get('voice', ''); if (cur) vsel.value = cur; };
-  const [gw, gsel] = field('select', 'avatar_gender', 'Face', { def: 'male', options: [['male', 'Male (Adam)'], ['female', 'Female']] }); inputs.push(gsel); box.append(gw);
-  gsel.addEventListener('change', () => { J().config.set('avatar_gender', gsel.value); fillVoices(); });
-  box.append(el('div', { class: 'row', style: 'margin-top:8px' }, el('button', { onclick: () => { if (vsel.value) J().setVoice(vsel.value); J().speakTest('Jarvis online. How do I sound?'); } }, 'Hear this voice')));
+  // ---- voice and face
+  const sVoice = section('Voice and face');
+  const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Voice' });
+  const bMale = el('button', { type: 'button' }, 'Male'), bFemale = el('button', { type: 'button' }, 'Female');
+  seg.append(bMale, bFemale); sVoice.append(seg);
+  let gender = J().config.get('avatar_gender', 'male');
+  const vsel = el('select', { 'aria-label': 'Voice' }); const vw = el('div'); vw.append(el('label', {}, 'Voice'), vsel); sVoice.append(vw);
+  const vnote = el('p', { class: 'hint' }); sVoice.append(vnote);
+  const paintSeg = () => { bMale.setAttribute('aria-pressed', String(gender === 'male')); bFemale.setAttribute('aria-pressed', String(gender === 'female')); };
+  const fillVoices = () => {
+    vsel.replaceChildren();
+    const g = gender === 'female' ? 'f' : 'm';
+    const all = J().voices(), mine = all.filter(v => v.gender === g), unknown = all.filter(v => !v.gender);
+    const list = mine.length ? mine : unknown;
+    vsel.append(el('option', { value: '' }, 'Best match'));
+    for (const v of list) vsel.append(el('option', { value: v.id }, v.name));
+    const cur = J().config.get('voice', ''); if (cur && list.some(v => v.id === cur)) vsel.value = cur;
+    vnote.textContent = mine.length ? '' : `This phone has no ${gender} voice installed, so Jarvis changes the pitch. More voices: Android Settings, Text-to-speech, Speech Services by Google, Install voice data.`;
+  };
+  const choose = g => { gender = g; paintSeg(); J().config.merge({ avatar_gender: g, voice: '' }); fillVoices(); J().announceVoice(); };
+  bMale.onclick = () => choose('male'); bFemale.onclick = () => choose('female');
+  vsel.onchange = () => { J().config.set('voice', vsel.value); J().announceVoice(); };
+  sVoice.append(el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { type: 'button', onclick: () => J().speakTest(gender === 'female' ? 'Hello. This is how I sound.' : 'Good evening. This is how I sound.') }, 'Hear it')));
 
-  section('Navigation & delivery');
-  add('select', 'units', 'Distance units', { def: 'auto', options: [['auto', 'Automatic'], ['miles', 'Miles'], ['km', 'Kilometres']] });
-  add('text', 'currency', 'Currency symbol', { def: '$', ph: '$' });
-  add('text', 'areas', 'Hot areas (comma-separated)', { ph: 'Downtown, Airport', hint: 'Used to suggest where to wait between orders.' });
-  add('number', 'min_per_hour', 'Minimum pay per hour', { num: true, inputmode: 'decimal', ph: '20' });
-  add('number', 'min_per_mile', 'Minimum pay per mile', { num: true, inputmode: 'decimal', ph: '1.5' });
-  add('select', 'use_gps', 'Use GPS', { def: 'true', options: [['true', 'Yes'], ['false', 'No - I will say where I am']] });
-  add('select', 'map_theme', 'Map theme', { def: 'auto', options: [['auto', 'Follow the time of day'], ['night', 'Always night'], ['day', 'Always day']] });
-  add('select', 'map_provider', 'Map', { def: 'jarvis', options: [['jarvis', 'Jarvis map (free)'], ['google', 'Google Maps (needs key)'], ['apple', 'Apple Maps (needs token)']] });
-  add('password', 'google_key', 'Google Maps JavaScript API key (optional)', { ph: 'AIza...' });
-  add('password', 'apple_token', 'Apple MapKit JS token (optional)', { ph: 'eyJ...' });
+  // ---- hearing
+  const sEar = section('Hearing', 'Jarvis listens for "Hey Jarvis" on the phone itself. Nothing is sent anywhere until he hears it.');
+  const sens = el('input', { type: 'range', min: '0.15', max: '0.6', step: '0.05', 'aria-label': 'Wake word sensitivity' });
+  sens.value = String(J().config.get('wake_sensitivity', 0.3));
+  sEar.append(el('label', {}, 'Wake word: more sensitive ⟷ fewer false wakes'), sens);
+  const diag = el('div', { id: 'jv-diag' });
+  const meter = el('div', { class: 'meter' }, el('b')), wmeter = el('div', { class: 'meter wake' }, el('b'));
+  const dl = el('dl');
+  const row = (k) => { const dd = el('dd'); dl.append(el('dt', {}, k), dd); return dd; };
+  const dMic = row('Microphone'), dWake = row('Wake word'), dHeard = row('Last heard'), dBrain = row('Brain'), dSpeed = row('Speech to text');
+  diag.append(el('div', {}, 'Your voice'), meter, el('div', {}, 'Wake score (say "Hey Jarvis")'), wmeter, dl);
+  sEar.append(diag);
+  let diagTimer = null, wakesSeen = 0;
+  const paintDiag = () => {
+    const s = J().stats; if (!s) return;
+    meter.firstChild.style.width = Math.min(100, Math.sqrt(s.rms || 0) * 2.2) + '%';
+    wmeter.firstChild.style.width = Math.min(100, (s.score || 0) * 100) + '%';
+    const micTxt = { listening: 'On', starting: 'Starting…', stopped: 'Stopped', 'no-permission': 'No permission. Allow the microphone in Android settings.', browser: 'Browser microphone' };
+    dMic.textContent = micTxt[s.mic] || (String(s.mic).startsWith('listening-no-wake') ? 'On (wake word model failed to load)' : String(s.mic).replace(/^error:/, 'Error: '));
+    if (s.wakes > wakesSeen) { wakesSeen = s.wakes; dWake.className = 'flash'; dWake.textContent = `Heard you (score ${Number(s.lastWakeScore || 0).toFixed(2)})`; setTimeout(() => { dWake.className = ''; }, 2500); }
+    else if (!dWake.className) dWake.textContent = s.wake ? `Ready · ${s.wakes} so far` : (s.wakeError ? 'Not loaded' : 'Loading…');
+    dHeard.textContent = s.heard && s.heard[0] ? `"${s.heard[0].text}"` : '—';
+    const m = J().api.mode(); dBrain.textContent = m === 'key' ? 'Your Groq key' : m === 'proxy' ? 'Jarvis service' : 'Not set up';
+    dSpeed.textContent = s.sttMs ? `${s.sttMs} ms` : '—';
+    if (s.notice) dSpeed.textContent += ` · ${s.notice}`;
+  };
 
-  section('Advanced');
-  add('select', 'reasoning', 'Thinking effort', { def: 'low', options: [['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High']] });
-  add('text', 'groq_model', 'Groq model', { ph: 'openai/gpt-oss-120b' });
-  add('text', 'stt_language', 'Speech language code', { ph: 'en', hint: 'Leave blank for English.' });
+  // ---- navigation & delivery
+  const nd = el('details'); nd.append(el('summary', {}, 'Navigation and deliveries')); box.append(nd);
+  add(nd, 'select', 'units', 'Distance', { def: 'auto', options: [['auto', 'Automatic'], ['miles', 'Miles'], ['km', 'Kilometres']] });
+  add(nd, 'text', 'currency', 'Currency symbol', { def: '$', ph: '$' });
+  add(nd, 'text', 'areas', 'Busy areas (comma-separated)', { ph: 'Downtown, Airport', hint: 'Used to suggest where to wait between orders.' });
+  add(nd, 'number', 'min_per_hour', 'Lowest pay per hour you accept', { num: true, inputmode: 'decimal', ph: '20' });
+  add(nd, 'number', 'min_per_mile', 'Lowest pay per mile you accept', { num: true, inputmode: 'decimal', ph: '1.5' });
+  add(nd, 'select', 'use_gps', 'Use GPS', { def: 'true', options: [['true', 'Yes'], ['false', 'No, I will say where I am']] });
+  add(nd, 'select', 'map_theme', 'Map colours', { def: 'auto', options: [['auto', 'Follow the time of day'], ['night', 'Always night'], ['day', 'Always day']] });
+  add(nd, 'select', 'map_provider', 'Map', { def: 'jarvis', options: [['jarvis', 'Jarvis map (free)'], ['google', 'Google Maps (needs key)'], ['apple', 'Apple Maps (needs token)']] });
+  add(nd, 'password', 'google_key', 'Google Maps JavaScript API key (optional)', { ph: 'AIza…' });
+  add(nd, 'password', 'apple_token', 'Apple MapKit JS token (optional)', { ph: 'eyJ…' });
+
+  const adv = el('details'); adv.append(el('summary', {}, 'Advanced')); box.append(adv);
+  add(adv, 'select', 'reasoning', 'Thinking effort', { def: 'low', options: [['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High']] });
+  add(adv, 'text', 'groq_model', 'Model', { ph: 'openai/gpt-oss-120b' });
+  add(adv, 'text', 'stt_language', 'Speech language code', { ph: 'en', hint: 'Leave blank for English.' });
 
   const saveMsg = el('div', { class: 'msg' });
+  const close = () => { ov.classList.remove('on'); clearInterval(diagTimer); };
   const save = () => {
-    const c = J().config, out = {};
-    for (const i of inputs) {
-      let v = i.value.trim();
-      if (i._key === 'use_gps') v = v !== 'false';
-      else if (i._num) v = v === '' ? '' : Number(v);
-      out[i._key] = v;
-    }
-    if (vsel.value) out.voice = vsel.value;
-    c.merge(out); J().applySettings();
-    saveMsg.className = 'msg ok'; saveMsg.textContent = 'Saved.';
-    setTimeout(() => ov.classList.remove('on'), 350);
+    const out = {};
+    for (const i of inputs) { let v = i.value.trim(); if (i._key === 'use_gps') v = v !== 'false'; else if (i._num) v = v === '' ? '' : Number(v); out[i._key] = v; }
+    out.wake_sensitivity = Number(sens.value); out.avatar_gender = gender; out.voice = vsel.value;
+    J().config.merge(out); J().applySettings({ voiceChanged: true });
+    saveMsg.className = 'msg ok'; saveMsg.textContent = 'Saved.'; setTimeout(close, 300);
   };
-  box.append(el('div', { class: 'bar' }, el('div', { class: 'row' }, el('button', { onclick: () => ov.classList.remove('on') }, 'Close'), el('button', { class: 'pri', onclick: save }, 'Save')), saveMsg));
+  ov.append(el('div', { class: 'bar' }, el('div', { class: 'row' }, el('button', { type: 'button', onclick: close }, 'Close'), el('button', { type: 'button', class: 'pri', onclick: save }, 'Save')), saveMsg));
   document.body.append(ov);
 
-  const open = () => { fillVoices(); saveMsg.textContent = ''; ov.classList.add('on'); };
-  document.body.append(
-    el('div', { id: 'jv-gear', title: 'Settings', onclick: open }, '⚙'),
-    el('div', { id: 'jv-talk', title: 'Talk to Jarvis', onclick: () => J().wake() }, 'TALK'));
+  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); saveMsg.textContent = ''; ov.classList.add('on'); paintDiag(); diagTimer = setInterval(paintDiag, 150); };
   J().openSettings = open;
-  if (!J().brain.key()) open();
+  if (!J().api.ready()) open();
 }

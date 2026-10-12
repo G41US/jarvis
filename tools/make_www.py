@@ -81,6 +81,44 @@ def main():
                     "camera.lookAt(CAM_LOOK);\n" + CAMERA_FIT + "\nwindow.addEventListener('resize', () => {\n  fitCamera();\n", 'camera fit')
     html = sub_once(html, 'camera.position.z = CAM_BASE.z;', 'camera.position.z = CAM_BASE.z * camFit;', 'camera z')
 
+
+    # ---- the app records the microphone natively (VoiceEngine.java); the page only receives transcripts
+    html = sub_once(html, """    micStream = await navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true } });
+    await setupMicAnalyser(micStream);
+    startMicLevelLoop();
+    connectAudioWs();
+    await setupAudioCapture(micStream);""", """    if (window.JARVIS_NATIVE_MIC) { connectAudioWs(); }       // phone: native mic + on-device wake word
+    else {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true } });
+    await setupMicAnalyser(micStream);
+    startMicLevelLoop();
+    connectAudioWs();
+    await setupAudioCapture(micStream);
+    }""", 'native mic')
+    # ---- let the in-app server see what the page is doing (it only streams audio while Jarvis is listening)
+    html = sub_once(html, "let active = false, sessionActive = false, recognizing = false, speaking = false, muted = false;\n",
+                    "let active = false, sessionActive = false, recognizing = false, speaking = false, muted = false;\n"
+                    "window.__jv = { state: () => ({ active, session: sessionActive, speaking, muted, guide: typeof guideSpeaking !== 'undefined' && guideSpeaking, appState }) };\n",
+                    'page state')
+    # ---- phone: chime and listen straight away instead of a spoken greeting talking over your question
+    html = sub_once(html, "  if (Date.now() - lastGreetAt < GREET_EVERY_MS) {", "  if (window.JARVIS_NATIVE || Date.now() - lastGreetAt < GREET_EVERY_MS) {", 'no greeting on wake')
+    # ---- chimes through Android (a WebView audio context can be asleep)
+    html = sub_once(html, "function beep(freq, duration, volume) {\n",
+                    "function beep(freq, duration, volume) {\n  if (window.AndroidBridge && window.AndroidBridge.tone) { try { window.AndroidBridge.tone(freq, Math.round(duration * 1000), volume || 0.06); return; } catch (e) {} }\n",
+                    'native chime')
+    # ---- rendering budget on phones: lower pixel ratio, ~30 fps, nothing while hidden
+    html = sub_once(html, "renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));", "renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? 1.25 : 2));", 'pixel ratio')
+    html = sub_once(html, "composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));", "composer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? 1.25 : 2));", 'composer pixel ratio')
+    html = sub_once(html, "function animate() {\n", "let _lastFrame = 0;\nfunction animate() {\n"
+                    "  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }\n", 'frame cap')
+
+    # ---- route card in plain sentence case (the page writes these strings itself)
+    html = sub_once(html, "routeHead.appendChild(mk('span', '', `ROUTE · ${plan.orders} ORDER${plan.orders === 1 ? '' : 'S'} · ${plan.total_min} MIN · ${plan.total_miles} ${(plan.unit || 'mi').toUpperCase()}`));",
+                    "routeHead.appendChild(mk('span', '', `${plan.orders} order${plan.orders === 1 ? '' : 's'} · ${plan.total_min} min · ${plan.total_miles} ${plan.unit || 'mi'}`));", 'route head')
+    html = sub_once(html, "` · ${plan.currency || '$'}${Math.round(plan.per_hour)}/HR`", "` · ${plan.currency || '$'}${Math.round(plan.per_hour)} an hour`", 'route per hour')
+    html = sub_once(html, "`${plan.total_min_lo}-${plan.total_min_hi} MIN · ON-TIME RISK ${String(plan.risk || 'low').toUpperCase()}`", "`${plan.total_min_lo}–${plan.total_min_hi} min · on-time risk ${String(plan.risk || 'low')}`", 'route risk')
+    html = sub_once(html, "mk('span', 'est', 'ESTIMATED TIMES')", "mk('span', 'est', 'Estimated times')", 'route estimate')
+    html = sub_once(html, "row.appendChild(mk('span', 'k', s.kind === 'pickup' ? 'PICK' : 'DROP'));", "row.appendChild(mk('span', 'k', s.kind === 'pickup' ? 'Pick up' : 'Drop off'));", 'route kinds')
     html = sub_once(html, '</style>', MOBILE_CSS + '</style>', 'mobile css')
 
     # no localhost anywhere: the page must only talk to its own origin (which the app answers itself)

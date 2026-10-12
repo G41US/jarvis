@@ -1,7 +1,7 @@
 // shim.js - the "server" that lives inside the app. The page still talks to /chat_stream, /speak, /ws, /audio ... exactly as it did on
 // the PC; here those calls are answered on the phone: fetch() and WebSocket are intercepted, the voice goes through Android's text-to-speech,
-// and Jarvis's brain, delivery copilot and navigation all run in JavaScript. Nothing leaves the phone except calls to Groq and the map services.
-import { kv, makeHttp, realFetch, nativeHttp } from './net.js';
+// the microphone and the "Hey Jarvis" wake word run natively (VoiceEngine.java), and Jarvis's brain, delivery copilot and navigation run here.
+import { kv, makeHttp, realFetch, nativeHttp, b64ToBytes } from './net.js';
 import { Registry } from './tools.js';
 import { Navigator } from './navlib.js';
 import { Copilot } from './delivery.js';
@@ -10,19 +10,24 @@ import { registerDeliveryTools } from './tools_delivery.js';
 import { registerGeneralTools, timeOfDay } from './tools_general.js';
 import { createBrain } from './brain.js';
 import { SttPipeline } from './stt.js';
+import { createApi } from './api.js';
+import { describeVoices, pickVoice, fallbackPitch } from './voices.js';
 
 const W = window; W.JARVIS_NATIVE = true;
 const bridge = () => W.AndroidBridge || null;
+const has = m => !!(bridge() && typeof bridge()[m] === 'function');
 const log = (...a) => console.log('[JARVIS]', ...a);
+W.JARVIS_NATIVE_MIC = has('micStart');                 // the page skips its own microphone code when the app records natively
 
 // ---------------------------------------------------------------- settings
 const cfgStore = { get(k, d = null) { const c = kv.get('config', {}) || {}; return c[k] === undefined ? d : c[k]; }, set(k, v) { const c = kv.get('config', {}) || {}; c[k] = v; kv.set('config', c); },
   all() { return kv.get('config', {}) || {}; }, merge(o) { kv.set('config', { ...this.all(), ...o }); } };
 export const config = cfgStore;
+const api = createApi(cfgStore);
 
-const openUrl = url => { try { if (bridge() && bridge().openUrl) bridge().openUrl(url); else W.open(url, '_blank'); } catch (e) { log('openUrl', e); } };
+const openUrl = url => { try { if (has('openUrl')) bridge().openUrl(url); else W.open(url, '_blank'); } catch (e) { log('openUrl', e); } };
 
-// ---------------------------------------------------------------- sockets (/ws push messages, /audio mic stream)
+// ---------------------------------------------------------------- sockets (/ws push messages, /audio transcripts)
 const wsSockets = new Set(), audioSockets = new Set();
 const broadcast = msg => { for (const s of wsSockets) s._deliver(msg); };
 const RealWS = W.WebSocket;
@@ -39,33 +44,57 @@ class FakeWS {
   addEventListener(t, f) { (this._l[t] ||= []).push(f); } removeEventListener(t, f) { this._l[t] = (this._l[t] || []).filter(x => x !== f); }
   _emit(t, ev) { const h = this['on' + t]; try { if (h) h.call(this, ev); } catch (e) { console.error(e); } for (const f of (this._l[t] || [])) try { f.call(this, ev); } catch (e) { console.error(e); } }
   _deliver(data) { if (this.readyState === 1) this._emit('message', { data }); }
-  send(data) { if (this.kind === 'audio' && this.readyState === 1) stt.feed(data instanceof ArrayBuffer ? new Int16Array(data) : data); }
+  send(data) { if (this.kind === 'audio' && this.readyState === 1) ears.feed(data instanceof ArrayBuffer ? new Int16Array(data) : data); }   // browser-mic fallback
   close() { if (this.readyState === 3) return; this.readyState = 3; wsSockets.delete(this); audioSockets.delete(this); this._emit('close', { code: 1000 }); }
 }
 function LocalAwareWebSocket(url, protocols) { return isLocalWS(url) ? new FakeWS(url) : new RealWS(url, protocols); }
 Object.assign(LocalAwareWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 }); LocalAwareWebSocket.prototype = RealWS.prototype;
 W.WebSocket = LocalAwareWebSocket;
 
+// ---------------------------------------------------------------- voices (male / female that actually sound different)
+const tts = { active: new Map(), uid: 0, pitchMul: 1 };
+let rawVoices = [];
+function loadVoices() { if (!rawVoices.length && has('ttsVoices')) { try { rawVoices = JSON.parse(bridge().ttsVoices() || '[]'); } catch { rawVoices = []; } } return rawVoices; }
+const gender = () => (cfgStore.get('avatar_gender', 'male') === 'female' ? 'f' : 'm');
+const hint = g => (g === 'f' ? 'amy' : 'adam');                 // the page picks the face from these words in the voice id
+const described = () => describeVoices(loadVoices());
+const voiceList = () => described().map(v => ({ id: `${hint(v.gender || gender())}~${v.raw}`, name: v.name, raw: v.raw, gender: v.gender }));
+function chosenVoice() {
+  const g = gender(), list = described(), cur = String(cfgStore.get('voice', '') || ''), raw = cur.includes('~') ? cur.split('~').slice(1).join('~') : cur;
+  let v = list.find(x => x.raw === raw);
+  if (!v || (v.gender && v.gender !== g)) v = pickVoice(list, g) || (v && !v.gender ? v : null);
+  const real = !!(v && v.gender === g);
+  return { raw: v ? v.raw : '', name: v ? v.name : (g === 'm' ? 'Phone voice, deeper' : 'Phone voice, higher'), pitch: real ? 1 : fallbackPitch(g), id: `${hint(g)}~${v ? v.raw : 'default'}`, gender: g };
+}
+function applyVoice() { const c = chosenVoice(); tts.pitchMul = c.pitch; try { if (has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {} return c; }
+function announceVoice() { const c = applyVoice(); broadcast(`voice_changed:${c.id}|${c.name}`); return c; }
+function setVoice(q) {
+  const t = String(q || '').toLowerCase().trim();
+  if (/\b(female|woman|girl|lady|her|she)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'female', voice: '' }); return announceVoice().name; }
+  if (/\b(male|man|guy|him|he|deeper)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'male', voice: '' }); return announceVoice().name; }
+  const hit = voiceList().find(v => v.id.toLowerCase() === t || v.raw.toLowerCase() === t || v.name.toLowerCase().includes(t));
+  if (!hit) return null;
+  const up = { voice: hit.id }; if (hit.gender) up.avatar_gender = hit.gender === 'f' ? 'female' : 'male';
+  cfgStore.merge(up); return announceVoice().name;
+}
+
 // ---------------------------------------------------------------- text to speech (Android's engine)
-const tts = { active: new Map(), uid: 0, voices: [], loaded: false };
-function loadVoices() {
-  if (tts.voices.length) return tts.voices;                       // the engine may still be starting; ask again until it answers
-  try { if (bridge() && bridge().ttsVoices) tts.voices = JSON.parse(bridge().ttsVoices() || '[]'); } catch { tts.voices = []; }
-  return tts.voices;
-}
-const genderHint = () => (cfgStore.get('avatar_gender', 'male') === 'female' ? 'amy' : 'adam');
-const voiceList = () => loadVoices().map((v, i) => ({ id: `${genderHint()}~${v.id}`, name: `${v.label || v.id}${v.lang ? ' · ' + v.lang : ''}`, raw: v.id }));
-function applyVoice() { const cur = cfgStore.get('voice', ''); const raw = cur.includes('~') ? cur.split('~').slice(1).join('~') : cur; try { if (bridge() && bridge().ttsSetVoice) bridge().ttsSetVoice(raw || ''); } catch {} }
-function setVoice(name) {
-  const list = voiceList(), q = String(name || '').toLowerCase().trim(); const hit = list.find(v => v.id.toLowerCase() === q || v.name.toLowerCase().includes(q) || v.raw.toLowerCase().includes(q));
-  if (!hit) return null; cfgStore.set('voice', hit.id); applyVoice(); return hit.name;
-}
-if (bridge() && bridge().ttsSpeak) {
+if (has('ttsSpeak')) {
   W.SpeechSynthesisUtterance = class { constructor(text) { this.text = String(text || ''); this.rate = 1; this.pitch = 1; this.volume = 1; this.lang = ''; this.voice = null; this.onend = null; this.onerror = null; this.onstart = null; } };
-  W.__ttsEvent = (id, ev) => { const u = tts.active.get(id); if (!u) return; tts.active.delete(id); try { if (ev === 'done') u.onend && u.onend({}); else u.onerror && u.onerror({}); } catch (e) { console.error(e); } };
+  const finish = (id, ev) => {
+    const e = tts.active.get(id); if (!e) return; tts.active.delete(id); clearTimeout(e.timer);
+    try { if (ev === 'done') e.u.onend && e.u.onend({}); else e.u.onerror && e.u.onerror({}); } catch (err) { console.error(err); }
+  };
+  W.__ttsEvent = (id, ev) => finish(id, ev);
   const synth = {
-    speak(u) { const id = ++tts.uid; tts.active.set(id, u); try { u.onstart && u.onstart({}); bridge().ttsSpeak(id, u.text, u.rate || 1, u.pitch || 1); } catch (e) { tts.active.delete(id); u.onerror && u.onerror({}); } },
-    cancel() { try { bridge().ttsStop(); } catch {} const pend = [...tts.active.values()]; tts.active.clear(); pend.forEach(u => { try { u.onend && u.onend({}); } catch {} }); },
+    speak(u) {
+      const id = ++tts.uid, rate = u.rate || 1;
+      // Watchdog: if the phone's speech engine never reports back, carry on anyway instead of freezing in "speaking".
+      const timer = setTimeout(() => { log('tts watchdog released', id); finish(id, 'done'); }, 2500 + u.text.length * 95 / Math.max(0.5, rate));
+      tts.active.set(id, { u, timer });
+      try { u.onstart && u.onstart({}); bridge().ttsSpeak(id, u.text, rate, (u.pitch || 1) * tts.pitchMul); } catch (e) { finish(id, 'error'); }
+    },
+    cancel() { try { bridge().ttsStop(); } catch {} for (const id of [...tts.active.keys()]) finish(id, 'done'); },
     getVoices() { return []; }, pause() {}, resume() {}, get speaking() { return tts.active.size > 0; }, get pending() { return false; }, get paused() { return false; },
     addEventListener() {}, removeEventListener() {},
   };
@@ -92,25 +121,79 @@ let brain = null;
 const gctx = { reg, kv, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
 registerGeneralTools(gctx);
 const briefingFast = async text => (/\b(morning briefing|brief me|briefing|what.?s my day|what.?s on today)\b/i.test(text) ? (await gctx.briefingText())[0] : null);
-brain = createBrain({ reg, kv, config: cfgStore, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log });
-log(`on-device Jarvis ready: ${reg.schemas.length} tools, native http: ${nativeHttp()}`);
+brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log });
+log(`on-device Jarvis ready: ${reg.schemas.length} tools, native http: ${nativeHttp()}, native mic: ${W.JARVIS_NATIVE_MIC}, brain: ${api.mode() || 'no key'}`);
 
 /** Re-read settings after the settings screen saves. */
-export function applySettings() {
+export function applySettings({ voiceChanged = false } = {}) {
   Object.assign(delivery.cfg, deliveryConfig());
   const u = String(cfgStore.get('units', 'auto')).toLowerCase(); delivery._unitsFixed = ['miles', 'mi', 'km'].includes(u); if (delivery._unitsFixed) delivery.units = u === 'km' ? 'km' : 'miles';
   navigator_.cfg.units = cfgStore.get('units', 'auto'); navigator_.cfg.language = cfgStore.get('nav_language', 'en-US');
-  brain.refreshPrompt(); applyVoice();
+  brain.refreshPrompt(); if (voiceChanged) announceVoice(); else applyVoice();
+  const th = Number(cfgStore.get('wake_sensitivity', 0.3)); if (has('setWakeThreshold') && th) bridge().setWakeThreshold(th);
   broadcast('nav:' + JSON.stringify({ cmd: 'provider', value: cfgStore.get('map_provider', 'jarvis'), cfg: navsvc.config() }));
   broadcast('nav:' + JSON.stringify({ cmd: 'theme', value: cfgStore.get('map_theme', 'auto') }));
 }
 
-// ---------------------------------------------------------------- speech in
+// ---------------------------------------------------------------- ears: native mic + wake word -> speech to text
+const stats = { mic: has('micStart') ? 'starting' : 'browser', wake: false, rms: 0, score: 0, wakes: 0, lastWakeAt: 0, listening: false, heard: [], sttMs: 0, notice: '' };
 function deliverTranscript(text) {
+  stats.heard.unshift({ text, at: Date.now() }); stats.heard.length = Math.min(stats.heard.length, 6);
   for (const s of audioSockets) { s._deliver(JSON.stringify({ type: 'transcript', text })); s._deliver(JSON.stringify({ type: 'partial', text })); }
 }
-const stt = new SttPipeline({ getKey: () => brain.key(), getConfig: (k, d) => cfgStore.get(k, d), onTranscript: deliverTranscript, onNotice: t => broadcast('proactive:' + t), log });
-W.JARVIS = { wake: () => deliverTranscript('Hey Jarvis'), say: t => deliverTranscript(t), applySettings, config: cfgStore, brain, navsvc, delivery, reg, verifyKey: () => brain.verifyKey(), voices: voiceList, setVoice, stt, speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(new W.SpeechSynthesisUtterance(t || 'Jarvis online.')) };
+const stt = new SttPipeline({ api, getConfig: (k, d) => cfgStore.get(k, d), onTranscript: deliverTranscript, onNotice: t => { stats.notice = t; broadcast('proactive:' + t); }, log,
+  onTiming: ms => { stats.sttMs = ms; } });
+const ears = {
+  pending: [], pendingLen: 0,
+  /** native chunks are 80 ms; the speech detector was tuned on 128 ms frames, so re-cut to 2048 samples */
+  feed(int16) {
+    this.pending.push(int16); this.pendingLen += int16.length;
+    while (this.pendingLen >= 2048) {
+      const out = new Int16Array(2048); let o = 0;
+      while (o < 2048) { const h = this.pending[0], take = Math.min(h.length, 2048 - o); out.set(h.subarray(0, take), o); o += take; if (take === h.length) this.pending.shift(); else this.pending[0] = h.subarray(take); this.pendingLen -= take; }
+      stt.feed(out);
+    }
+  },
+  reset() { this.pending = []; this.pendingLen = 0; stt.cut(); },
+};
+const meter = () => document.getElementById('mic-level-fill');
+W.__jvPcm = b64 => { const b = b64ToBytes(b64); ears.feed(new Int16Array(b.buffer, b.byteOffset, b.byteLength >> 1)); };
+W.__jvLevel = (rms, score) => {
+  stats.rms = rms; stats.score = score;
+  const m = meter(); if (m) m.style.width = Math.min(100, Math.sqrt(rms) * 2.2) + '%';
+  if (!stats.listening && rms < stt.vad.threshold) stt.vad.ambient(rms);     // keep the noise floor current while idle
+};
+W.__jvWake = score => {
+  stats.wakes++; stats.lastWakeAt = Date.now(); stats.lastWakeScore = score;
+  log(`wake word (${Number(score).toFixed(2)})`);
+  const st = pageState(); if (st && st.muted) return;
+  setListening(true);                                    // start sending audio right away (with the second before the wake word)
+  broadcast('wake');
+};
+W.__jvMic = state => {
+  stats.mic = String(state);
+  if (state === 'permission') micStart();
+  try { const s = JSON.parse(bridge().micStatus()); stats.wake = !!s.wake; stats.wakeError = s.wakeError || ''; } catch {}
+};
+function micStart() { if (!has('micStart')) return; const r = bridge().micStart(); stats.mic = r === 'ok' ? 'starting' : r; }
+
+const pageState = () => { try { return W.__jv && W.__jv.state(); } catch { return null; } };
+function setListening(on) { if (stats.listening === on) return; stats.listening = on; if (has('setListening')) bridge().setListening(on); if (!on) ears.reset(); }
+let lastSpeaking = null, lastMuted = null;
+setInterval(() => {                                      // follow the page: listen only while a session is open and Jarvis is quiet
+  const st = pageState(); if (!st) return;
+  setListening(!!(st.active && st.session && !st.speaking && !st.muted));
+  if (st.speaking !== lastSpeaking) { lastSpeaking = st.speaking; if (has('setSpeaking')) bridge().setSpeaking(!!st.speaking); }
+  const mute = !!(st.muted || !st.active); if (mute !== lastMuted) { lastMuted = mute; if (has('setMuted')) bridge().setMuted(mute); }
+}, 100);
+micStart();
+applySettings();
+
+W.JARVIS = {
+  wake: () => W.__jvWake(1), say: t => deliverTranscript(t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
+  verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, refreshVoices: () => { rawVoices = []; return applyVoice(); },
+  speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
+};
 
 // ---------------------------------------------------------------- the local "HTTP server"
 const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
@@ -126,10 +209,10 @@ async function handle(method, path, query, body, signal) {
     }
     case '/speak': return new Response(null, { status: 204 });                    // the page then speaks with Android's voice (browserSpeak)
     case '/greeting': { const name = (query.get('name') || cfgStore.get('user_name', '') || '').trim(), tod = timeOfDay(); return json({ text: name ? `${tod}, ${name}.` : `${tod}.`, name, title: '', time_of_day: tod }); }
-    case '/briefing': { const [text, has] = await gctx.briefingText(); return json({ text, has_data: has }); }
+    case '/briefing': { const [text, has_] = await gctx.briefingText(); return json({ text, has_data: has_ }); }
     case '/voices': return json(voiceList().map(v => ({ id: v.id, name: v.name })));
-    case '/get_voice': { const cur = cfgStore.get('voice', '') || (voiceList()[0] || {}).id || ''; const v = voiceList().find(x => x.id === cur); return json({ voice: cur, friendly: v ? v.name : cur }); }
-    case '/set_voice': { const n = setVoice(body && body.voice); return n ? json({ ok: true, voice: body.voice, friendly: n }) : json({ ok: false, error: 'invalid voice' }); }
+    case '/get_voice': { const c = chosenVoice(); return json({ voice: c.id, friendly: c.name }); }
+    case '/set_voice': { const n = setVoice(body && body.voice); return n ? json({ ok: true, voice: chosenVoice().id, friendly: n }) : json({ ok: false, error: 'invalid voice' }); }
     case '/delivery/plan': { const p = await delivery.plan(); return json(p.ok ? p : {}); }
     case '/nav/config': return json(navsvc.config());
     case '/nav/position': return json(await navsvc.position(body || {}));
