@@ -21,7 +21,8 @@ else:
     del m.graph.input[:]; m.graph.input.extend(keep)
     clean = os.path.join(tmp, 'clean.onnx'); onnx.save(m, clean)
     small = os.path.join(tmp, 'sface_int8.onnx')
-    quantize_dynamic(clean, small, weight_type=QuantType.QInt8, op_types_to_quantize=['Conv', 'MatMul', 'Gemm'])
+    # unsigned weights: ONNX Runtime's 8-bit convolution (ConvInteger) only has a uint8 x uint8 kernel
+    quantize_dynamic(clean, small, weight_type=QuantType.QUInt8, op_types_to_quantize=['Conv', 'MatMul', 'Gemm'])
     print(f'quantized: {os.path.getsize(src) / 1e6:.1f} MB -> {os.path.getsize(small) / 1e6:.1f} MB, IR {onnx.load(small).ir_version}')
 
 so = ort.SessionOptions(); so.log_severity_level = 3

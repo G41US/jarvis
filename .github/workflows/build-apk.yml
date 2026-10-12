@@ -76,7 +76,7 @@ jobs:
           set -e
           cat face.log
           if [ $code -ne 0 ]; then
-            echo "::warning title=Face recognition left out::$(grep -v 'onnxruntime\]' face.log | tail -12 | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-900)"
+            echo "::warning title=Face recognition left out::$(grep -v 'onnxruntime\]' face.log | tail -12 | tr '\n' ' ' | sed 's/%/%25/g' | tail -c 900)"
           fi
           ls -la app/src/main/assets/face/
 
