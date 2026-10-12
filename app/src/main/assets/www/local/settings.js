@@ -42,7 +42,7 @@ body.jv-settings #bg-base, body.jv-settings #bg-rings, body.jv-settings #bg-halo
 #jv-diag .meter b { position: absolute; inset: 0; background: #5ef0a0; transform-origin: 0 50%; transform: scaleX(0); will-change: transform; }
 #jv-diag .meter.wake b { background: #7fd6ff; }
 #jv-diag dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; font-size: 14px; }
-#jv-diag dt { color: #6f8aa3; } #jv-diag dd { margin: 0; color: #e8f4ff; overflow-wrap: anywhere; }
+#jv-diag dt { color: #6f8aa3; } #jv-diag dd { margin: 0; color: #e8f4ff; overflow-wrap: anywhere; } #jv-diag dd.bad { color: #ff7a7a; }
 #jv-diag .flash { color: #5ef0a0; font-weight: 600; }
 `;
 
@@ -123,9 +123,12 @@ export function initSettings() {
     put(dMic, micTxt[s.mic] || (String(s.mic).startsWith('listening-no-wake') ? 'On (wake word model failed to load)' : String(s.mic).replace(/^error:/, 'Error: ')));
     if (s.wakes > wakesSeen) { wakesSeen = s.wakes; dWake.className = 'flash'; put(dWake, `Heard you (score ${Number(s.lastWakeScore || 0).toFixed(2)})`); setTimeout(() => { dWake.className = ''; }, 2500); }
     else if (!dWake.className) put(dWake, s.wake ? `Ready · ${s.wakes} so far` : (s.wakeError ? 'Not loaded' : 'Loading…'));
-    put(dHeard, s.heard && s.heard[0] ? `"${s.heard[0].text}"` : '—');
+    const h = s.heard && s.heard[0], d = s.dropped;
+    const why = { rejected: 'ignored: too short or not for me', echo: 'ignored: sounded like my own voice' };
+    put(dHeard, d && (!h || d.at >= h.at) ? `${d.text} (${why[d.kind] || 'ignored'})` : h ? `"${h.text}"` : '—');
     const m = J().api.mode(); put(dBrain, m === 'key' ? 'Your Groq key' : m === 'proxy' ? 'Jarvis service' : 'Not set up');
-    put(dSpeed, (s.sttMs ? `${s.sttMs} ms` : '—') + (s.notice ? ` · ${s.notice}` : ''));
+    put(dSpeed, s.sttError ? `Failed: ${s.sttError}` : s.sttMs ? `Working · ${s.sttMs} ms · ${s.sttSent || 0} clips` : (s.sttSent ? `${s.sttSent} clips sent…` : 'Nothing sent yet'));
+    dSpeed.className = s.sttError ? 'bad' : '';
   };
 
   // ---- navigation & delivery
