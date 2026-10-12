@@ -591,6 +591,52 @@ public class PhoneActions {
         } catch (Exception e) { Log.w(TAG, "photoSave", e); return ""; }
     }
 
+    // ================================================================== faces (FaceEngine): "remember my face", "who is this?"
+    private FaceEngine faces;
+    private synchronized FaceEngine faces() { if (faces == null) faces = new FaceEngine(a); return faces; }
+    private static byte[] jpeg(String b64) { return java.util.Base64.getDecoder().decode(b64.replaceFirst("^data:[^,]*,", "")); }
+
+    /** {"ok":true,"samples":n} / {"ok":false,"error":"noface"|"unavailable"|...} */
+    @JavascriptInterface
+    public String faceRemember(String b64, String name, String title) {
+        JSONObject o = new JSONObject();
+        try {
+            if (!faces().available()) return o.put("ok", false).put("error", "unavailable").toString();
+            float[] sig = faces().signature(jpeg(b64));
+            if (sig == null) return o.put("ok", false).put("error", "noface").toString();
+            return o.put("ok", true).put("samples", faces().remember(name, title, sig)).toString();
+        } catch (Exception e) { Log.w(TAG, "faceRemember", e); try { return o.put("ok", false).put("error", String.valueOf(e.getMessage())).toString(); } catch (Exception x) { return "{}"; } }
+    }
+
+    /** {"ok":true,"face":true,"match":{name,title,similarity}|null} or {"ok":false,"error":..} */
+    @JavascriptInterface
+    public String faceIdentify(String b64) {
+        JSONObject o = new JSONObject();
+        try {
+            if (!faces().available()) return o.put("ok", false).put("error", "unavailable").toString();
+            float[] sig = faces().signature(jpeg(b64));
+            o.put("ok", true).put("face", sig != null);
+            if (sig != null) { JSONObject m = faces().match(sig); o.put("match", m == null ? JSONObject.NULL : m); }
+            return o.toString();
+        } catch (Exception e) { Log.w(TAG, "faceIdentify", e); try { return o.put("ok", false).put("error", String.valueOf(e.getMessage())).toString(); } catch (Exception x) { return "{}"; } }
+    }
+
+    /** [{name, title, samples}] */
+    @JavascriptInterface
+    public String faceList() {
+        JSONArray out = new JSONArray();
+        try {
+            JSONArray all = faces().people();
+            for (int i = 0; i < all.length(); i++) {
+                JSONObject p = all.getJSONObject(i);
+                out.put(new JSONObject().put("name", p.optString("name")).put("title", p.optString("title")).put("samples", p.optJSONArray("samples") == null ? 0 : p.optJSONArray("samples").length()));
+            }
+        } catch (Exception e) { Log.w(TAG, "faceList", e); }
+        return out.toString();
+    }
+
+    @JavascriptInterface public boolean faceForget(String name) { return faces().forget(name); }
+
     // ================================================================== phone control (PhoneControlService)
     private PhoneControlService ctl() { return PhoneControlService.instance; }
     private String needControl() { return PhoneControlService.isEnabled(a) ? "starting" : "need-control"; }

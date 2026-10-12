@@ -67,6 +67,13 @@ jobs:
             echo "$abi ok"
           done
 
+      - name: Face recognition (SFace shrunk to 8-bit, checked against the full model)
+        run: |
+          python3 -m pip install --quiet onnx==1.16.2 onnxruntime==1.19.2 "numpy<2.1" opencv-python-headless==4.10.0.84 scikit-image==0.24.0
+          python3 tools/face_quantize.py models_src/face_recognition_sface.onnx app/src/main/assets/face/yunet.onnx app/src/main/assets/face/sface.onnx \
+            || echo "::warning title=Face recognition left out::the 8-bit face model didn't pass its check, so this build ships without face recognition"
+          ls -la app/src/main/assets/face/
+
       - name: Build the phone page from the PC page (if pc_source/ is present)
         run: |
           if [ -f pc_source/index.html ]; then python3 tools/make_www.py; fi
