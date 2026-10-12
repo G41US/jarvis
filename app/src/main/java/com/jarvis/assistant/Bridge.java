@@ -72,6 +72,8 @@ public class Bridge {
     // ---- the PC's Piper voices (Alan / Amy)
     private final PiperTts piper;
 
+    static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android) Jarvis/1.3";
+
     public Bridge(Activity activity, WebView web) {
         this.activity = activity;
         this.web = web;
@@ -149,6 +151,7 @@ public class Bridge {
                     c.setInstanceFollowRedirects(true);
                     JSONObject h = new JSONObject(headersJson == null || headersJson.isEmpty() ? "{}" : headersJson);
                     Iterator<String> keys = h.keys();
+                    c.setRequestProperty("User-Agent", DEFAULT_UA);   // Cloudflare rejects Java's default "Dalvik/…" agent on some sites
                     while (keys.hasNext()) { String k = keys.next(); c.setRequestProperty(k, h.optString(k)); }
                     if (body != null && !body.isEmpty() && !"GET".equals(c.getRequestMethod())) {
                         c.setDoOutput(true);
@@ -442,6 +445,7 @@ public class Bridge {
                     c.setRequestMethod(method == null || method.isEmpty() ? "GET" : method);
                     JSONObject h = new JSONObject(headersJson == null || headersJson.isEmpty() ? "{}" : headersJson);
                     Iterator<String> keys = h.keys();
+                    c.setRequestProperty("User-Agent", DEFAULT_UA);   // Cloudflare rejects Java's default "Dalvik/…" agent on some sites
                     while (keys.hasNext()) { String k = keys.next(); c.setRequestProperty(k, h.optString(k)); }
                     if (bodyB64 != null && !bodyB64.isEmpty()) {
                         byte[] b = java.util.Base64.getDecoder().decode(bodyB64);
