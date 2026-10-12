@@ -267,6 +267,22 @@ def main():
         pg.wait_for_timeout(2500)
         check('VAD sent one clip to Whisper', state['stt_calls'] >= 1, state['stt_calls'])
         check('Groq accepted the upload (valid multipart, model, language)', not state.get('stt_errors'), state.get('stt_errors'))
+        # ---- the "30 seconds late" case: loud steady background noise + the phone's speech detector
+        state['stt_calls'] = 0; state['stt_text'] = 'what time is it'
+        ev("JARVIS.say('thank you jarvis')"); pg.wait_for_timeout(600); ev("window.__jvWake(0.9)"); pg.wait_for_timeout(300)
+        t_end = ev("""(()=>{ let r=7; const rnd=()=>((r=(r*16807)%2147483647)/2147483647)-0.5;
+          const noise=a=>Int16Array.from({length:1280},()=>Math.round(rnd()*2*a*1.7)), voice=a=>Int16Array.from({length:1280},(_, i)=>Math.round(a*Math.sin(i/6)+rnd()*300));
+          const send=(x,p)=>{ const u=new Uint8Array(x.buffer); let s=''; for (const b of u) s+=String.fromCharCode(b); window.__jvPcm(btoa(s), p); };
+          for(let i=0;i<10;i++) send(noise(400),0.03); for(let i=0;i<20;i++) send(voice(3000),0.96);
+          window.__tStop = performance.now(); window.__tHeard = 0;
+          const iv = setInterval(()=>{ send(noise(400),0.03); if (JARVIS.stats.heard[0] && JARVIS.stats.heard[0].text==='what time is it' && !window.__tHeard) { window.__tHeard = performance.now(); clearInterval(iv); } }, 80);
+          setTimeout(()=>clearInterval(iv), 15000); return 1; })()""")
+        pg.wait_for_function("window.__tHeard > 0", timeout=16000)
+        lat = ev("window.__tHeard - window.__tStop")
+        check(f'noisy room: words reach Jarvis {lat/1000:.1f} s after you stop (was 15-30 s)', lat < 1500, lat)
+        check('the clip was cut by the pause, not the time limit', ev("JARVIS.stats.clipWhy") == 'pause', ev("JARVIS.stats.clipWhy"))
+        pg.wait_for_timeout(2500)
+
         # a speech-service error must be visible, not silent
         ev("JARVIS.config.set('stt_model','bogus-model')"); ev("JARVIS.wake()"); pg.wait_for_timeout(300)
         ev("""(()=>{ const f=(n,a)=>{const x=new Int16Array(n); for(let i=0;i<n;i++) x[i]=Math.round(a*Math.sin(i/7)*(1+Math.sin(i/300))); return x;};
@@ -274,7 +290,7 @@ def main():
           for(let i=0;i<10;i++) send(60); for(let i=0;i<25;i++) send(6000); for(let i=0;i<14;i++) send(40); })()"""); pg.wait_for_timeout(2000)
         check('speech errors are shown (Hearing panel + spoken notice)', 'not found' in (ev('JARVIS.stats.sttError') or '') and 'speech service' in ev('JARVIS.stats.notice'), (ev('JARVIS.stats.sttError'), ev('JARVIS.stats.notice')))
         ev("JARVIS.config.set('stt_model',''); JARVIS.stats.sttError=''; JARVIS.stt.skipUntil=0"); state.pop('stt_errors', None)
-        check('the words reached Jarvis', ev("JARVIS.stats.heard.length > 0 && JARVIS.stats.heard[0].text === 'Hey Jarvis'"), ev("JARVIS.stats.heard"))
+        check('the words reached Jarvis', ev("JARVIS.stats.heard.some(h => h.text === 'Hey Jarvis')"), ev("JARVIS.stats.heard"))
         check('Whisper went through the app (no browser CORS)', any('audio/transcriptions' in u for u in ev('window.__native.streams')))
         ev("JARVIS.say('thank you jarvis')"); pg.wait_for_timeout(800)
         check('session closed -> mic stops streaming', ev('window.__native.listening').count(False) >= 1 and ev('JARVIS.stats.listening') is False, ev('window.__native.listening'))

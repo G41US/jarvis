@@ -111,7 +111,7 @@ c('android.os.SystemClock', 'public class SystemClock { public static long elaps
 c('ai.onnxruntime.OrtException', 'public class OrtException extends Exception {}')
 c('ai.onnxruntime.OnnxValue', 'public interface OnnxValue extends AutoCloseable { void close(); }')
 c('ai.onnxruntime.OnnxTensorLike', 'public abstract class OnnxTensorLike implements OnnxValue { public void close(){} }')
-c('ai.onnxruntime.OnnxTensor', """public class OnnxTensor extends OnnxTensorLike { public static OnnxTensor createTensor(OrtEnvironment e, java.nio.FloatBuffer b, long[] shape) throws OrtException {return null;}
+c('ai.onnxruntime.OnnxTensor', """public class OnnxTensor extends OnnxTensorLike { public static OnnxTensor createTensor(OrtEnvironment e, java.nio.FloatBuffer b, long[] shape) throws OrtException {return null;} public static OnnxTensor createTensor(OrtEnvironment e, java.nio.LongBuffer b, long[] shape) throws OrtException {return null;}
  public java.nio.FloatBuffer getFloatBuffer(){return null;} }""")
 c('ai.onnxruntime.OrtEnvironment', 'public class OrtEnvironment { public static OrtEnvironment getEnvironment(){return null;} public OrtSession createSession(byte[] m, OrtSession.SessionOptions o) throws OrtException {return null;} }')
 c('ai.onnxruntime.OrtSession', """public class OrtSession implements AutoCloseable { public java.util.Set<String> getInputNames() throws OrtException {return null;}

@@ -444,11 +444,11 @@ public class Bridge {
     // ------------------------------------------------------------------ microphone + "Hey Jarvis"
     private final VoiceEngine.Listener voiceOut = new VoiceEngine.Listener() {
         @Override public void onWake(float score) { js("window.__jvWake&&window.__jvWake(" + score + ")"); }
-        @Override public void onLevel(float rms, float score) { js("window.__jvLevel&&window.__jvLevel(" + Math.round(rms) + "," + score + ")"); }
-        @Override public void onPcm(short[] pcm) {
+        @Override public void onLevel(float rms, float score, float speech) { js("window.__jvLevel&&window.__jvLevel(" + Math.round(rms) + "," + score + "," + speech + ")"); }
+        @Override public void onPcm(short[] pcm, float speech) {
             byte[] b = new byte[pcm.length * 2];
             for (int i = 0; i < pcm.length; i++) { b[2 * i] = (byte) (pcm[i] & 0xff); b[2 * i + 1] = (byte) ((pcm[i] >> 8) & 0xff); }
-            js("window.__jvPcm&&window.__jvPcm('" + java.util.Base64.getEncoder().encodeToString(b) + "')");
+            js("window.__jvPcm&&window.__jvPcm('" + java.util.Base64.getEncoder().encodeToString(b) + "'," + speech + ")");
         }
         @Override public void onState(String state) { js("window.__jvMic&&window.__jvMic(" + JSONObject.quote(state) + ")"); }
     };
@@ -476,6 +476,7 @@ public class Bridge {
         try {
             o.put("running", voice != null && voice.isRunning());
             o.put("wake", voice != null && voice.hasWakeWord());
+            o.put("vad", voice != null && voice.hasVad());
             o.put("wakeError", voice == null ? "" : voice.wakeError());
             o.put("permission", activity.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED);
         } catch (Exception ignored) { }

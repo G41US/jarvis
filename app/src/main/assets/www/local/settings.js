@@ -110,7 +110,7 @@ export function initSettings() {
   const meter = el('div', { class: 'meter' }, el('b')), wmeter = el('div', { class: 'meter wake' }, el('b'));
   const dl = el('dl');
   const row = (k) => { const dd = el('dd'); dl.append(el('dt', {}, k), dd); return dd; };
-  const dMic = row('Microphone'), dWake = row('Wake word'), dHeard = row('Last heard'), dBrain = row('Brain'), dSpeed = row('Speech to text');
+  const dMic = row('Microphone'), dWake = row('Wake word'), dVad = row('Speech detector'), dHeard = row('Last heard'), dBrain = row('Brain'), dSpeed = row('Speech to text');
   diag.append(el('div', {}, 'Your voice'), meter, el('div', {}, 'Wake score (say "Hey Jarvis")'), wmeter, dl);
   sEar.append(diag);
   let diagTimer = null, wakesSeen = 0;
@@ -125,7 +125,9 @@ export function initSettings() {
     else if (!dWake.className) put(dWake, s.wake ? `Ready · ${s.wakes} so far` : (s.wakeError ? 'Not loaded' : 'Loading…'));
     const h = s.heard && s.heard[0], d = s.dropped;
     const why = { rejected: 'ignored: too short or not for me', echo: 'ignored: sounded like my own voice' };
-    put(dHeard, d && (!h || d.at >= h.at) ? `${d.text} (${why[d.kind] || 'ignored'})` : h ? `"${h.text}"` : '—');
+    const delay = typeof s.delayMs === 'number' ? ` · ${(s.delayMs / 1000).toFixed(1)} s after you stopped` : '';
+    put(dHeard, d && (!h || d.at >= h.at) ? `${d.text} (${why[d.kind] || 'ignored'})` : h ? `"${h.text}"${delay}` : '—');
+    put(dVad, s.vad ? (s.speech >= 0.5 ? 'Hearing speech' : 'Quiet / noise only') : (s.mic === 'browser' ? 'Loudness only' : 'Loading… (loudness meanwhile)'));
     const m = J().api.mode(); put(dBrain, m === 'key' ? 'Your Groq key' : m === 'proxy' ? 'Jarvis service' : 'Not set up');
     put(dSpeed, s.sttError ? `Failed: ${s.sttError}` : s.sttMs ? `Working · ${s.sttMs} ms · ${s.sttSent || 0} clips` : (s.sttSent ? `${s.sttSent} clips sent…` : 'Nothing sent yet'));
     dSpeed.className = s.sttError ? 'bad' : '';
