@@ -6,6 +6,7 @@ for f in app/src/main/assets/www/local/*.js; do node --check "$f"; done
 TZ=UTC node tests/golden.test.mjs | tail -1                       # nav + delivery engines match the PC (Python) ones
 node server/worker.test.mjs | tail -1                              # the key-holding proxy
 node tests/stt.test.mjs | tail -1                                  # end-of-speech timing in noise
+node tests/approx.test.mjs | tail -1                               # orders with only a place or area, filled in later
 python3 tools/make_www.py >/dev/null
 python3 tests/e2e/e2e.py | tail -1                                 # the whole phone page, fake Android bridge, mocked services
 S=$(mktemp -d); python3 tests/android_stubs/gen_stubs.py "$S/src" >/dev/null; mkdir "$S/out"

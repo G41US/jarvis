@@ -9,13 +9,22 @@ export function registerDeliveryTools(ctx) {
     if (ctx.navsvc && ctx.navsvc.state.active && ctx.navsvc.state.delivery) ctx.navsvc.refreshDelivery();      // re-route the map in the background
     return plan;
   }
-  T('add_delivery_order', "Add a delivery order the driver has accepted (DoorDash, Uber Eats, Grubhub...) to the stack (max 4) and return the best route. Needs the restaurant and the customer's drop-off street address.",
-    { restaurant: { type: 'string' }, dropoff_address: { type: 'string', description: 'customer street address' }, pickup_address: { type: 'string', description: 'restaurant street address, if known' },
+  T('add_delivery_order', "Add a delivery order the driver has accepted (DoorDash, Uber Eats, Grubhub...) to the stack (max 4) and return the best route. Needs the restaurant and where it goes: a full street address OR just a place, landmark, apartment complex, street or neighbourhood if that's all the driver has. Never insist on a street number.",
+    { restaurant: { type: 'string' }, dropoff_address: { type: 'string', description: "customer's address, or the place / area if the exact address isn't known yet (e.g. 'Arcadia', 'near Tempe Marketplace', 'Mill Avenue')" }, pickup_address: { type: 'string', description: 'restaurant street address, if known' },
       payout: { type: 'number', description: 'total money for this order including tip' }, platform: { type: 'string', description: 'doordash, ubereats, grubhub...' },
       ready_in_minutes: { type: 'number', description: 'minutes until food is ready, 0 if ready' }, deliver_within_minutes: { type: 'number', description: 'minutes until it is due, if shown' } },
     ['restaurant', 'dropoff_address'], async a => {
       const r = await D.addOrder(a.restaurant, a.dropoff_address, a.pickup_address || '', a.payout || 0, a.platform || 'doordash', a.ready_in_minutes || 0, a.deliver_within_minutes || 0);
-      if (!r.ok) return r.error; const plan = await refresh(); return `Added order ${r.id}: ${r.restaurant} to ${r.dropoff}. ` + D.spokenPlan(plan);
+      if (!r.ok) return r.error; const plan = await refresh();
+      const rough = r.approx ? ` I only have ${r.approx === 'street' ? 'the street' : 'the area'} for that drop-off, so I'll route to ${r.approx === 'street' ? 'that street' : 'the area'} for now. Tell me the number when you have it.` : '';
+      return `Added order ${r.id}: ${r.restaurant} to ${r.dropoff}.${rough} ` + D.spokenPlan(plan);
+    });
+  T('update_delivery_address', "Fill in or correct an order's drop-off later: just the house number ('it's 1420', 'the number is 22B'), or a full or better address. If the order isn't named, it applies to the order whose address is still approximate.",
+    { address: { type: 'string', description: "the house number alone, or the full / better address" }, order: { type: 'string', description: 'restaurant name or order number, optional' } }, ['address'], async a => {
+      const r = await D.updateAddress(a.order || '', a.address); if (!r.ok) return r.error;
+      const plan = await refresh();
+      const head = r.precision === 'exact' ? `Got it: ${r.restaurant} goes to ${r.dropoff}.` : `Updated ${r.restaurant} to ${r.dropoff}, still approximate.`;
+      return `${head}${r.moved_m > 300 ? ` That moved the stop about ${D.units === 'km' ? (r.moved_m / 1000).toFixed(1) + ' kilometers' : (r.moved_m / 1609.344).toFixed(1) + ' miles'}.` : ''} ` + D.spokenNext(plan);
     });
   T('plan_deliveries', 'Recalculate and read out the best route for the current stack of orders.', {}, [], async () => D.spokenPlan(await refresh()));
   T('next_stop', 'Say where the driver should go next and when they will arrive.', {}, [], async () => D.spokenNext(await refresh()));
@@ -67,10 +76,14 @@ export function registerDeliveryTools(ctx) {
   const PLAN = /\b(plan|re-?plan|optimi[sz]e)\b.*\b(route|stack|deliver\w*)\b|\b(best|my) route\b/i;
   const CLEAR = /\b(clear|cancel|reset|wipe)\b.*\b(all )?(my )?(orders|stack|route|deliveries)\b/i;
   const EARN = /\b(my earnings|how much (have )?i (made|earned)|earnings (so far|today))\b/i;
+  // "it's 1420", "the number is 22B", "house number 1420" while an order still has only a rough address
+  const NUMBER_ONLY = /^(?:(?:ok(?:ay)?|so|and)[, ]+)?(?:it'?s|it is|the (?:house |street |building )?number(?: is)?|house number|number)\s+#?(\d{1,6}[a-z]?)[.!]?$/i;
   async function fastpath(text) {
     const t = String(text || '').trim(); if (!t) return null;
     if (EARN.test(t)) return earnings();
     if (!D.hasActive()) return null;
+    const nm = NUMBER_ONLY.exec(t);
+    if (nm && D.activeOrders().some(o => o.drop_precision === 'street')) return reg.exec('update_delivery_address', JSON.stringify({ address: nm[1] }));
     if (t.includes('?') || /^(how|what|when|why|did|have|which|can|should)\b/i.test(t)) { if (!(NEXT.test(t) || PLAN.test(t))) return null; }
     if (CLEAR.test(t)) return clearAll();
     if (DONE.test(t)) {
