@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="notif_title">Jarvis is listening</string>
+    <string name="notif_text">Say \"Hey Jarvis\". Tap to open.</string>
+    <string name="notif_quit">Quit</string>
+</resources>

@@ -1,0 +1,1401 @@
+{
+ "fmt_distance": [
+  [
+   0,
+   "miles",
+   false,
+   "10 feet"
+  ],
+  [
+   0,
+   "miles",
+   true,
+   "10 ft"
+  ],
+  [
+   0,
+   "km",
+   false,
+   "10 meters"
+  ],
+  [
+   0,
+   "km",
+   true,
+   "10 m"
+  ],
+  [
+   7,
+   "miles",
+   false,
+   "20 feet"
+  ],
+  [
+   7,
+   "miles",
+   true,
+   "20 ft"
+  ],
+  [
+   7,
+   "km",
+   false,
+   "10 meters"
+  ],
+  [
+   7,
+   "km",
+   true,
+   "10 m"
+  ],
+  [
+   24,
+   "miles",
+   false,
+   "100 feet"
+  ],
+  [
+   24,
+   "miles",
+   true,
+   "100 ft"
+  ],
+  [
+   24,
+   "km",
+   false,
+   "20 meters"
+  ],
+  [
+   24,
+   "km",
+   true,
+   "20 m"
+  ],
+  [
+   26,
+   "miles",
+   false,
+   "100 feet"
+  ],
+  [
+   26,
+   "miles",
+   true,
+   "100 ft"
+  ],
+  [
+   26,
+   "km",
+   false,
+   "50 meters"
+  ],
+  [
+   26,
+   "km",
+   true,
+   "50 m"
+  ],
+  [
+   120,
+   "miles",
+   false,
+   "400 feet"
+  ],
+  [
+   120,
+   "miles",
+   true,
+   "400 ft"
+  ],
+  [
+   120,
+   "km",
+   false,
+   "100 meters"
+  ],
+  [
+   120,
+   "km",
+   true,
+   "100 m"
+  ],
+  [
+   300,
+   "miles",
+   false,
+   "1000 feet"
+  ],
+  [
+   300,
+   "miles",
+   true,
+   "1000 ft"
+  ],
+  [
+   300,
+   "km",
+   false,
+   "300 meters"
+  ],
+  [
+   300,
+   "km",
+   true,
+   "300 m"
+  ],
+  [
+   380,
+   "miles",
+   false,
+   "0.2 miles"
+  ],
+  [
+   380,
+   "miles",
+   true,
+   "0.2 mi"
+  ],
+  [
+   380,
+   "km",
+   false,
+   "400 meters"
+  ],
+  [
+   380,
+   "km",
+   true,
+   "400 m"
+  ],
+  [
+   520,
+   "miles",
+   false,
+   "0.3 miles"
+  ],
+  [
+   520,
+   "miles",
+   true,
+   "0.3 mi"
+  ],
+  [
+   520,
+   "km",
+   false,
+   "500 meters"
+  ],
+  [
+   520,
+   "km",
+   true,
+   "500 m"
+  ],
+  [
+   999,
+   "miles",
+   false,
+   "0.6 miles"
+  ],
+  [
+   999,
+   "miles",
+   true,
+   "0.6 mi"
+  ],
+  [
+   999,
+   "km",
+   false,
+   "1000 meters"
+  ],
+  [
+   999,
+   "km",
+   true,
+   "1000 m"
+  ],
+  [
+   1000,
+   "miles",
+   false,
+   "0.6 miles"
+  ],
+  [
+   1000,
+   "miles",
+   true,
+   "0.6 mi"
+  ],
+  [
+   1000,
+   "km",
+   false,
+   "1 kilometer"
+  ],
+  [
+   1000,
+   "km",
+   true,
+   "1 km"
+  ],
+  [
+   1500,
+   "miles",
+   false,
+   "0.9 miles"
+  ],
+  [
+   1500,
+   "miles",
+   true,
+   "0.9 mi"
+  ],
+  [
+   1500,
+   "km",
+   false,
+   "1.5 kilometers"
+  ],
+  [
+   1500,
+   "km",
+   true,
+   "1.5 km"
+  ],
+  [
+   1609,
+   "miles",
+   false,
+   "1 mile"
+  ],
+  [
+   1609,
+   "miles",
+   true,
+   "1 mi"
+  ],
+  [
+   1609,
+   "km",
+   false,
+   "1.6 kilometers"
+  ],
+  [
+   1609,
+   "km",
+   true,
+   "1.6 km"
+  ],
+  [
+   2414,
+   "miles",
+   false,
+   "1.5 miles"
+  ],
+  [
+   2414,
+   "miles",
+   true,
+   "1.5 mi"
+  ],
+  [
+   2414,
+   "km",
+   false,
+   "2.4 kilometers"
+  ],
+  [
+   2414,
+   "km",
+   true,
+   "2.4 km"
+  ],
+  [
+   8000,
+   "miles",
+   false,
+   "5 miles"
+  ],
+  [
+   8000,
+   "miles",
+   true,
+   "5 mi"
+  ],
+  [
+   8000,
+   "km",
+   false,
+   "8 kilometers"
+  ],
+  [
+   8000,
+   "km",
+   true,
+   "8 km"
+  ],
+  [
+   16093,
+   "miles",
+   false,
+   "10 miles"
+  ],
+  [
+   16093,
+   "miles",
+   true,
+   "10 mi"
+  ],
+  [
+   16093,
+   "km",
+   false,
+   "16 kilometers"
+  ],
+  [
+   16093,
+   "km",
+   true,
+   "16 km"
+  ],
+  [
+   30000,
+   "miles",
+   false,
+   "19 miles"
+  ],
+  [
+   30000,
+   "miles",
+   true,
+   "19 mi"
+  ],
+  [
+   30000,
+   "km",
+   false,
+   "30 kilometers"
+  ],
+  [
+   30000,
+   "km",
+   true,
+   "30 km"
+  ],
+  [
+   160934,
+   "miles",
+   false,
+   "100 miles"
+  ],
+  [
+   160934,
+   "miles",
+   true,
+   "100 mi"
+  ],
+  [
+   160934,
+   "km",
+   false,
+   "161 kilometers"
+  ],
+  [
+   160934,
+   "km",
+   true,
+   "161 km"
+  ],
+  [
+   25,
+   "miles",
+   false,
+   "100 feet"
+  ],
+  [
+   25,
+   "miles",
+   true,
+   "100 ft"
+  ],
+  [
+   25,
+   "km",
+   false,
+   "50 meters"
+  ],
+  [
+   25,
+   "km",
+   true,
+   "50 m"
+  ],
+  [
+   75,
+   "miles",
+   false,
+   "250 feet"
+  ],
+  [
+   75,
+   "miles",
+   true,
+   "250 ft"
+  ],
+  [
+   75,
+   "km",
+   false,
+   "100 meters"
+  ],
+  [
+   75,
+   "km",
+   true,
+   "100 m"
+  ],
+  [
+   125,
+   "miles",
+   false,
+   "400 feet"
+  ],
+  [
+   125,
+   "miles",
+   true,
+   "400 ft"
+  ],
+  [
+   125,
+   "km",
+   false,
+   "100 meters"
+  ],
+  [
+   125,
+   "km",
+   true,
+   "100 m"
+  ],
+  [
+   175,
+   "miles",
+   false,
+   "550 feet"
+  ],
+  [
+   175,
+   "miles",
+   true,
+   "550 ft"
+  ],
+  [
+   175,
+   "km",
+   false,
+   "200 meters"
+  ],
+  [
+   175,
+   "km",
+   true,
+   "200 m"
+  ]
+ ],
+ "fmt_duration": [
+  [
+   0,
+   "under a minute"
+  ],
+  [
+   10,
+   "under a minute"
+  ],
+  [
+   44,
+   "under a minute"
+  ],
+  [
+   45,
+   "about a minute"
+  ],
+  [
+   89,
+   "about a minute"
+  ],
+  [
+   90,
+   "2 minutes"
+  ],
+  [
+   119,
+   "2 minutes"
+  ],
+  [
+   150,
+   "2 minutes"
+  ],
+  [
+   600,
+   "10 minutes"
+  ],
+  [
+   3599,
+   "1 hour"
+  ],
+  [
+   3600,
+   "1 hour"
+  ],
+  [
+   3660,
+   "1 hour 1 minutes"
+  ],
+  [
+   7260,
+   "2 hours 1 minutes"
+  ],
+  [
+   86400,
+   "24 hours"
+  ]
+ ],
+ "compass": [
+  [
+   0,
+   "north"
+  ],
+  [
+   22,
+   "north"
+  ],
+  [
+   23,
+   "northeast"
+  ],
+  [
+   45,
+   "northeast"
+  ],
+  [
+   90,
+   "east"
+  ],
+  [
+   180,
+   "south"
+  ],
+  [
+   270,
+   "west"
+  ],
+  [
+   337,
+   "northwest"
+  ],
+  [
+   359,
+   "north"
+  ],
+  [
+   360,
+   "north"
+  ],
+  [
+   -10,
+   "north"
+  ]
+ ],
+ "units": [
+  [
+   "auto",
+   "us",
+   "miles"
+  ],
+  [
+   "auto",
+   "gb",
+   "miles"
+  ],
+  [
+   "auto",
+   "ng",
+   "km"
+  ],
+  [
+   "auto",
+   "",
+   "km"
+  ],
+  [
+   "miles",
+   "us",
+   "miles"
+  ],
+  [
+   "miles",
+   "gb",
+   "miles"
+  ],
+  [
+   "miles",
+   "ng",
+   "miles"
+  ],
+  [
+   "miles",
+   "",
+   "miles"
+  ],
+  [
+   "km",
+   "us",
+   "km"
+  ],
+  [
+   "km",
+   "gb",
+   "km"
+  ],
+  [
+   "km",
+   "ng",
+   "km"
+  ],
+  [
+   "km",
+   "",
+   "km"
+  ]
+ ],
+ "polyline": "okwfaBnrxFnk}yaDwg{s_HoauscCndo`Unao`cAvnqjiG~khkA~hgvtC",
+ "polyline_decoded": [
+  [
+   51.5074,
+   -0.1278
+  ],
+  [
+   -33.8688,
+   151.2093
+  ],
+  [
+   35.6762,
+   139.6503
+  ],
+  [
+   0.0,
+   0.0
+  ],
+  [
+   -1.25,
+   -78.5
+  ]
+ ],
+ "valhalla_fixture": {
+  "trip": {
+   "units": "miles",
+   "legs": [
+    {
+     "shape": "_}hfaB~jiF_pR??_af@",
+     "maneuvers": [
+      {
+       "type": 2,
+       "instruction": "Step 0 on Road0.",
+       "verbal_pre_transition_instruction": "Turn left onto Road0.",
+       "verbal_post_transition_instruction": "Continue for 1 kilometer.",
+       "street_names": [
+        "Road0"
+       ],
+       "length": 1.0,
+       "time": 60.0,
+       "begin_shape_index": 0,
+       "end_shape_index": 1
+      },
+      {
+       "type": 15,
+       "instruction": "Step 1 on Road1.",
+       "verbal_pre_transition_instruction": "Turn left onto Road1.",
+       "verbal_post_transition_instruction": "Continue for 1 kilometer.",
+       "street_names": [
+        "Road1"
+       ],
+       "length": 1.0,
+       "time": 60.0,
+       "begin_shape_index": 1,
+       "end_shape_index": 2
+      },
+      {
+       "type": 4,
+       "instruction": "You have arrived.",
+       "verbal_pre_transition_instruction": "You have arrived.",
+       "street_names": [],
+       "length": 0.0,
+       "time": 0.0,
+       "begin_shape_index": 2,
+       "end_shape_index": 2
+      }
+     ],
+     "summary": {
+      "length": 2.0,
+      "time": 120.0
+     }
+    },
+    {
+     "shape": "_n|faB~hbE_pR?",
+     "maneuvers": [
+      {
+       "type": 2,
+       "instruction": "Step 0 on Road0.",
+       "verbal_pre_transition_instruction": "Turn left onto Road0.",
+       "verbal_post_transition_instruction": "Continue for 1 kilometer.",
+       "street_names": [
+        "Road0"
+       ],
+       "length": 1.0,
+       "time": 60.0,
+       "begin_shape_index": 0,
+       "end_shape_index": 1
+      },
+      {
+       "type": 4,
+       "instruction": "You have arrived.",
+       "verbal_pre_transition_instruction": "You have arrived.",
+       "street_names": [],
+       "length": 0.0,
+       "time": 0.0,
+       "begin_shape_index": 1,
+       "end_shape_index": 1
+      }
+     ],
+     "summary": {
+      "length": 1.0,
+      "time": 60.0
+     }
+    }
+   ],
+   "summary": {
+    "length": 3.0,
+    "time": 180.0
+   }
+  }
+ },
+ "valhalla_route": {
+  "provider": "valhalla",
+  "ok": true,
+  "mode": "auto",
+  "units": "miles",
+  "language": "en-US",
+  "distance_m": 4828.0,
+  "time_s": 180.0,
+  "shape": [
+   [
+    51.5,
+    -0.12
+   ],
+   [
+    51.51,
+    -0.12
+   ],
+   [
+    51.51,
+    -0.1
+   ],
+   [
+    51.52,
+    -0.1
+   ]
+  ],
+  "steps": [
+   {
+    "i": 0,
+    "type": 2,
+    "icon": "depart",
+    "text": "Step 0 on Road0.",
+    "say": "Turn left onto Road0.",
+    "alert": "",
+    "after": "Continue for 1 kilometer.",
+    "street": "Road0",
+    "dist_m": 1609.3,
+    "time_s": 60.0,
+    "begin": 0,
+    "end": 1,
+    "leg": 0,
+    "exit": null
+   },
+   {
+    "i": 1,
+    "type": 15,
+    "icon": "left",
+    "text": "Step 1 on Road1.",
+    "say": "Turn left onto Road1.",
+    "alert": "",
+    "after": "Continue for 1 kilometer.",
+    "street": "Road1",
+    "dist_m": 1609.3,
+    "time_s": 60.0,
+    "begin": 1,
+    "end": 2,
+    "leg": 0,
+    "exit": null
+   },
+   {
+    "i": 2,
+    "type": 4,
+    "icon": "arrive",
+    "text": "You have arrived.",
+    "say": "You have arrived.",
+    "alert": "",
+    "after": "",
+    "street": "",
+    "dist_m": 0.0,
+    "time_s": 0.0,
+    "begin": 2,
+    "end": 2,
+    "leg": 0,
+    "exit": null
+   },
+   {
+    "i": 3,
+    "type": 2,
+    "icon": "depart",
+    "text": "Step 0 on Road0.",
+    "say": "Turn left onto Road0.",
+    "alert": "",
+    "after": "Continue for 1 kilometer.",
+    "street": "Road0",
+    "dist_m": 1609.3,
+    "time_s": 60.0,
+    "begin": 2,
+    "end": 3,
+    "leg": 1,
+    "exit": null
+   },
+   {
+    "i": 4,
+    "type": 4,
+    "icon": "arrive",
+    "text": "You have arrived.",
+    "say": "You have arrived.",
+    "alert": "",
+    "after": "",
+    "street": "",
+    "dist_m": 0.0,
+    "time_s": 0.0,
+    "begin": 3,
+    "end": 3,
+    "leg": 1,
+    "exit": null
+   }
+  ],
+  "legs": [
+   {
+    "dist_m": 3218.7,
+    "time_s": 120.0,
+    "first_step": 0,
+    "last_step": 2,
+    "end_index": 2
+   },
+   {
+    "dist_m": 1609.3,
+    "time_s": 60.0,
+    "first_step": 3,
+    "last_step": 4,
+    "end_index": 3
+   }
+  ],
+  "bbox": [
+   -0.12,
+   51.5,
+   -0.1,
+   51.52
+  ],
+  "waypoints": [
+   {
+    "lat": 51.5,
+    "lon": -0.12
+   },
+   {
+    "lat": 51.51,
+    "lon": -0.1
+   },
+   {
+    "lat": 51.52,
+    "lon": -0.1
+   }
+  ]
+ },
+ "valhalla_body": {
+  "locations": [
+   {
+    "lat": 51.5,
+    "lon": -0.12
+   },
+   {
+    "lat": 51.51,
+    "lon": -0.1
+   },
+   {
+    "lat": 51.52,
+    "lon": -0.1
+   }
+  ],
+  "costing": "auto",
+  "directions_options": {
+   "units": "miles",
+   "language": "en-US"
+  },
+  "id": "jarvis",
+  "costing_options": {
+   "auto": {
+    "use_tolls": 0.0
+   }
+  }
+ },
+ "summary": "Navigating to Test Place. 3 minutes and 3 miles, arriving about 8:56 AM. Turn left onto Road0.",
+ "osrm_fixture": {
+  "code": "Ok",
+  "routes": [
+   {
+    "distance": 2000.0,
+    "duration": 300.0,
+    "legs": [
+     {
+      "distance": 2000.0,
+      "duration": 300.0,
+      "steps": [
+       {
+        "geometry": "_}hfaB~jiF_pR?",
+        "distance": 1100.0,
+        "duration": 150.0,
+        "name": "Oak Street",
+        "maneuver": {
+         "type": "depart",
+         "bearing_after": 0,
+         "modifier": ""
+        }
+       },
+       {
+        "geometry": "_n|faB~jiF?_af@",
+        "distance": 900.0,
+        "duration": 150.0,
+        "name": "Elm Road",
+        "maneuver": {
+         "type": "turn",
+         "modifier": "right"
+        }
+       },
+       {
+        "geometry": "_n|faB~hbE??",
+        "distance": 0.0,
+        "duration": 0.0,
+        "name": "",
+        "maneuver": {
+         "type": "arrive",
+         "modifier": "right"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "osrm_route": {
+  "provider": "osrm",
+  "ok": true,
+  "mode": "auto",
+  "units": "km",
+  "language": "en-US",
+  "distance_m": 2000.0,
+  "time_s": 300.0,
+  "shape": [
+   [
+    51.5,
+    -0.12
+   ],
+   [
+    51.51,
+    -0.12
+   ],
+   [
+    51.51,
+    -0.1
+   ]
+  ],
+  "steps": [
+   {
+    "i": 0,
+    "type": 0,
+    "icon": "depart",
+    "text": "Head north on Oak Street.",
+    "say": "Head north on Oak Street.",
+    "alert": "",
+    "after": "",
+    "street": "Oak Street",
+    "dist_m": 1100.0,
+    "time_s": 150.0,
+    "begin": 0,
+    "end": 1,
+    "leg": 0,
+    "exit": null
+   },
+   {
+    "i": 1,
+    "type": 0,
+    "icon": "right",
+    "text": "Turn right onto Elm Road.",
+    "say": "Turn right onto Elm Road.",
+    "alert": "",
+    "after": "",
+    "street": "Elm Road",
+    "dist_m": 900.0,
+    "time_s": 150.0,
+    "begin": 1,
+    "end": 2,
+    "leg": 0,
+    "exit": null
+   },
+   {
+    "i": 2,
+    "type": 0,
+    "icon": "arrive_right",
+    "text": "You have arrived at your destination on your right.",
+    "say": "You have arrived at your destination on your right.",
+    "alert": "",
+    "after": "",
+    "street": "",
+    "dist_m": 0.0,
+    "time_s": 0.0,
+    "begin": 2,
+    "end": 2,
+    "leg": 0,
+    "exit": null
+   }
+  ],
+  "legs": [
+   {
+    "dist_m": 2000.0,
+    "time_s": 300.0,
+    "first_step": 0,
+    "last_step": 2,
+    "end_index": 2
+   }
+  ],
+  "bbox": [
+   -0.12,
+   51.5,
+   -0.1,
+   51.51
+  ],
+  "waypoints": [
+   {
+    "lat": 51.5,
+    "lon": -0.12
+   },
+   {
+    "lat": 51.51,
+    "lon": -0.1
+   }
+  ]
+ },
+ "delivery": {
+  "adds": [
+   {
+    "ok": true,
+    "id": 1,
+    "restaurant": "Taco Bell",
+    "pickup": "12 Main Street",
+    "dropoff": "100 Elm St",
+    "count": 1
+   },
+   {
+    "ok": true,
+    "id": 2,
+    "restaurant": "Pizza Hut",
+    "pickup": "12 Main Street",
+    "dropoff": "300 Pine St",
+    "count": 2
+   },
+   {
+    "ok": true,
+    "id": 3,
+    "restaurant": "Subway",
+    "pickup": "12 Main Street",
+    "dropoff": "200 Oak St",
+    "count": 3
+   }
+  ],
+  "plan": {
+   "ok": true,
+   "source": "test",
+   "generated_at": 1760000000.0,
+   "orders": 3,
+   "stops": [
+    {
+     "seq": 1,
+     "kind": "pickup",
+     "order_id": 3,
+     "platform": "Grubhub",
+     "restaurant": "Subway",
+     "label": "Pick up at Subway",
+     "addr": "12 Main Street",
+     "short_addr": "12 Main Street",
+     "lat": 38.6405,
+     "lon": -83.7598,
+     "eta_ts": 1760000025.8843124,
+     "eta_clock": "8:53 AM",
+     "mins": 0,
+     "wait_min": 0,
+     "leg_min": 0.4,
+     "leg_mi": 0.1,
+     "late_min": 0,
+     "food_age_min": null,
+     "eta_lo": "8:53 AM",
+     "eta_hi": "8:55 AM",
+     "mins_lo": 0,
+     "mins_hi": 2
+    },
+    {
+     "seq": 2,
+     "kind": "pickup",
+     "order_id": 1,
+     "platform": "DoorDash",
+     "restaurant": "Taco Bell",
+     "label": "Pick up at Taco Bell",
+     "addr": "12 Main Street",
+     "short_addr": "12 Main Street",
+     "lat": 38.64,
+     "lon": -83.76,
+     "eta_ts": 1760000184.9709759,
+     "eta_clock": "8:56 AM",
+     "mins": 3,
+     "wait_min": 0,
+     "leg_min": 0.2,
+     "leg_mi": 0.0,
+     "late_min": 0,
+     "food_age_min": null,
+     "eta_lo": "8:55 AM",
+     "eta_hi": "8:58 AM",
+     "mins_lo": 2,
+     "mins_hi": 5
+    },
+    {
+     "seq": 3,
+     "kind": "drop",
+     "order_id": 3,
+     "platform": "Grubhub",
+     "restaurant": "Subway",
+     "label": "Drop off Subway order",
+     "addr": "200 Oak St",
+     "short_addr": "200 Oak St",
+     "lat": 38.63,
+     "lon": -83.77,
+     "eta_ts": 1760000435.0844252,
+     "eta_clock": "9:00 AM",
+     "mins": 7,
+     "wait_min": 0,
+     "leg_min": 3.7,
+     "leg_mi": 1.1,
+     "late_min": 0,
+     "food_age_min": 6,
+     "eta_lo": "8:59 AM",
+     "eta_hi": "9:02 AM",
+     "mins_lo": 7,
+     "mins_hi": 9,
+     "slack_min": 16,
+     "risk": "low"
+    },
+    {
+     "seq": 4,
+     "kind": "pickup",
+     "order_id": 2,
+     "platform": "Uber Eats",
+     "restaurant": "Pizza Hut",
+     "label": "Pick up at Pizza Hut",
+     "addr": "12 Main Street",
+     "short_addr": "12 Main Street",
+     "lat": 38.642,
+     "lon": -83.75,
+     "eta_ts": 1760000896.7974818,
+     "eta_clock": "9:08 AM",
+     "mins": 15,
+     "wait_min": 0,
+     "leg_min": 5.7,
+     "leg_mi": 1.8,
+     "late_min": 0,
+     "food_age_min": null,
+     "eta_lo": "9:06 AM",
+     "eta_hi": "9:11 AM",
+     "mins_lo": 14,
+     "mins_hi": 19
+    },
+    {
+     "seq": 5,
+     "kind": "drop",
+     "order_id": 1,
+     "platform": "DoorDash",
+     "restaurant": "Taco Bell",
+     "label": "Drop off Taco Bell order",
+     "addr": "100 Elm St",
+     "short_addr": "100 Elm St",
+     "lat": 38.65,
+     "lon": -83.73,
+     "eta_ts": 1760001351.223977,
+     "eta_clock": "9:15 AM",
+     "mins": 23,
+     "wait_min": 0,
+     "leg_min": 5.1,
+     "leg_mi": 1.6,
+     "late_min": 0,
+     "food_age_min": 21,
+     "eta_lo": "9:13 AM",
+     "eta_hi": "9:21 AM",
+     "mins_lo": 20,
+     "mins_hi": 28,
+     "slack_min": 20,
+     "risk": "low"
+    },
+    {
+     "seq": 6,
+     "kind": "drop",
+     "order_id": 2,
+     "platform": "Uber Eats",
+     "restaurant": "Pizza Hut",
+     "label": "Drop off Pizza Hut order",
+     "addr": "300 Pine St",
+     "short_addr": "300 Pine St",
+     "lat": 38.66,
+     "lon": -83.72,
+     "eta_ts": 1760001691.314151,
+     "eta_clock": "9:21 AM",
+     "mins": 28,
+     "wait_min": 0,
+     "leg_min": 3.7,
+     "leg_mi": 1.1,
+     "late_min": 0,
+     "food_age_min": 13,
+     "eta_lo": "9:18 AM",
+     "eta_hi": "9:28 AM",
+     "mins_lo": 26,
+     "mins_hi": 35,
+     "slack_min": 15,
+     "risk": "low"
+    }
+   ],
+   "total_min": 30,
+   "total_s": 1811.3141510486603,
+   "total_miles": 5.8,
+   "payout": 29.0,
+   "currency": "$",
+   "unit": "mi",
+   "unit_word": "miles",
+   "per_hour": 57.64,
+   "per_mile": 4.99,
+   "late_total_s": 0.0,
+   "naive_total_min": 44,
+   "naive_late_min": 19,
+   "best_late_min": 0,
+   "saved_min": 14,
+   "late_avoided_min": 19,
+   "cold_avoided": false,
+   "start": {
+    "lat": 38.641,
+    "lon": -83.758,
+    "label": "home base"
+   },
+   "warnings": [
+    "Taco Bell food will sit in the bag about 21 minutes."
+   ],
+   "risk": "low",
+   "total_min_lo": 27,
+   "total_min_hi": 37,
+   "no_start": false,
+   "nav_url": "https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=38.660000,-83.720000&waypoints=38.640500,-83.759800|38.640000,-83.760000|38.630000,-83.770000|38.642000,-83.750000|38.650000,-83.730000&origin=38.641000,-83.758000"
+  },
+  "spoken_plan": "Best route for 3 orders: 1, pick up Subway, 8:53 AM; 2, pick up Taco Bell, 8:56 AM; 3, drop 200 Oak St, 9:00 AM; 4, pick up Pizza Hut, 9:08 AM; 5, drop 100 Elm St, 9:15 AM; 6, drop 300 Pine St, 9:21 AM. About 30 minutes and 5.8 miles, $29.00 total, roughly $58 an hour. Expect 27 to 37 minutes. On-time risk is low. That saves about 14 minutes of driving over taking them in the order you got them. It also avoids about 19 minutes of lateness. Heads up: Taco Bell food will sit in the bag about 21 minutes.",
+  "spoken_next": "Next, pick up Subway at 12 Main Street. You're there by 8:53 AM. After that, pick up Taco Bell.",
+  "spoken_orders": "3 active: 1, Taco Bell on DoorDash to 100 Elm St, $9.00, waiting for pickup; 2, Pizza Hut on Uber Eats to 300 Pine St, $12.00, waiting for pickup; 3, Subway on Grubhub to 200 Oak St, $8.00, waiting for pickup.",
+  "offer": {
+   "ok": true,
+   "extra_min": 3,
+   "extra_miles": 0.1,
+   "payout": 14.0,
+   "extra_late_min": 0,
+   "per_hour": 299.43,
+   "per_mile": 140.0,
+   "risk": "medium",
+   "risk_before": "low",
+   "verdict": "take"
+  },
+  "offer_plan_total": 33,
+  "offer_far": {
+   "ok": true,
+   "extra_min": 42,
+   "extra_miles": 11.8,
+   "payout": 4.0,
+   "extra_late_min": 28,
+   "per_hour": 5.66,
+   "per_mile": 0.34,
+   "risk": "high",
+   "risk_before": "low",
+   "verdict": "decline"
+  },
+  "completes": [
+   {
+    "kind": "pickup",
+    "restaurant": "Subway",
+    "ok": true
+   },
+   {
+    "kind": "drop",
+    "restaurant": "Subway",
+    "payout": 8.0,
+    "ok": true
+   },
+   {
+    "kind": "pickup",
+    "restaurant": "Taco Bell",
+    "ok": true
+   },
+   {
+    "kind": "pickup",
+    "restaurant": "Pizza Hut",
+    "ok": true
+   },
+   {
+    "kind": "drop",
+    "restaurant": "Taco Bell",
+    "payout": 9.0,
+    "ok": true
+   },
+   {
+    "kind": "drop",
+    "restaurant": "Pizza Hut",
+    "payout": 12.0,
+    "ok": true
+   }
+  ],
+  "earnings": {
+   "count": 3,
+   "total": 29.0,
+   "per_hour": 45.39,
+   "by_platform": {
+    "Grubhub": 8.0,
+    "DoorDash": 9.0,
+    "Uber Eats": 12.0
+   },
+   "miles": 5.8,
+   "hours": 0.6,
+   "per_mile": 5.0
+  },
+  "after_state_loc": {
+   "lat": 38.66,
+   "lon": -83.72,
+   "label": "300 Pine St"
+  }
+ },
+ "delivery_now": 1760000000.0
+}
