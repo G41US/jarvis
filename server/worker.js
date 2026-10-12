@@ -8,7 +8,7 @@
 // Optional per-phone limit: add a Rate Limiting binding named LIMITER (see server/README.md).
 
 const GROQ = 'https://api.groq.com/openai/v1';
-const DEFAULT_MODELS = 'openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile,llama-3.1-8b-instant';
+const DEFAULT_MODELS = 'openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b';   // qwen: Jarvis's eyes (camera / screen), if it sees images
 const MAX_AUDIO = 4 * 1024 * 1024, MAX_TOKENS = 2000;
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-jarvis-token, x-jarvis-device', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
