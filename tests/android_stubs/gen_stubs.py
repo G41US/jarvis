@@ -52,13 +52,13 @@ c('android.net.NetworkCapabilities', 'public class NetworkCapabilities { public 
 c('android.net.ConnectivityManager', 'public class ConnectivityManager { public Network getActiveNetwork(){return null;} public NetworkCapabilities getNetworkCapabilities(Network n){return null;} }')
 c('android.os.Bundle', 'public class Bundle { public void putInt(String k,int v){} }')
 c('android.os.IBinder', 'public interface IBinder {}')
-c('android.os.Process', 'public class Process { public static int myPid(){return 0;} public static void killProcess(int p){} }')
+c('android.os.Process', 'public class Process { public static final int THREAD_PRIORITY_URGENT_AUDIO=-19; public static int myPid(){return 0;} public static void killProcess(int p){} public static void setThreadPriority(int p){} }')
 c('android.os.Build', 'public class Build { public static class VERSION { public static final int SDK_INT=34; } }')
 c('android.os.BatteryManager', 'public class BatteryManager { public static final String EXTRA_LEVEL="level", EXTRA_SCALE="scale", EXTRA_STATUS="status"; public static final int BATTERY_STATUS_CHARGING=2, BATTERY_STATUS_FULL=5; }')
 c('android.os.PowerManager', '''public class PowerManager { public static final int PARTIAL_WAKE_LOCK=1; public WakeLock newWakeLock(int l,String t){return null;}
  public static class WakeLock { public void acquire(){} public void release(){} public boolean isHeld(){return false;} public void setReferenceCounted(boolean b){} } }''')
 c('android.provider.MediaStore', 'public class MediaStore { public static final String INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH="a", EXTRA_MEDIA_FOCUS="b"; }')
-c('android.media.AudioAttributes', '''public class AudioAttributes { public static final int USAGE_ASSISTANCE_NAVIGATION_GUIDANCE=12, CONTENT_TYPE_SPEECH=1; public static class Builder { public Builder setUsage(int u){return this;} public Builder setContentType(int c){return this;} public AudioAttributes build(){return null;} } }''')
+c('android.media.AudioAttributes', '''public class AudioAttributes { public static final int USAGE_ASSISTANCE_NAVIGATION_GUIDANCE=12, CONTENT_TYPE_SPEECH=1, USAGE_ASSISTANCE_SONIFICATION=13, CONTENT_TYPE_SONIFICATION=4; public static class Builder { public Builder setUsage(int u){return this;} public Builder setContentType(int c){return this;} public AudioAttributes build(){return null;} } }''')
 c('android.media.AudioFocusRequest', '''public class AudioFocusRequest { public static class Builder { public Builder(int g){} public Builder setAudioAttributes(AudioAttributes a){return this;}
  public Builder setOnAudioFocusChangeListener(AudioManager.OnAudioFocusChangeListener l){return this;} public AudioFocusRequest build(){return null;} } }''')
 c('android.media.AudioManager', '''public class AudioManager { public static final int AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK=3, STREAM_MUSIC=3; public int requestAudioFocus(AudioFocusRequest r){return 0;} public int abandonAudioFocusRequest(AudioFocusRequest r){return 0;}
@@ -69,7 +69,7 @@ c('android.speech.tts.TextToSpeech', '''public class TextToSpeech { public stati
  public java.util.Set<Voice> getVoices(){return null;} public int setVoice(Voice v){return 0;} }''')
 c('android.speech.tts.UtteranceProgressListener', '''public abstract class UtteranceProgressListener { public abstract void onStart(String id); public abstract void onDone(String id); public abstract void onError(String id); public void onStop(String id, boolean interrupted){} }''')
 c('android.speech.tts.Voice', 'public class Voice { public String getName(){return "";} public java.util.Locale getLocale(){return null;} public int getQuality(){return 0;} public boolean isNetworkConnectionRequired(){return false;} }')
-c('android.util.Log', 'public class Log { public static int w(String t,String m){return 0;} public static int w(String t,String m,Throwable e){return 0;} public static int d(String t,String m){return 0;} }')
+c('android.util.Log', 'public class Log { public static int w(String t,String m){return 0;} public static int w(String t,String m,Throwable e){return 0;} public static int d(String t,String m){return 0;} public static int e(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }')
 c('android.view.KeyEvent', 'public class KeyEvent { public static final int ACTION_DOWN=0, ACTION_UP=1, KEYCODE_MEDIA_PLAY=126, KEYCODE_MEDIA_PAUSE=127, KEYCODE_MEDIA_NEXT=87, KEYCODE_MEDIA_PREVIOUS=88; public KeyEvent(int a,int c){} }')
 c('android.view.View', 'public class View { public static final int SYSTEM_UI_FLAG_LAYOUT_STABLE=256; public void setSystemUiVisibility(int v){} public void setBackgroundColor(int c){} }')
 c('android.view.ViewGroup', 'public class ViewGroup extends View { public static class LayoutParams { public LayoutParams(int w,int h){} } }')
@@ -99,6 +99,25 @@ c('org.json.JSONObject', '''public class JSONObject { public JSONObject(){} publ
 c('org.json.JSONException', 'public class JSONException extends Exception {}')
 c('org.json.JSONArray', 'public class JSONArray { public JSONArray put(Object o){return this;} }')
 c('com.jarvis.assistant.R', '''public final class R { public static final class drawable { public static final int ic_stat=1; } public static final class string { public static final int notif_title=1, notif_text=2, notif_quit=3, app_name=4; } }''')
+
+c('android.media.AudioFormat', """public class AudioFormat { public static final int CHANNEL_IN_MONO=16, CHANNEL_OUT_MONO=4, ENCODING_PCM_16BIT=2;
+ public static class Builder { public Builder setEncoding(int e){return this;} public Builder setSampleRate(int r){return this;} public Builder setChannelMask(int m){return this;} public AudioFormat build(){return null;} } }""")
+c('android.media.AudioRecord', """public class AudioRecord { public static final int STATE_INITIALIZED=1; public AudioRecord(int src,int rate,int ch,int fmt,int size){} public static int getMinBufferSize(int r,int c,int f){return 0;}
+ public int getState(){return 1;} public void release(){} public void startRecording(){} public void stop(){} public int read(short[] b,int off,int n){return n;} }""")
+c('android.media.AudioTrack', """public class AudioTrack { public static final int MODE_STATIC=0; public int write(short[] d,int off,int n){return n;} public void play(){} public void release(){}
+ public static class Builder { public Builder setAudioAttributes(AudioAttributes a){return this;} public Builder setAudioFormat(AudioFormat f){return this;} public Builder setTransferMode(int m){return this;} public Builder setBufferSizeInBytes(int n){return this;} public AudioTrack build(){return null;} } }""")
+c('android.media.MediaRecorder', """public class MediaRecorder { public static class AudioSource { public static final int MIC=1, VOICE_RECOGNITION=6; } }""")
+c('android.os.SystemClock', 'public class SystemClock { public static long elapsedRealtime(){return 0;} }')
+c('ai.onnxruntime.OrtException', 'public class OrtException extends Exception {}')
+c('ai.onnxruntime.OnnxValue', 'public interface OnnxValue extends AutoCloseable { void close(); }')
+c('ai.onnxruntime.OnnxTensorLike', 'public abstract class OnnxTensorLike implements OnnxValue { public void close(){} }')
+c('ai.onnxruntime.OnnxTensor', """public class OnnxTensor extends OnnxTensorLike { public static OnnxTensor createTensor(OrtEnvironment e, java.nio.FloatBuffer b, long[] shape) throws OrtException {return null;}
+ public java.nio.FloatBuffer getFloatBuffer(){return null;} }""")
+c('ai.onnxruntime.OrtEnvironment', 'public class OrtEnvironment { public static OrtEnvironment getEnvironment(){return null;} public OrtSession createSession(byte[] m, OrtSession.SessionOptions o) throws OrtException {return null;} }')
+c('ai.onnxruntime.OrtSession', """public class OrtSession implements AutoCloseable { public java.util.Set<String> getInputNames() throws OrtException {return null;}
+ public Result run(java.util.Map<String, ? extends OnnxTensorLike> inputs) throws OrtException {return null;} public void close(){}
+ public static class SessionOptions implements AutoCloseable { public void setIntraOpNumThreads(int n) throws OrtException {} public void setInterOpNumThreads(int n) throws OrtException {} public void close(){} }
+ public static class Result implements AutoCloseable, Iterable<java.util.Map.Entry<String, OnnxValue>> { public OnnxValue get(int i){return null;} public void close(){} public java.util.Iterator<java.util.Map.Entry<String, OnnxValue>> iterator(){return null;} } }""")
 
 for fq, body in S.items():
     pkg, name = fq.rsplit('.', 1)

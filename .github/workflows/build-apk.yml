@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -47,6 +47,19 @@ jobs:
       - name: Check the Adam model is included
         run: |
           if [ -f app/src/main/assets/www/models/adam.glb ]; then echo "adam.glb found"; else echo "::warning::models/adam.glb is not in the repo - Jarvis will use the online face instead. See README step 3."; fi
+
+      # Rollout mode: if the repo has the JARVIS_API_BASE secret, the app talks to your Jarvis proxy and users need no Groq key.
+      - name: Point the app at the Jarvis proxy (if set up)
+        env:
+          API_BASE: ${{ secrets.JARVIS_API_BASE }}
+          APP_TOKEN: ${{ secrets.JARVIS_APP_TOKEN }}
+        run: |
+          if [ -n "$API_BASE" ]; then
+            python3 -c "import json,os; open('app/src/main/assets/www/local/build_config.js','w').write('export const BUILD = ' + json.dumps({'apiBase': os.environ['API_BASE'], 'appToken': os.environ.get('APP_TOKEN', '')}) + ';\n')"
+            echo "Built with the Jarvis proxy: users need no Groq key."
+          else
+            echo "No JARVIS_API_BASE secret: each user enters their own Groq key."
+          fi
 
       - uses: gradle/actions/setup-gradle@v4
         with:

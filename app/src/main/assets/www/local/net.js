@@ -92,3 +92,65 @@ export function pyRound(x) {
 }
 export const round1 = x => Math.round(x * 10) / 10;
 export const round2 = x => Math.round(x * 100) / 100;
+
+// ---------------------------------------------------------------- streaming fetch through the Android shell
+// Groq (and the optional Jarvis proxy) are called from Java, so the browser's cross-origin rules never apply.
+// Returns a real Response whose body streams as Java reads it (SSE works).
+const streams = new Map();
+let nextStreamId = 1;
+if (G.window) {
+  G.window.__httpHead = (id, status) => { const s = streams.get(id); if (s && !s.headed) { s.headed = true; s.status = status; s.resolveHead(status); } };
+  G.window.__httpChunk = (id, b64) => { const s = streams.get(id); if (s && s.ctl) { try { s.ctl.enqueue(b64ToBytes(b64)); } catch {} } };
+  G.window.__httpEnd = (id, error) => {
+    const s = streams.get(id); if (!s) return; streams.delete(id);
+    if (!s.headed) { s.headed = true; s.rejectHead(new TypeError(error || 'Network request failed')); }
+    try { if (error && s.ctl) s.ctl.error(new TypeError(error)); else if (s.ctl) s.ctl.close(); } catch {}
+  };
+}
+export const nativeStream = () => !!(G.window && G.window.AndroidBridge && G.window.AndroidBridge.httpStream);
+export function bytesToB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+export function b64ToBytes(b64) { const s = atob(b64 || ''); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+
+async function bodyBytes(body, headers) {
+  if (body == null) return null;
+  if (typeof body === 'string') return new TextEncoder().encode(body);
+  if (body instanceof Uint8Array) return body;
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  if (typeof FormData !== 'undefined' && body instanceof FormData) {        // multipart by hand (Whisper uploads)
+    const boundary = '----jarvis' + Math.random().toString(16).slice(2), enc = new TextEncoder(), parts = [];
+    for (const [name, val] of body.entries()) {
+      if (typeof val === 'string') parts.push(enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${val}\r\n`));
+      else {
+        parts.push(enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${val.name || 'file'}"\r\nContent-Type: ${val.type || 'application/octet-stream'}\r\n\r\n`));
+        parts.push(new Uint8Array(await val.arrayBuffer())); parts.push(enc.encode('\r\n'));
+      }
+    }
+    parts.push(enc.encode(`--${boundary}--\r\n`));
+    headers['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
+    const n = parts.reduce((a, p) => a + p.length, 0), out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out;
+  }
+  if (typeof Blob !== 'undefined' && body instanceof Blob) return new Uint8Array(await body.arrayBuffer());
+  return new TextEncoder().encode(String(body));
+}
+
+export async function nativeFetch(url, init = {}) {
+  const headers = {}; const h = init.headers || {};
+  if (typeof Headers !== 'undefined' && h instanceof Headers) h.forEach((v, k) => { headers[k] = v; }); else Object.assign(headers, h);
+  const bytes = await bodyBytes(init.body, headers);
+  if (init.signal && init.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+  const id = nextStreamId++, s = { headed: false };
+  const head = new Promise((res, rej) => { s.resolveHead = res; s.rejectHead = rej; });
+  const body = new ReadableStream({ start(c) { s.ctl = c; }, cancel() { try { G.window.AndroidBridge.httpAbort(id); } catch {} streams.delete(id); } });
+  streams.set(id, s);
+  if (init.signal) init.signal.addEventListener('abort', () => {
+    try { G.window.AndroidBridge.httpAbort(id); } catch {}
+    const err = new DOMException('Aborted', 'AbortError'); streams.delete(id);
+    if (!s.headed) { s.headed = true; s.rejectHead(err); } try { s.ctl.error(err); } catch {}
+  });
+  G.window.AndroidBridge.httpStream(id, (init.method || 'GET').toUpperCase(), url, JSON.stringify(headers), bytes ? bytesToB64(bytes) : '', Number(init.timeoutMs) || 60000);
+  const status = await head;
+  return new Response(body, { status: status === 204 ? 200 : status, statusText: String(status) });
+}
+
+/** fetch() for the AI services: through Android when available, plain fetch in a browser. */
+export const apiFetch = (url, init) => (nativeStream() ? nativeFetch(url, init) : realFetch(url, init));

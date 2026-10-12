@@ -55,7 +55,7 @@ public class Bridge {
 
     private final Activity activity;
     private final WebView web;
-    private final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private final ExecutorService pool = Executors.newCachedThreadPool();   // streams can stay open for a while
 
     // ---- text to speech
     private TextToSpeech tts;
@@ -65,6 +65,10 @@ public class Bridge {
     private AudioFocusRequest focus;
     private int speaking = 0;
 
+    // ---- microphone + wake word (VoiceEngine) and streaming HTTP
+    private VoiceEngine voice;
+    private final Map<Integer, HttpURLConnection> live = new HashMap<>();
+
     public Bridge(Activity activity, WebView web) {
         this.activity = activity;
         this.web = web;
@@ -73,8 +77,12 @@ public class Bridge {
 
     public void destroy() {
         try { if (tts != null) { tts.stop(); tts.shutdown(); } } catch (Exception ignored) { }
+        try { if (voice != null) voice.stop(); } catch (Exception ignored) { }
         pool.shutdownNow();
     }
+
+    /** Called by MainActivity when the microphone permission arrives. */
+    public void onMicPermission() { js("window.__jvMic&&window.__jvMic('permission')"); }
 
     // ------------------------------------------------------------------ helpers
     private void js(final String code) {
@@ -372,6 +380,134 @@ public class Bridge {
             o.put("network", net);
         } catch (Exception e) { Log.w(TAG, "battery", e); }
         return o.toString();
+    }
+
+    // ------------------------------------------------------------------ streaming HTTP (Groq / Jarvis proxy)
+    @JavascriptInterface
+    public void httpStream(final int id, final String method, final String url, final String headersJson, final String bodyB64, final int timeoutMs) {
+        pool.execute(new Runnable() {
+            @Override public void run() {
+                HttpURLConnection c = null;
+                String err = "";
+                boolean headed = false;
+                try {
+                    if (url == null || !url.startsWith("https://")) throw new IllegalArgumentException("https only");
+                    c = (HttpURLConnection) new URL(url).openConnection();
+                    synchronized (live) { live.put(id, c); }
+                    int t = Math.max(5000, Math.min(timeoutMs > 0 ? timeoutMs : 60000, 120000));
+                    c.setConnectTimeout(Math.min(t, 15000));
+                    c.setReadTimeout(t);
+                    c.setRequestMethod(method == null || method.isEmpty() ? "GET" : method);
+                    JSONObject h = new JSONObject(headersJson == null || headersJson.isEmpty() ? "{}" : headersJson);
+                    Iterator<String> keys = h.keys();
+                    while (keys.hasNext()) { String k = keys.next(); c.setRequestProperty(k, h.optString(k)); }
+                    if (bodyB64 != null && !bodyB64.isEmpty()) {
+                        byte[] b = java.util.Base64.getDecoder().decode(bodyB64);
+                        c.setDoOutput(true);
+                        c.setFixedLengthStreamingMode(b.length);
+                        OutputStream os = c.getOutputStream();
+                        os.write(b);
+                        os.close();
+                    }
+                    int status = c.getResponseCode();
+                    js("window.__httpHead&&window.__httpHead(" + id + "," + status + ")");
+                    headed = true;
+                    InputStream in = status >= 400 ? c.getErrorStream() : c.getInputStream();
+                    if (in != null) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            byte[] part = java.util.Arrays.copyOf(buf, n);
+                            js("window.__httpChunk&&window.__httpChunk(" + id + ",'" + java.util.Base64.getEncoder().encodeToString(part) + "')");
+                        }
+                        in.close();
+                    }
+                } catch (Exception e) {
+                    err = String.valueOf(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+                    Log.w(TAG, "stream " + url + " failed: " + err);
+                } finally {
+                    synchronized (live) { live.remove(id); }
+                    if (c != null) c.disconnect();
+                }
+                js("window.__httpEnd&&window.__httpEnd(" + id + "," + (headed && err.isEmpty() ? "''" : JSONObject.quote(err.isEmpty() ? "network error" : err)) + ")");
+            }
+        });
+    }
+
+    @JavascriptInterface
+    public void httpAbort(final int id) {
+        final HttpURLConnection c;
+        synchronized (live) { c = live.remove(id); }
+        if (c != null) pool.execute(new Runnable() { @Override public void run() { try { c.disconnect(); } catch (Exception ignored) { } } });
+    }
+
+    // ------------------------------------------------------------------ microphone + "Hey Jarvis"
+    private final VoiceEngine.Listener voiceOut = new VoiceEngine.Listener() {
+        @Override public void onWake(float score) { js("window.__jvWake&&window.__jvWake(" + score + ")"); }
+        @Override public void onLevel(float rms, float score) { js("window.__jvLevel&&window.__jvLevel(" + Math.round(rms) + "," + score + ")"); }
+        @Override public void onPcm(short[] pcm) {
+            byte[] b = new byte[pcm.length * 2];
+            for (int i = 0; i < pcm.length; i++) { b[2 * i] = (byte) (pcm[i] & 0xff); b[2 * i + 1] = (byte) ((pcm[i] >> 8) & 0xff); }
+            js("window.__jvPcm&&window.__jvPcm('" + java.util.Base64.getEncoder().encodeToString(b) + "')");
+        }
+        @Override public void onState(String state) { js("window.__jvMic&&window.__jvMic(" + JSONObject.quote(state) + ")"); }
+    };
+
+    /** Starts the native microphone. Returns "ok", "no-permission" or an error. */
+    @JavascriptInterface
+    public String micStart() {
+        if (activity.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return "no-permission";
+        try {
+            synchronized (this) { if (voice == null) voice = new VoiceEngine(activity, voiceOut); }
+            voice.start();
+            return "ok";
+        } catch (Exception e) { return "error: " + e.getMessage(); }
+    }
+
+    @JavascriptInterface public void micStop() { if (voice != null) voice.stop(); }
+    @JavascriptInterface public void setListening(boolean on) { if (voice != null) voice.setListening(on); }
+    @JavascriptInterface public void setSpeaking(boolean on) { if (voice != null) voice.setSpeaking(on); }
+    @JavascriptInterface public void setMuted(boolean on) { if (voice != null) voice.setMuted(on); }
+    @JavascriptInterface public void setWakeThreshold(float t) { if (voice != null) voice.setThreshold(t); }
+
+    @JavascriptInterface
+    public String micStatus() {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("running", voice != null && voice.isRunning());
+            o.put("wake", voice != null && voice.hasWakeWord());
+            o.put("wakeError", voice == null ? "" : voice.wakeError());
+            o.put("permission", activity.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED);
+        } catch (Exception ignored) { }
+        return o.toString();
+    }
+
+    /** Short sine chime (wake / end of session / timers), played natively so it always sounds. */
+    @JavascriptInterface
+    public void tone(final double freq, final int ms, final double volume) {
+        pool.execute(new Runnable() {
+            @Override public void run() {
+                try {
+                    int rate = 22050, n = Math.max(1, Math.min(rate, rate * Math.max(20, ms) / 1000));
+                    short[] pcm = new short[n];
+                    double vol = Math.max(0.02, Math.min(1.0, volume * 6.0));          // page volumes (~0.06) are for a quiet web tone
+                    for (int i = 0; i < n; i++) {
+                        double env = Math.min(1.0, Math.min(i / (rate * 0.005), (n - i) / (rate * 0.03)));
+                        pcm[i] = (short) (Math.sin(2 * Math.PI * freq * i / rate) * env * vol * 32767);
+                    }
+                    android.media.AudioTrack t = new android.media.AudioTrack.Builder()
+                            .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                            .setAudioFormat(new android.media.AudioFormat.Builder().setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                                    .setSampleRate(rate).setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
+                            .setTransferMode(android.media.AudioTrack.MODE_STATIC).setBufferSizeInBytes(n * 2).build();
+                    t.write(pcm, 0, n);
+                    t.play();
+                    Thread.sleep(ms + 80L);
+                    t.release();
+                } catch (Exception e) { Log.w(TAG, "tone", e); }
+            }
+        });
     }
 
     /** Lets the page keep the screen awake while it is on screen. */
