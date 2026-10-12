@@ -69,9 +69,15 @@ jobs:
 
       - name: Face recognition (SFace shrunk to 8-bit, checked against the full model)
         run: |
-          python3 -m pip install --quiet onnx==1.16.2 onnxruntime==1.19.2 "numpy<2.1" opencv-python-headless==4.10.0.84 scikit-image==0.24.0
-          python3 tools/face_quantize.py models_src/face_recognition_sface.onnx app/src/main/assets/face/yunet.onnx app/src/main/assets/face/sface.onnx \
-            || echo "::warning title=Face recognition left out::the 8-bit face model didn't pass its check, so this build ships without face recognition"
+          python3 -m pip install --quiet onnx==1.16.2 onnxruntime==1.19.2 "numpy<2.1" opencv-python-headless==4.10.0.84 scikit-image==0.24.0 2>&1 | tail -3
+          set +e
+          python3 tools/face_quantize.py models_src/face_recognition_sface.onnx app/src/main/assets/face/yunet.onnx app/src/main/assets/face/sface.onnx > face.log 2>&1
+          code=$?
+          set -e
+          cat face.log
+          if [ $code -ne 0 ]; then
+            echo "::warning title=Face recognition left out::$(grep -v 'onnxruntime\]' face.log | tail -12 | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-900)"
+          fi
           ls -la app/src/main/assets/face/
 
       - name: Build the phone page from the PC page (if pc_source/ is present)
