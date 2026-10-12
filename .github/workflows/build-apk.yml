@@ -112,7 +112,7 @@ jobs:
             python3 -c "import json,os; open('app/src/main/assets/www/local/build_config.js','w').write('export const BUILD = ' + json.dumps({'apiBase': os.environ['API_BASE'], 'appToken': os.environ.get('APP_TOKEN', '')}) + ';\n')"
             echo "Built with the Jarvis proxy: users need no Groq key."
           else
-            echo "No JARVIS_API_BASE secret: each user enters their own Groq key."
+            echo "::warning title=This APK still asks for a Groq key::The Jarvis service isn't set up, so users must enter their own Groq key. Add the CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and GROQ_API_KEY repository secrets (see server/README.md) and run the build again."
           fi
 
       - uses: gradle/actions/setup-gradle@v4
