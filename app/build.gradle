@@ -51,4 +51,10 @@ android {
 dependencies {
     implementation 'androidx.webkit:webkit:1.11.0'
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.2'   // runs the "Hey Jarvis" wake word on the phone
+    // The PC's Piper voices (Alan / Amy) through sherpa-onnx. The build workflow puts its classes in libs/ and its
+    // native libraries (with their runtime renamed so it can't clash with the one above) in src/main/jniLibs/.
+    implementation files('libs/sherpa-onnx.jar')
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:2.0.21')
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
+    implementation 'org.apache.commons:commons-compress:1.26.1'               // unpacks the downloaded voices
 }

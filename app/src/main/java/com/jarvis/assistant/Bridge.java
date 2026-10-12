@@ -69,15 +69,27 @@ public class Bridge {
     private VoiceEngine voice;
     private final Map<Integer, HttpURLConnection> live = new HashMap<>();
 
+    // ---- the PC's Piper voices (Alan / Amy)
+    private final PiperTts piper;
+
     public Bridge(Activity activity, WebView web) {
         this.activity = activity;
         this.web = web;
         initTts();
+        PiperTts p = null;
+        try {
+            p = new PiperTts(new java.io.File(activity.getFilesDir(), "voices"), new PiperTts.Events() {
+                @Override public void onDone(long id, boolean ok) { synchronized (Bridge.this) { speaking = Math.max(0, speaking - 1); if (speaking == 0) abandonFocus(); } ttsEvent(id, ok ? "done" : "error"); }
+                @Override public void onStatus(String json) { js("window.__jvVoices&&window.__jvVoices(" + JSONObject.quote(json) + ")"); }
+            });
+        } catch (Throwable e) { Log.e(TAG, "PC voices unavailable", e); }
+        piper = p;
     }
 
     public void destroy() {
         try { if (tts != null) { tts.stop(); tts.shutdown(); } } catch (Exception ignored) { }
         try { if (voice != null) voice.stop(); } catch (Exception ignored) { }
+        try { if (piper != null) piper.shutdown(); } catch (Exception ignored) { }
         pool.shutdownNow();
     }
 
@@ -218,6 +230,11 @@ public class Bridge {
     @JavascriptInterface
     public void ttsSpeak(final int id, final String text, final double rate, final double pitch) {
         if (text == null || text.trim().isEmpty()) { ttsEvent(id, "done"); return; }
+        if (piper != null && piper.speaksNow()) {                              // the PC voice (Alan / Amy)
+            synchronized (this) { if (speaking == 0) takeFocus(); speaking++; }
+            piper.speak(id, text);
+            return;
+        }
         if (ttsFailed) { ttsEvent(id, "error"); return; }
         if (!ttsReady) { synchronized (ttsPending) { ttsPending.add(new Object[]{(long) id, text, (float) rate, (float) pitch}); } return; }
         speakNow(id, text, (float) rate, (float) pitch);
@@ -225,6 +242,7 @@ public class Bridge {
 
     @JavascriptInterface
     public void ttsStop() {
+        try { if (piper != null) piper.stop(); } catch (Exception ignored) { }
         try { if (tts != null && ttsReady) tts.stop(); } catch (Exception ignored) { }
         synchronized (this) { speaking = 0; }
         abandonFocus();
@@ -465,7 +483,9 @@ public class Bridge {
     }
 
     @JavascriptInterface public void micStop() { if (voice != null) voice.stop(); }
-    @JavascriptInterface public void setListening(boolean on) { if (voice != null) voice.setListening(on); }
+    @JavascriptInterface public void setListening(boolean on) { if (voice != null) voice.setListening(on, false); }
+    /** Same, but may include the audio from just before "Hey Jarvis" (only used right after the wake word). */
+    @JavascriptInterface public void listen(boolean on, boolean withPreroll) { if (voice != null) voice.setListening(on, withPreroll); }
     @JavascriptInterface public void setSpeaking(boolean on) { if (voice != null) voice.setSpeaking(on); }
     @JavascriptInterface public void setMuted(boolean on) { if (voice != null) voice.setMuted(on); }
     @JavascriptInterface public void setWakeThreshold(float t) { if (voice != null) voice.setThreshold(t); }
@@ -481,6 +501,18 @@ public class Bridge {
             o.put("permission", activity.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED);
         } catch (Exception ignored) { }
         return o.toString();
+    }
+
+    // ------------------------------------------------------------------ PC voices
+    /** {"alan":"ready|missing|downloading:NN|error:..","amy":..,"active":..} */
+    @JavascriptInterface public String pcVoices() { return piper == null ? "{\"unavailable\":true}" : piper.status(); }
+    @JavascriptInterface public void pcVoiceDownload(String name) { if (piper != null) piper.download(name); }
+    /** "alan", "amy", or "" to use the phone's own voices. */
+    @JavascriptInterface public void pcVoiceUse(String name) { if (piper != null) piper.use(name); }
+    /** True on Wi-Fi (or any network that isn't charged by the megabyte). */
+    @JavascriptInterface public boolean unmetered() {
+        try { ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE); return cm != null && !cm.isActiveNetworkMetered(); }
+        catch (Exception e) { return false; }
     }
 
     /** Short sine chime (wake / end of session / timers), played natively so it always sounds. */

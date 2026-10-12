@@ -29,7 +29,7 @@ c('android.graphics.drawable.Icon', 'public final class Icon { public static Ico
 c('android.app.Activity', '''public class Activity extends android.content.Context { public Object getSystemService(String n){return null;} public android.content.res.AssetManager getAssets(){return null;} public android.content.pm.PackageManager getPackageManager(){return null;}
  public android.content.Context getApplicationContext(){return this;} public void startActivity(android.content.Intent i){} public android.content.ComponentName startService(android.content.Intent i){return null;}
  public android.content.ComponentName startForegroundService(android.content.Intent i){return null;} public android.content.Intent registerReceiver(android.content.BroadcastReceiver r, android.content.IntentFilter f){return null;}
- public int checkSelfPermission(String p){return 0;} public void runOnUiThread(Runnable r){} public android.view.Window getWindow(){return null;} public void setContentView(android.view.View v, android.view.ViewGroup.LayoutParams p){}
+ public int checkSelfPermission(String p){return 0;} public java.io.File getFilesDir(){return null;} public void runOnUiThread(Runnable r){} public android.view.Window getWindow(){return null;} public void setContentView(android.view.View v, android.view.ViewGroup.LayoutParams p){}
  protected void onCreate(android.os.Bundle b){} protected void onResume(){} protected void onDestroy(){} protected void onSaveInstanceState(android.os.Bundle b){} public void onBackPressed(){} public boolean moveTaskToBack(boolean b){return true;}
  public void requestPermissions(String[] p,int c){} public void onRequestPermissionsResult(int c,String[] p,int[] r){} }''')
 c('android.app.Service', '''public abstract class Service extends android.content.Context { public static final int START_NOT_STICKY=2, START_STICKY=1; public Object getSystemService(String n){return null;} public android.content.res.AssetManager getAssets(){return null;}
@@ -49,7 +49,7 @@ c('android.app.SearchManager', 'public class SearchManager { public static final
 c('android.net.Uri', 'public class Uri { public static Uri parse(String s){return null;} public String getScheme(){return null;} public String getHost(){return null;} }')
 c('android.net.Network', 'public class Network {}')
 c('android.net.NetworkCapabilities', 'public class NetworkCapabilities { public static final int TRANSPORT_WIFI=1, TRANSPORT_CELLULAR=0; public boolean hasTransport(int t){return false;} }')
-c('android.net.ConnectivityManager', 'public class ConnectivityManager { public Network getActiveNetwork(){return null;} public NetworkCapabilities getNetworkCapabilities(Network n){return null;} }')
+c('android.net.ConnectivityManager', 'public class ConnectivityManager { public boolean isActiveNetworkMetered(){return true;} public Network getActiveNetwork(){return null;} public NetworkCapabilities getNetworkCapabilities(Network n){return null;} }')
 c('android.os.Bundle', 'public class Bundle { public void putInt(String k,int v){} }')
 c('android.os.IBinder', 'public interface IBinder {}')
 c('android.os.Process', 'public class Process { public static final int THREAD_PRIORITY_URGENT_AUDIO=-19; public static int myPid(){return 0;} public static void killProcess(int p){} public static void setThreadPriority(int p){} }')
@@ -69,7 +69,7 @@ c('android.speech.tts.TextToSpeech', '''public class TextToSpeech { public stati
  public java.util.Set<Voice> getVoices(){return null;} public int setVoice(Voice v){return 0;} }''')
 c('android.speech.tts.UtteranceProgressListener', '''public abstract class UtteranceProgressListener { public abstract void onStart(String id); public abstract void onDone(String id); public abstract void onError(String id); public void onStop(String id, boolean interrupted){} }''')
 c('android.speech.tts.Voice', 'public class Voice { public String getName(){return "";} public java.util.Locale getLocale(){return null;} public int getQuality(){return 0;} public boolean isNetworkConnectionRequired(){return false;} }')
-c('android.util.Log', 'public class Log { public static int w(String t,String m){return 0;} public static int w(String t,String m,Throwable e){return 0;} public static int d(String t,String m){return 0;} public static int e(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }')
+c('android.util.Log', 'public class Log { public static int w(String t,String m){return 0;} public static int w(String t,String m,Throwable e){return 0;} public static int d(String t,String m){return 0;} public static int i(String t,String m){return 0;} public static int e(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }')
 c('android.view.KeyEvent', 'public class KeyEvent { public static final int ACTION_DOWN=0, ACTION_UP=1, KEYCODE_MEDIA_PLAY=126, KEYCODE_MEDIA_PAUSE=127, KEYCODE_MEDIA_NEXT=87, KEYCODE_MEDIA_PREVIOUS=88; public KeyEvent(int a,int c){} }')
 c('android.view.View', 'public class View { public static final int SYSTEM_UI_FLAG_LAYOUT_STABLE=256; public void setSystemUiVisibility(int v){} public void setBackgroundColor(int c){} }')
 c('android.view.ViewGroup', 'public class ViewGroup extends View { public static class LayoutParams { public LayoutParams(int w,int h){} } }')
@@ -100,11 +100,12 @@ c('org.json.JSONException', 'public class JSONException extends Exception {}')
 c('org.json.JSONArray', 'public class JSONArray { public JSONArray put(Object o){return this;} }')
 c('com.jarvis.assistant.R', '''public final class R { public static final class drawable { public static final int ic_stat=1; } public static final class string { public static final int notif_title=1, notif_text=2, notif_quit=3, app_name=4; } }''')
 
-c('android.media.AudioFormat', """public class AudioFormat { public static final int CHANNEL_IN_MONO=16, CHANNEL_OUT_MONO=4, ENCODING_PCM_16BIT=2;
+c('android.media.AudioFormat', """public class AudioFormat { public static final int CHANNEL_IN_MONO=16, CHANNEL_OUT_MONO=4, ENCODING_PCM_16BIT=2, ENCODING_PCM_FLOAT=4;
  public static class Builder { public Builder setEncoding(int e){return this;} public Builder setSampleRate(int r){return this;} public Builder setChannelMask(int m){return this;} public AudioFormat build(){return null;} } }""")
 c('android.media.AudioRecord', """public class AudioRecord { public static final int STATE_INITIALIZED=1; public AudioRecord(int src,int rate,int ch,int fmt,int size){} public static int getMinBufferSize(int r,int c,int f){return 0;}
- public int getState(){return 1;} public void release(){} public void startRecording(){} public void stop(){} public int read(short[] b,int off,int n){return n;} }""")
-c('android.media.AudioTrack', """public class AudioTrack { public static final int MODE_STATIC=0; public int write(short[] d,int off,int n){return n;} public void play(){} public void release(){}
+ public int getState(){return 1;} public int getAudioSessionId(){return 0;} public void release(){} public void startRecording(){} public void stop(){} public int read(short[] b,int off,int n){return n;} }""")
+c('android.media.AudioTrack', """public class AudioTrack { public static final int MODE_STATIC=0, MODE_STREAM=1, WRITE_BLOCKING=0; public int write(short[] d,int off,int n){return n;} public int write(float[] d,int off,int n,int mode){return n;} public void play(){} public void release(){} public void pause(){} public void flush(){} public void stop(){}
+ public int getSampleRate(){return 0;} public int getPlaybackHeadPosition(){return 0;} public static int getMinBufferSize(int r,int c,int f){return 0;}
  public static class Builder { public Builder setAudioAttributes(AudioAttributes a){return this;} public Builder setAudioFormat(AudioFormat f){return this;} public Builder setTransferMode(int m){return this;} public Builder setBufferSizeInBytes(int n){return this;} public AudioTrack build(){return null;} } }""")
 c('android.media.MediaRecorder', """public class MediaRecorder { public static class AudioSource { public static final int MIC=1, VOICE_RECOGNITION=6; } }""")
 c('android.os.SystemClock', 'public class SystemClock { public static long elapsedRealtime(){return 0;} }')
@@ -118,6 +119,8 @@ c('ai.onnxruntime.OrtSession', """public class OrtSession implements AutoCloseab
  public Result run(java.util.Map<String, ? extends OnnxTensorLike> inputs) throws OrtException {return null;} public void close(){}
  public static class SessionOptions implements AutoCloseable { public void setIntraOpNumThreads(int n) throws OrtException {} public void setInterOpNumThreads(int n) throws OrtException {} public void close(){} }
  public static class Result implements AutoCloseable, Iterable<java.util.Map.Entry<String, OnnxValue>> { public OnnxValue get(int i){return null;} public void close(){} public java.util.Iterator<java.util.Map.Entry<String, OnnxValue>> iterator(){return null;} } }""")
+
+c('android.media.audiofx.AcousticEchoCanceler', 'public class AcousticEchoCanceler { public static boolean isAvailable(){return false;} public static AcousticEchoCanceler create(int s){return null;} public int setEnabled(boolean b){return 0;} public void release(){} }')
 
 for fq, body in S.items():
     pkg, name = fq.rsplit('.', 1)

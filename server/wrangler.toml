@@ -1,0 +1,14 @@
+# Deployed automatically by .github/workflows/build-apk.yml when the CLOUDFLARE_API_TOKEN secret is set.
+name = "jarvis-proxy"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+# 60 requests per minute per phone (each phone sends its own device id)
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "7001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
