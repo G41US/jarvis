@@ -233,6 +233,18 @@ jobs:
           path: Jarvis.aab
 
       # A Release page is the easiest way to download on the phone: open the repo in the phone's browser > Releases > Jarvis.apk
+      # Each build gets its own file name (Jarvis-build-118.apk), so on the phone the newest download is never
+      # confused with an old "Jarvis.apk" or a half-finished "Jarvis (2).apk". Older APKs are removed from the page.
+      - name: Give this build's APK its own name, remove older ones from the Release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp Jarvis.apk "Jarvis-build-${GITHUB_RUN_NUMBER}.apk"
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/releases/tags/latest" --jq '.assets[] | select(.name | endswith(".apk")) | .id' 2>/dev/null); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" && echo "removed old asset $id"
+          done
+
       - name: Publish to Releases
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
@@ -240,9 +252,9 @@ jobs:
           tag_name: latest
           name: Jarvis (latest build)
           body: |
-            Install Jarvis.apk on your phone. Built automatically from the latest push.
+            Install **Jarvis-build-${{ github.run_number }}.apk** on your phone (build ${{ github.run_number }}). Built automatically from the latest push.
 
             **Size: ${{ steps.apkcheck.outputs.mb }} MB** (${{ steps.apkcheck.outputs.bytes }} bytes; some phones show ${{ steps.apkcheck.outputs.mib }} MB).
             If the file on your phone is smaller, the download was cut off: delete it and download again on Wi-Fi.
             Checked with Android's apksigner, zipalign and aapt2. SHA-256 starts ${{ steps.apkcheck.outputs.sha }}.
-          files: Jarvis.apk
+          files: Jarvis-build-${{ github.run_number }}.apk
