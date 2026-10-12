@@ -31,6 +31,13 @@ New version later? Push the change, wait for the build, install the new `Jarvis.
    "Hey Jarvis, what's the weather". Tapping the mic button is only a shortcut.
 4. Not hearing you? Settings > **Hearing** shows the live microphone level, the wake score as you say "Hey Jarvis", and the last thing heard.
 5. For listening with the screen off: Android Settings > Apps > Jarvis > Battery > **Unrestricted**.
+6. **Your PC voices:** on Wi-Fi, Alan (male) or Amy (female) downloads by itself the first time (about 67 MB). On mobile data,
+   Settings > Voice and face has a Download button. Until then Jarvis uses the phone's voice.
+7. **Offer reader:** Settings > Offer reader > Turn on, then switch on "Jarvis offer reader" in the list Android opens.
+   If Android says the setting is restricted (it does for apps installed from a download): Android Settings > Apps > Jarvis >
+   three-dot menu > **Allow restricted settings**, then try again. Your floors are under Navigation and deliveries.
+
+**No key for anyone:** see `server/README.md` (three GitHub secrets; the build deploys the service). **Play Store:** see `playstore/PLAYSTORE.md`.
 
 Try: "Hey Jarvis, navigate to Phoenix Sky Harbor Airport." / "I accepted a DoorDash order from Chipotle to 123 Main Street, it pays 8 dollars." /
 "What's next?" / "Picked it up." / "Delivered." / "How much have I made today?"
@@ -44,8 +51,7 @@ turn-by-turn navigation on a map with spoken guidance (worldwide, free services)
 ## Different from the PC version
 
 - No face ID, files, clipboard, screen reading or calendar yet.
-- Voices are your phone's own (Google text-to-speech) instead of Piper's Alan and Amy. Pick Male or Female in settings;
-  if the phone lacks a voice of that gender, Jarvis shifts the pitch. More voices: Android Settings > Text-to-speech > Install voice data.
+- Voices: the PC's Piper voices (Alan and Amy) run on the phone once downloaded; the phone's own voices are the fallback.
 - No live traffic: route times are the free services' normal-traffic estimates.
 - Turn-by-turn instructions are in English.
 - Listening in the background (screen off, another app on top) is best effort. Android decides, and some phones are stricter than others.

@@ -18,3 +18,4 @@ import glob, xml.dom.minidom as m
 for f in glob.glob('app/src/main/**/*.xml', recursive=True): m.parse(f)
 print('xml OK')
 PY
+javac -d "$S/out" app/src/main/java/com/jarvis/assistant/OfferParser.java tests/offers/OfferParserTest.java && java -cp "$S/out" OfferParserTest | tail -1   # offer reader on sample screens
