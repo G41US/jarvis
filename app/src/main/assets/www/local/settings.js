@@ -145,13 +145,29 @@ export function initSettings() {
     dSpeed.className = s.sttError ? 'bad' : '';
   };
 
+  // ---- offer reader
+  const sOffer = section('Offer reader', 'When the DoorDash Dasher or Uber Driver app shows you an offer, Jarvis reads the pay, distance and time on it and tells you "take it", "your call" or "pass", using your pay floors below.');
+  sOffer.append(el('p', { class: 'hint' }, 'To read the offer, Android has to let Jarvis see what those two apps show on screen (an accessibility permission). Jarvis only looks at the Dasher and Uber Driver apps, never taps, accepts or declines anything, and nothing it reads is saved or sent anywhere.'));
+  const offerState = el('div', { style: 'font-size:14px;margin:8px 0' }), offerBtn = el('button', { type: 'button' }, 'Turn on the offer reader');
+  const offerLast = el('p', { class: 'hint', style: 'overflow-wrap:anywhere' });
+  offerBtn.onclick = () => J().openOfferSettings();
+  sOffer.append(offerState, el('div', { class: 'row' }, offerBtn), offerLast);
+  sOffer.append(el('p', { class: 'hint' }, 'In the list that opens, tap "Jarvis offer reader" and switch it on. If Android says the setting is restricted: open Android Settings, Apps, Jarvis, the three-dot menu, "Allow restricted settings", then try again.'));
+  const paintOffer = () => {
+    const st = J().offerStatus ? J().offerStatus() : null; if (!st) { sOffer.style.display = 'none'; return; }
+    offerState.textContent = st.enabled ? 'On. Offers in the Dasher and Uber Driver apps are read automatically.' : 'Off.';
+    offerState.className = st.enabled ? 'ok' : ''; offerBtn.textContent = st.enabled ? 'Accessibility settings' : 'Turn on the offer reader';
+    const o = J().stats && J().stats.lastOffer;
+    offerLast.textContent = o ? `Last offer: ${o.spoken}` : st.lastScreen ? `Last screen read: ${st.lastScreen.slice(0, 300)}` : '';
+  };
+
   // ---- navigation & delivery
   const nd = el('details'); nd.append(el('summary', {}, 'Navigation and deliveries')); box.append(nd);
   add(nd, 'select', 'units', 'Distance', { def: 'auto', options: [['auto', 'Automatic'], ['miles', 'Miles'], ['km', 'Kilometres']] });
   add(nd, 'text', 'currency', 'Currency symbol', { def: '$', ph: '$' });
   add(nd, 'text', 'areas', 'Busy areas (comma-separated)', { ph: 'Downtown, Airport', hint: 'Used to suggest where to wait between orders.' });
-  add(nd, 'number', 'min_per_hour', 'Lowest pay per hour you accept', { num: true, inputmode: 'decimal', ph: '20' });
-  add(nd, 'number', 'min_per_mile', 'Lowest pay per mile you accept', { num: true, inputmode: 'decimal', ph: '1.5' });
+  add(nd, 'number', 'min_per_hour', 'Lowest pay per hour you accept (offer reader uses this)', { num: true, inputmode: 'decimal', ph: '18' });
+  add(nd, 'number', 'min_per_mile', 'Lowest pay per mile you accept (offer reader uses this)', { num: true, inputmode: 'decimal', ph: '1.50' });
   add(nd, 'select', 'use_gps', 'Use GPS', { def: 'true', options: [['true', 'Yes'], ['false', 'No, I will say where I am']] });
   add(nd, 'select', 'map_theme', 'Map colours', { def: 'auto', options: [['auto', 'Follow the time of day'], ['night', 'Always night'], ['day', 'Always day']] });
   add(nd, 'select', 'map_provider', 'Map', { def: 'jarvis', options: [['jarvis', 'Jarvis map (free)'], ['google', 'Google Maps (needs key)'], ['apple', 'Apple Maps (needs token)']] });
@@ -175,7 +191,7 @@ export function initSettings() {
   ov.append(el('div', { class: 'bar' }, el('div', { class: 'row' }, el('button', { type: 'button', onclick: close }, 'Close'), el('button', { type: 'button', class: 'pri', onclick: save }, 'Save')), saveMsg));
   document.body.append(ov);
 
-  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(paintDiag, 150); };
+  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); }, 300); paintOffer(); };
   J().openSettings = open;
   if (!J().api.ready()) open();
 }

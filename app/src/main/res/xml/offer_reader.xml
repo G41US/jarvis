@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Offer reader: only the DoorDash Dasher and Uber Driver apps, read-only (no gestures, no taps). -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/offer_reader_description"
+    android:summary="@string/offer_reader_summary"
+    android:packageNames="com.doordash.driverapp,com.ubercab.driver"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackSpoken"
+    android:notificationTimeout="250"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="false"
+    android:accessibilityFlags="flagIncludeNotImportantViews" />

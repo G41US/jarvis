@@ -6,11 +6,12 @@ OUT = sys.argv[1]
 S = {}
 def c(fq, body): S[fq] = body
 
-c('android.content.Context', '''public abstract class Context { public static final String AUDIO_SERVICE="audio", CONNECTIVITY_SERVICE="connectivity", NOTIFICATION_SERVICE="notification", POWER_SERVICE="power";
+c('android.content.Context', '''public abstract class Context { public static final int MODE_PRIVATE=0; public static final String AUDIO_SERVICE="audio", CONNECTIVITY_SERVICE="connectivity", NOTIFICATION_SERVICE="notification", POWER_SERVICE="power";
  public abstract Object getSystemService(String n); public abstract android.content.res.AssetManager getAssets(); public abstract android.content.pm.PackageManager getPackageManager();
  public abstract Context getApplicationContext(); public abstract void startActivity(android.content.Intent i); public abstract android.content.ComponentName startService(android.content.Intent i);
  public abstract android.content.ComponentName startForegroundService(android.content.Intent i); public abstract android.content.Intent registerReceiver(android.content.BroadcastReceiver r, android.content.IntentFilter f);
- public final String getString(int id){return "";} public abstract int checkSelfPermission(String p); }''')
+ public final String getString(int id){return "";} public abstract int checkSelfPermission(String p);
+ public android.content.SharedPreferences getSharedPreferences(String n,int m){return null;} public android.content.ContentResolver getContentResolver(){return null;} public String getPackageName(){return "";} }''')
 c('android.content.ComponentName', 'public class ComponentName {}')
 c('android.content.BroadcastReceiver', 'public abstract class BroadcastReceiver {}')
 c('android.content.IntentFilter', 'public class IntentFilter { public IntentFilter(String a){} }')
@@ -29,8 +30,8 @@ c('android.graphics.drawable.Icon', 'public final class Icon { public static Ico
 c('android.app.Activity', '''public class Activity extends android.content.Context { public Object getSystemService(String n){return null;} public android.content.res.AssetManager getAssets(){return null;} public android.content.pm.PackageManager getPackageManager(){return null;}
  public android.content.Context getApplicationContext(){return this;} public void startActivity(android.content.Intent i){} public android.content.ComponentName startService(android.content.Intent i){return null;}
  public android.content.ComponentName startForegroundService(android.content.Intent i){return null;} public android.content.Intent registerReceiver(android.content.BroadcastReceiver r, android.content.IntentFilter f){return null;}
- public int checkSelfPermission(String p){return 0;} public java.io.File getFilesDir(){return null;} public void runOnUiThread(Runnable r){} public android.view.Window getWindow(){return null;} public void setContentView(android.view.View v, android.view.ViewGroup.LayoutParams p){}
- protected void onCreate(android.os.Bundle b){} protected void onResume(){} protected void onDestroy(){} protected void onSaveInstanceState(android.os.Bundle b){} public void onBackPressed(){} public boolean moveTaskToBack(boolean b){return true;}
+ public int checkSelfPermission(String p){return 0;} public java.io.File getFilesDir(){return null;} public void runOnUiThread(Runnable r){} public android.view.Window getWindow(){return null;} public android.window.OnBackInvokedDispatcher getOnBackInvokedDispatcher(){return null;} public void setContentView(android.view.View v, android.view.ViewGroup.LayoutParams p){}
+ protected void onCreate(android.os.Bundle b){} protected void onResume(){} protected void onPause(){} protected void onDestroy(){} protected void onSaveInstanceState(android.os.Bundle b){} public void onBackPressed(){} public boolean moveTaskToBack(boolean b){return true;}
  public void requestPermissions(String[] p,int c){} public void onRequestPermissionsResult(int c,String[] p,int[] r){} }''')
 c('android.app.Service', '''public abstract class Service extends android.content.Context { public static final int START_NOT_STICKY=2, START_STICKY=1; public Object getSystemService(String n){return null;} public android.content.res.AssetManager getAssets(){return null;}
  public android.content.pm.PackageManager getPackageManager(){return null;} public android.content.Context getApplicationContext(){return this;} public void startActivity(android.content.Intent i){}
@@ -63,7 +64,7 @@ c('android.media.AudioFocusRequest', '''public class AudioFocusRequest { public 
  public Builder setOnAudioFocusChangeListener(AudioManager.OnAudioFocusChangeListener l){return this;} public AudioFocusRequest build(){return null;} } }''')
 c('android.media.AudioManager', '''public class AudioManager { public static final int AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK=3, STREAM_MUSIC=3; public int requestAudioFocus(AudioFocusRequest r){return 0;} public int abandonAudioFocusRequest(AudioFocusRequest r){return 0;}
  public void dispatchMediaKeyEvent(android.view.KeyEvent e){} public interface OnAudioFocusChangeListener { void onAudioFocusChange(int c); } }''')
-c('android.speech.tts.TextToSpeech', '''public class TextToSpeech { public static final int SUCCESS=0, QUEUE_ADD=1; public interface OnInitListener { void onInit(int status); } public static class Engine { public static final String KEY_PARAM_STREAM="streamType"; }
+c('android.speech.tts.TextToSpeech', '''public class TextToSpeech { public static final int SUCCESS=0, QUEUE_ADD=1, QUEUE_FLUSH=0; public interface OnInitListener { void onInit(int status); } public static class Engine { public static final String KEY_PARAM_STREAM="streamType"; }
  public TextToSpeech(android.content.Context c, OnInitListener l){} public int setLanguage(java.util.Locale l){return 0;} public int setAudioAttributes(android.media.AudioAttributes a){return 0;} public int setOnUtteranceProgressListener(UtteranceProgressListener l){return 0;}
  public int speak(CharSequence t,int m,android.os.Bundle p,String id){return 0;} public int stop(){return 0;} public void shutdown(){} public int setSpeechRate(float r){return 0;} public int setPitch(float p){return 0;}
  public java.util.Set<Voice> getVoices(){return null;} public int setVoice(Voice v){return 0;} }''')
@@ -71,7 +72,11 @@ c('android.speech.tts.UtteranceProgressListener', '''public abstract class Utter
 c('android.speech.tts.Voice', 'public class Voice { public String getName(){return "";} public java.util.Locale getLocale(){return null;} public int getQuality(){return 0;} public boolean isNetworkConnectionRequired(){return false;} }')
 c('android.util.Log', 'public class Log { public static int w(String t,String m){return 0;} public static int w(String t,String m,Throwable e){return 0;} public static int d(String t,String m){return 0;} public static int i(String t,String m){return 0;} public static int e(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }')
 c('android.view.KeyEvent', 'public class KeyEvent { public static final int ACTION_DOWN=0, ACTION_UP=1, KEYCODE_MEDIA_PLAY=126, KEYCODE_MEDIA_PAUSE=127, KEYCODE_MEDIA_NEXT=87, KEYCODE_MEDIA_PREVIOUS=88; public KeyEvent(int a,int c){} }')
-c('android.view.View', 'public class View { public static final int SYSTEM_UI_FLAG_LAYOUT_STABLE=256; public void setSystemUiVisibility(int v){} public void setBackgroundColor(int c){} }')
+c('android.view.View', 'public class View { public static final int SYSTEM_UI_FLAG_LAYOUT_STABLE=256; public void setSystemUiVisibility(int v){} public void setBackgroundColor(int c){} public void setPadding(int l,int t,int r,int b){} public void setOnApplyWindowInsetsListener(OnApplyWindowInsetsListener l){} public interface OnApplyWindowInsetsListener { WindowInsets onApplyWindowInsets(View v, WindowInsets i); } }')
+c('android.view.WindowInsets', 'public class WindowInsets { public int getSystemWindowInsetLeft(){return 0;} public int getSystemWindowInsetTop(){return 0;} public int getSystemWindowInsetRight(){return 0;} public int getSystemWindowInsetBottom(){return 0;} public DisplayCutout getDisplayCutout(){return null;} }')
+c('android.view.DisplayCutout', 'public class DisplayCutout { public int getSafeInsetLeft(){return 0;} public int getSafeInsetTop(){return 0;} public int getSafeInsetRight(){return 0;} public int getSafeInsetBottom(){return 0;} }')
+c('android.window.OnBackInvokedDispatcher', 'public interface OnBackInvokedDispatcher { int PRIORITY_DEFAULT=0; void registerOnBackInvokedCallback(int p, OnBackInvokedCallback c); }')
+c('android.window.OnBackInvokedCallback', 'public interface OnBackInvokedCallback { void onBackInvoked(); }')
 c('android.view.ViewGroup', 'public class ViewGroup extends View { public static class LayoutParams { public LayoutParams(int w,int h){} } }')
 c('android.view.Window', 'public abstract class Window { public void addFlags(int f){} public void clearFlags(int f){} public View getDecorView(){return null;} }')
 c('android.view.WindowManager', 'public interface WindowManager { class LayoutParams { public static final int FLAG_KEEP_SCREEN_ON=128; } }')
@@ -121,6 +126,19 @@ c('ai.onnxruntime.OrtSession', """public class OrtSession implements AutoCloseab
  public static class Result implements AutoCloseable, Iterable<java.util.Map.Entry<String, OnnxValue>> { public OnnxValue get(int i){return null;} public void close(){} public java.util.Iterator<java.util.Map.Entry<String, OnnxValue>> iterator(){return null;} } }""")
 
 c('android.media.audiofx.AcousticEchoCanceler', 'public class AcousticEchoCanceler { public static boolean isAvailable(){return false;} public static AcousticEchoCanceler create(int s){return null;} public int setEnabled(boolean b){return 0;} public void release(){} }')
+
+c('android.content.ContentResolver', 'public class ContentResolver {}')
+c('android.content.SharedPreferences', """public interface SharedPreferences { float getFloat(String k,float d); String getString(String k,String d); boolean getBoolean(String k,boolean d); Editor edit();
+ interface Editor { Editor putFloat(String k,float v); Editor putString(String k,String v); Editor putBoolean(String k,boolean v); void apply(); } }""")
+c('android.provider.Settings', """public final class Settings { public static final String ACTION_ACCESSIBILITY_SETTINGS="a"; public static final class Secure { public static final String ENABLED_ACCESSIBILITY_SERVICES="e"; public static String getString(android.content.ContentResolver r,String k){return null;} } }""")
+c('android.os.Handler', 'public class Handler { public Handler(Looper l){} public boolean postDelayed(Runnable r,long ms){return true;} public void removeCallbacks(Runnable r){} }')
+c('android.os.Looper', 'public class Looper { public static Looper getMainLooper(){return null;} }')
+c('android.view.accessibility.AccessibilityEvent', 'public class AccessibilityEvent { public CharSequence getPackageName(){return null;} }')
+c('android.view.accessibility.AccessibilityNodeInfo', """public class AccessibilityNodeInfo { public CharSequence getText(){return null;} public CharSequence getContentDescription(){return null;} public int getChildCount(){return 0;}
+ public AccessibilityNodeInfo getChild(int i){return null;} public CharSequence getPackageName(){return null;} }""")
+c('android.accessibilityservice.AccessibilityService', """public abstract class AccessibilityService extends android.app.Service { public android.os.IBinder onBind(android.content.Intent i){return null;} protected void onServiceConnected(){}
+ public boolean onUnbind(android.content.Intent i){return false;} public abstract void onInterrupt(); public abstract void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent e);
+ public android.view.accessibility.AccessibilityNodeInfo getRootInActiveWindow(){return null;} }""")
 
 for fq, body in S.items():
     pkg, name = fq.rsplit('.', 1)
