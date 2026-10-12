@@ -15,12 +15,19 @@ export function needsTool(text) {
   if (/\b(spotify|music|song|track|album|playlist|pause|resume|skip|next|previous)\b/.test(t)) return true;
   if (/\b(doordash|dasher|uber ?eats|grubhub|deliver\w*|pick ?up|picked up|drop ?off|next stop|my route|orders?|stack|earnings|offer)\b/.test(t)) return true;
   if (/\b(navigat\w*|directions?|map|maps|gps|route|reroute|zoom|mini ?map|take me|drive to|walk to|how far|eta)\b/.test(t)) return true;
+  if (/\b(screen|tap|press|scroll|swipe|type|go back|go home|lock|screenshot|flash ?light|torch|volume|louder|quieter|mute|silent|vibrate|disturb|dnd|bright\w*|wi-?fi|bluetooth|hotspot|airplane|settings?|camera|photo|picture|selfie|look|see|read this|what.?s this|website|youtube|browser|google|cam|call|text|message|whatsapp|sms|notifications?|reply|calendar|schedule|meeting|event|appointment|clipboard|copy|paste|document|pdf|word|docx|alarm|wake me|remind\w*|timer|cancel|contacts?)\b/.test(t)) return true;
   if (t.split(/\s+/).length > 5) return true;
   if (/\d/.test(t)) return true;
   return ['search', 'look up', 'google', 'wikipedia', 'play', 'music', 'note', 'calculate', 'compute', 'plus', 'minus', 'times', 'divided', 'timer', 'alarm', 'countdown', 'flip', 'coin', 'dice', 'roll', 'password', 'save', 'write', 'brief', 'spotify', 'track', 'song', 'call', 'text', 'battery'].some(k => t.includes(k));
 }
 
-export function buildSystemPrompt({ prefs = [], memories = [], summary = '', name = '' } = {}) {
+export function nowLine(d = new Date()) {
+  const off = -d.getTimezoneOffset(), sign = off >= 0 ? '+' : '-', hh = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0'), mm = String(Math.abs(off) % 60).padStart(2, '0');
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `\nCURRENT LOCAL TIME: ${d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/[\u202f\u00a0]/g, ' ')} (${iso}, UTC${sign}${hh}:${mm}).\n`;
+}
+
+export function buildSystemPrompt({ prefs = [], memories = [], summary = '', name = '', now = null } = {}) {
   let base =
     "You are Jarvis — the AI from Iron Man. Not a chatbot, not a helpful-corporate assistant. You are a highly competent, dryly witty, unflappable intelligence who serves one person. You live on their phone and speak out loud.\n\n" +
     "VOICE:\n- Calm, precise, unhurried. Never eager, never servile.\n- Dry wit, delivered flat. Short sentences. Say what needs saying and stop.\n" +
@@ -30,7 +37,15 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
     "- Routing: time->get_time, weather->get_weather, math->calculate, facts->wikipedia, news->search_web/news_headlines, timer->set_timer, reminders->set_reminder, " +
     "'remember X'->remember, preferences->set_preference, crypto->crypto_price, currency->currency_convert, translate->translate, coin/dice->flip_coin/roll_dice, " +
     "password->generate_password, battery->system_info, open an app->open_app, URL reading->fetch_page, notes->take_note/read_notes, morning briefing->morning_briefing, " +
-    "call or text->phone_call/send_text (they open the dialer or composer for the user to confirm).\n" +
+    "reminders->set_reminder (give `at` as local 'YYYY-MM-DDTHH:MM' worked out from the current time below, or in_minutes; they ring even when you're closed), list/cancel->list_reminders/cancel_reminder, wake-up alarm->set_alarm, timer->set_timer.\n" +
+    "- PHONE: you live on the user's Android phone and can operate it. Websites->open_website, 'show me results'->search_in_browser, YouTube->play_youtube, live cams->show_public_cam. " +
+    "Calls and messages by name or number->phone_call, send_text (opens ready to send), whatsapp_message; 'read my messages'->read_notifications, 'reply to X'->reply_to_message, read new messages aloud->announce_messages. " +
+    "Calendar->get_calendar / add_calendar_event. Clipboard->get_clipboard / copy_to_clipboard. Documents->create_document (pdf, docx or txt; you write the full content), list_documents, open_document (share=true to send it), delete_document. " +
+    "Device->flashlight, set_volume, ringer_mode, do_not_disturb, set_brightness, open_settings (apps can't flip Wi-Fi or Bluetooth directly: open the panel, or use phone control to tap the switch). " +
+    "YOUR EYES: 'what is this', 'read this', 'look at this', 'what do you see', 'how do I look'->look_with_camera (front camera for the user's face); 'take a picture'->take_photo; 'what's on my screen'->look_at_screen. " +
+    "PHONE CONTROL (doing things inside other apps): open_app, then read_screen, then tap_on_screen / type_on_screen / scroll_screen / press_button, reading the screen again after each step to check what happened, until the task is done. " +
+    "Work step by step and don't guess numbers from an old read. Before anything that sends, posts, pays, buys, deletes or can't be undone, tell the user exactly what you're about to do and wait for a yes, unless their request already said to send it. " +
+    "Never operate the DoorDash Dasher, Uber Driver or Grubhub Driver apps (you may read them). Never type passwords or card numbers. If a tool says a permission is needed, tell the user the one step to take.\n" +
     "- Music: play_music, spotify_play, spotify_pause, spotify_next, spotify_previous control the music app on this phone. Call them when asked to play, pause or skip.\n" +
     "- DELIVERY: the user drives for DoorDash, Uber Eats and Grubhub and you are their route copilot. You CANNOT see or control those apps. Never claim you accepted, declined or changed anything in them; the driver does that. " +
     "When they tell you an order they accepted, call add_delivery_order (ask only for what is missing: the restaurant and where it goes; payout and platform are optional). A place, landmark, apartment complex, street or neighbourhood is enough to add it: never insist on a street number. When they later give the number or a better address ('it's 1420', 'the number is 22B', 'actually it's 1420 Mill Avenue'), call update_delivery_address. Stack at most four orders. " +
@@ -46,6 +61,7 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
   if (prefs.length) base += '\nUSER PREFERENCES (obey these):\n' + prefs.slice(-20).map(p => `- ${p}\n`).join('');
   if (memories.length) base += '\nTHINGS YOU KNOW ABOUT THE USER:\n' + memories.slice(-30).map(m => `- ${m}\n`).join('');
   if (summary) base += `\nEARLIER IN THIS CONVERSATION:\n${summary}\n`;
+  if (now) base += nowLine(now);                         // last, so the rest of the prompt stays the same between turns
   return base;
 }
 
@@ -59,7 +75,7 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a)
   const usable = () => api.ready() && !G.bad;
   const effort = () => (config.get('reasoning', 'low') || '').toLowerCase();
 
-  function prompt() { return buildSystemPrompt({ prefs: kv.get('prefs', []), memories: kv.get('memories', []).map(m => m.fact), summary: kv.get('summary', ''), name: config.get('user_name', '') }); }
+  function prompt() { return buildSystemPrompt({ prefs: kv.get('prefs', []), memories: kv.get('memories', []).map(m => m.fact), summary: kv.get('summary', ''), name: config.get('user_name', ''), now: new Date() }); }
   function reset() { conversation = [{ role: 'system', content: prompt() }, ...kv.get('history', []).slice(-20)]; }
   const refreshPrompt = () => { if (!conversation.length) reset(); else conversation[0] = { role: 'system', content: prompt() }; };
   const saveHistory = () => kv.set('history', conversation.filter(m => m.role === 'user' || m.role === 'assistant').slice(-20).map(m => ({ role: m.role, content: m.content })));
@@ -105,9 +121,10 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a)
   async function* streamTools(messages, scratch, signal) {
     let spoke = false;
     try {
-      for (let rnd = 0; rnd < 4; rnd++) {
+      const MAX_ROUNDS = 10;                                   // phone control works step by step: open, read, tap, read, type...
+      for (let rnd = 0; rnd < MAX_ROUNDS; rnd++) {
         const kw = { model: model(), messages, max_tokens: 2000, tools: reg.schemas };
-        if (rnd < 3) { kw.tool_choice = 'auto'; kw.parallel_tool_calls = true; } else kw.tool_choice = 'none';
+        if (rnd < MAX_ROUNDS - 1) { kw.tool_choice = 'auto'; kw.parallel_tool_calls = true; } else kw.tool_choice = 'none';
         const text = [], calls = {};
         for await (const chunk of groqStream(kw, signal)) {
           const d = chunk.choices && chunk.choices[0] && chunk.choices[0].delta; if (!d) continue;
@@ -166,6 +183,7 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a)
   // ---------------------------------------------------------------- one user turn -> events
   async function* chat(userText, signal) {
     try {
+      refreshPrompt();                                          // current time for "remind me at 5" / "tomorrow"
       conversation.push({ role: 'user', content: userText });
       for (const fp of fastpaths) {
         try { const r = await fp(userText); if (r) { yield { type: 'status', text: 'thinking' }; for (const s of emitSentences(r)) yield { type: 'sentence', text: s }; conversation.push({ role: 'assistant', content: r }); saveHistory(); yield { type: 'done' }; return; } }

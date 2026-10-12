@@ -7,4 +7,8 @@
     <string name="offer_reader_label">Jarvis offer reader</string>
     <string name="offer_reader_summary">Says take it or pass for DoorDash and Uber Eats offers</string>
     <string name="offer_reader_description">When the DoorDash Dasher or Uber Driver app shows you a delivery offer, Jarvis reads the pay, distance and time on that offer and tells you out loud whether it meets your pay per mile and per hour. It only looks at those two apps. It never taps, accepts or declines anything; you stay in control. Nothing it reads is saved or sent anywhere.</string>
+    <string name="phone_control_label">Jarvis phone control</string>
+    <string name="phone_control_summary">Lets Jarvis read your screen and tap, type and scroll when you ask him to</string>
+    <string name="phone_control_description">When you ask Jarvis to do something on your phone (\"open WhatsApp and message John\", \"what\'s on my screen\", \"go back\", \"lock the phone\"), this lets him read what is on the screen and tap, type, scroll or press Back and Home for you. He only acts when you ask, never types passwords, and never operates the DoorDash Dasher or Uber Driver apps. He asks you before sending a message or anything that can\'t be undone. What he reads is used only to answer your request: a screenshot or the screen\'s text is sent to Jarvis\'s AI service only when you ask about your screen, and nothing is kept.</string>
+    <string name="notif_reader_label">Jarvis notifications</string>
 </resources>

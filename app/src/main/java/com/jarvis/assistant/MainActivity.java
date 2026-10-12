@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private Bridge bridge;
+    private PhoneActions phone;
     private PermissionRequest pendingWebPermission;
     private String pendingGeoOrigin;
     private GeolocationPermissions.Callback pendingGeoCallback;
@@ -138,10 +139,14 @@ public class MainActivity extends Activity {
                             if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) needMic = true;
                             if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) needCam = true;
                         }
-                        if (needCam) { request.deny(); return; }              // no camera features on the phone
-                        if (!needMic || has(Manifest.permission.RECORD_AUDIO)) { request.grant(request.getResources()); return; }
+                        // Jarvis's eyes (the camera) and ears: granted when Android has given Jarvis those permissions, asked for otherwise
+                        boolean ok = (!needMic || has(Manifest.permission.RECORD_AUDIO)) && (!needCam || has(Manifest.permission.CAMERA));
+                        if (ok) { request.grant(request.getResources()); return; }
                         pendingWebPermission = request;
-                        askPermissions();
+                        List<String> want = new ArrayList<>();
+                        if (needMic && !has(Manifest.permission.RECORD_AUDIO)) want.add(Manifest.permission.RECORD_AUDIO);
+                        if (needCam && !has(Manifest.permission.CAMERA)) want.add(Manifest.permission.CAMERA);
+                        requestPermissions(want.toArray(new String[0]), REQ_PERMS);
                     }
                 });
             }
@@ -163,6 +168,9 @@ public class MainActivity extends Activity {
 
         bridge = new Bridge(this, web);
         web.addJavascriptInterface(bridge, "AndroidBridge");
+        phone = new PhoneActions(this);
+        bridge.attachPhone(phone);
+        web.addJavascriptInterface(phone, "AndroidPhone");
 
         askPermissions();
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
@@ -183,9 +191,15 @@ public class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
         if (pendingWebPermission != null) {
-            if (has(Manifest.permission.RECORD_AUDIO)) pendingWebPermission.grant(pendingWebPermission.getResources()); else pendingWebPermission.deny();
+            boolean ok = true;
+            for (String r : pendingWebPermission.getResources()) {
+                if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) ok &= has(Manifest.permission.RECORD_AUDIO);
+                if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) ok &= has(Manifest.permission.CAMERA);
+            }
+            if (ok) pendingWebPermission.grant(pendingWebPermission.getResources()); else pendingWebPermission.deny();
             pendingWebPermission = null;
         }
+        if (web != null) web.evaluateJavascript("window.__jvPerm&&window.__jvPerm()", null);
         if (pendingGeoCallback != null) {
             pendingGeoCallback.invoke(pendingGeoOrigin, has(Manifest.permission.ACCESS_FINE_LOCATION) || has(Manifest.permission.ACCESS_COARSE_LOCATION), true);
             pendingGeoCallback = null;
@@ -226,7 +240,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         if (bridge != null) bridge.destroy();
-        if (web != null) { web.removeJavascriptInterface("AndroidBridge"); web.destroy(); }
+        if (web != null) { web.removeJavascriptInterface("AndroidBridge"); web.removeJavascriptInterface("AndroidPhone"); web.destroy(); }
         super.onDestroy();
     }
 }

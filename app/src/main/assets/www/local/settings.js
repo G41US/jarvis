@@ -44,6 +44,12 @@ body.jv-settings #bg-base, body.jv-settings #bg-rings, body.jv-settings #bg-halo
 #jv-diag dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; font-size: 14px; }
 #jv-diag dt { color: #6f8aa3; } #jv-diag dd { margin: 0; color: #e8f4ff; overflow-wrap: anywhere; } #jv-diag dd.bad { color: #ff7a7a; }
 #jv-diag .flash { color: #5ef0a0; font-weight: 600; }
+/* phone powers */
+#jv-ov .pw { padding: 12px 0; border-top: 1px solid #12253a; }
+#jv-ov .pw-t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 15px; color: #e8f4ff; }
+#jv-ov .pw-st { font-size: 13px; color: #6f8aa3; white-space: nowrap; } #jv-ov .pw-st.ok { color: #5ef0a0; }
+#jv-ov .pw p.hint { margin: 4px 0 8px; }
+#jv-ov .pw button { padding: 9px 16px; }
 `;
 
 function field(kind, key, label, opts = {}) {
@@ -168,6 +174,47 @@ export function initSettings() {
     offerLast.textContent = o ? `Last offer: ${o.spoken}` : st.lastScreen ? `Last screen read: ${st.lastScreen.slice(0, 300)}` : '';
   };
 
+  // ---- phone powers: what Jarvis may do on this phone, each switched on by the user
+  const sPow = section('Phone powers', 'What Jarvis can do on this phone. Each one is off until you allow it, and you can take it back any time in Android settings.');
+  sPow.id = 'jv-powers';
+  const POWERS = [
+    ['notifications', 'Notifications', 'Reminders and timers pop up and ring, even when Jarvis is closed.'],
+    ['exactAlarms', 'Reminders on the minute', 'Without this, Android may ring reminders a few minutes late.'],
+    ['overlay', 'Open apps from the background', 'Lets Jarvis open apps, websites and calls while he isn\'t on screen (Android calls it "display over other apps").'],
+    ['control', 'Phone control', 'Jarvis reads the screen and taps, types, scrolls, goes back or home, and takes screenshots when you ask ("open WhatsApp and message John", "what\'s on my screen"). In the list that opens, tap "Jarvis phone control" and switch it on. He asks before sending anything and never operates the Dasher or Uber Driver apps.'],
+    ['notifAccess', 'Read and reply to messages', '"Read my messages", "reply to John: on my way". Switch on "Jarvis notifications" in the list that opens.'],
+    ['camera', 'Camera', 'Jarvis\'s eyes: "what is this?", "read this sign", "take a photo".'],
+    ['contacts', 'Contacts', 'Call and text people by name.'],
+    ['calls', 'Phone calls', 'Place calls straight away, without you tapping the call button.'],
+    ['calendar', 'Calendar', '"What\'s on today?", "add a meeting tomorrow at 3".'],
+    ['dnd', 'Do Not Disturb and silent', 'Switch Do Not Disturb and silent mode by voice.'],
+    ['brightness', 'Brightness', 'Change screen brightness by voice.'],
+  ];
+  const powRows = {};
+  const powList = el('div');
+  for (const [k, title, hint] of POWERS) {
+    const st = el('span', { class: 'pw-st' }), btn = el('button', { type: 'button', 'data-power': k, onclick: () => { J().phone && J().phone.request(k); } }, 'Allow');
+    const r = el('div', { class: 'pw' }, el('div', { class: 'pw-t' }, el('b', {}, title), st), el('p', { class: 'hint' }, hint), btn);
+    powRows[k] = { st, btn }; powList.append(r);
+  }
+  sPow.append(powList);
+  const ann = el('select', { 'aria-label': 'Read new messages out loud' });
+  for (const [v, t] of [['false', 'No'], ['true', 'Yes, read new messages out loud']]) ann.append(el('option', { value: v }, t));
+  ann.value = String(!!J().config.get('announce_messages', false));
+  ann.onchange = () => { const on = ann.value === 'true'; J().config.set('announce_messages', on); try { window.AndroidBridge && window.AndroidBridge.setAnnounceMessages && window.AndroidBridge.setAnnounceMessages(on); } catch {} if (on && J().phone && !J().phone.status().notifAccess) J().phone.request('notifAccess'); };
+  sPow.append(el('label', {}, 'Read new messages out loud as they arrive (good while driving)'), ann);
+  sPow.append(el('p', { class: 'hint' }, 'If Android says a setting is restricted: open Android Settings, Apps, Jarvis, the three-dot menu, "Allow restricted settings", then try again.'));
+  const paintPowers = () => {
+    const s = J().phone ? J().phone.status() : {};
+    if (!s || !Object.keys(s).length) { sPow.style.display = 'none'; return; }
+    for (const [k] of POWERS) {
+      const on = !!s[k], r = powRows[k]; if (!r) continue;
+      const txt = on ? (k === 'control' && !s.controlRunning ? 'On (starting…)' : 'On') : 'Off';
+      if (r.st.textContent !== txt) { r.st.textContent = txt; r.st.className = 'pw-st ' + (on ? 'ok' : ''); }
+      r.btn.style.display = on ? 'none' : '';
+    }
+  };
+
   // ---- navigation & delivery
   const nd = el('details'); nd.append(el('summary', {}, 'Navigation and deliveries')); box.append(nd);
   add(nd, 'select', 'units', 'Distance', { def: 'auto', options: [['auto', 'Automatic'], ['miles', 'Miles'], ['km', 'Kilometres']] });
@@ -199,7 +246,8 @@ export function initSettings() {
   ov.append(el('div', { class: 'bar' }, el('div', { class: 'row' }, el('button', { type: 'button', onclick: close }, 'Close'), el('button', { type: 'button', class: 'pri', onclick: save }, 'Save')), saveMsg));
   document.body.append(ov);
 
-  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); }, 300); paintOffer(); };
+  let powTick = 0;
+  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); };
   J().openSettings = open;
   if (!J().api.ready()) open();
 }

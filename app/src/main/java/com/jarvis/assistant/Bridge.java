@@ -100,8 +100,33 @@ public class Bridge {
     }
 
     private volatile boolean visible = true;
+    private PhoneActions phone;
     /** MainActivity tells us when Jarvis is on screen (otherwise offers are spoken straight from here). */
-    public void setVisible(boolean v) { visible = v; }
+    public void setVisible(boolean v) { visible = v; if (phone != null) phone.setVisible(v); }
+
+    /** Reminders, timers and new messages reach the page (or are spoken from here when Jarvis is in the background). */
+    void attachPhone(PhoneActions p) {
+        phone = p;
+        Reminders.listener = new Reminders.Listener() {
+            @Override public void onFire(JSONObject item) {
+                js("window.__jvAlarm&&window.__jvAlarm(" + JSONObject.quote(item.toString()) + "," + visible + ")");
+                if (!visible) {
+                    String t = item.optString("text"), k = item.optString("kind");
+                    sayNow("timer".equals(k) ? (t.isEmpty() || "timer".equalsIgnoreCase(t) ? "Your timer is done." : "Your " + t + " timer is done.") : "Reminder. " + t);
+                }
+            }
+        };
+        NotifListener.listener = new NotifListener.Listener() {
+            @Override public void onMessage(JSONObject n) {
+                boolean announce = activity.getSharedPreferences(Reminders.PREFS, Context.MODE_PRIVATE).getBoolean("announce_messages", false);
+                js("window.__jvMessage&&window.__jvMessage(" + JSONObject.quote(n.toString()) + "," + visible + ")");
+                if (announce && !visible) sayNow("Message from " + n.optString("title") + " on " + n.optString("app") + ". " + n.optString("text"));
+            }
+        };
+    }
+
+    /** "Read new messages out loud": stored natively so it works while Jarvis's page is paused. */
+    @JavascriptInterface public void setAnnounceMessages(boolean on) { activity.getSharedPreferences(Reminders.PREFS, Context.MODE_PRIVATE).edit().putBoolean("announce_messages", on).apply(); }
     private long sayIds = -1;
     /** Speak without the page (Jarvis is in the background while the driver looks at the offer). */
     private void sayNow(String text) {
@@ -116,6 +141,8 @@ public class Bridge {
         try { if (voice != null) voice.stop(); } catch (Exception ignored) { }
         try { if (piper != null) piper.shutdown(); } catch (Exception ignored) { }
         OfferReaderService.listener = null;
+        Reminders.listener = null;
+        NotifListener.listener = null;
         pool.shutdownNow();
     }
 
@@ -328,25 +355,27 @@ public class Bridge {
     }
 
     // ------------------------------------------------------------------ opening things
-    private boolean launch(Intent i) {
-        try { i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); activity.startActivity(i); return true; }
-        catch (Exception e) { Log.w(TAG, "launch failed: " + i, e); return false; }
+    /** Opens it now if Android allows (Jarvis on screen, or "display over other apps" / phone control on); else a tap-to-open notification. */
+    private String launch(Intent i, String what) {
+        if (phone != null) return phone.start(i, what);
+        try { i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); activity.startActivity(i); return "ok"; }
+        catch (Exception e) { Log.w(TAG, "launch failed: " + i, e); return "failed"; }
     }
 
+    /** Returns "ok", "notified" (a tap-to-open notification, because Jarvis is in the background) or "failed". */
     @JavascriptInterface
-    public void openUrl(final String url) {
-        if (url == null) return;
-        activity.runOnUiThread(new Runnable() {
-            @Override public void run() {
-                try {
-                    Uri u = Uri.parse(url.trim());
-                    String s = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
-                    if (!(s.equals("https") || s.equals("http") || s.equals("geo") || s.equals("tel") || s.equals("sms") || s.equals("smsto")
-                            || s.equals("mailto") || s.equals("google.navigation") || s.equals("comgooglemaps") || s.equals("maps"))) return;
-                    launch(new Intent(s.equals("tel") ? Intent.ACTION_DIAL : Intent.ACTION_VIEW, u));
-                } catch (Exception e) { Log.w(TAG, "openUrl", e); }
-            }
-        });
+    public String openUrl(final String url) {
+        if (url == null) return "failed";
+        try {
+            Uri u = Uri.parse(url.trim());
+            String s = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+            if (!(s.equals("https") || s.equals("http") || s.equals("geo") || s.equals("tel") || s.equals("sms") || s.equals("smsto")
+                    || s.equals("mailto") || s.equals("google.navigation") || s.equals("comgooglemaps") || s.equals("maps") || s.equals("vnd.youtube"))) return "failed";
+            Intent i = new Intent(s.equals("tel") ? Intent.ACTION_DIAL : Intent.ACTION_VIEW, u);
+            if (i.resolveActivity(activity.getPackageManager()) == null && !(s.equals("https") || s.equals("http"))) return "failed";
+            String host = u.getHost() == null ? "it" : u.getHost().replaceFirst("^www\\.", "");
+            return launch(i, host);
+        } catch (Exception e) { Log.w(TAG, "openUrl", e); return "failed"; }
     }
 
     private static String norm(String s) { return s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", ""); }
@@ -370,8 +399,8 @@ public class Bridge {
             if (best == null) return "I couldn't find an app called " + name + ".";
             final Intent li = pm.getLaunchIntentForPackage(best.activityInfo.packageName);
             if (li == null) return "I couldn't open " + name + ".";
-            activity.runOnUiThread(new Runnable() { @Override public void run() { launch(li); } });
-            return "ok";
+            String r = launch(li, String.valueOf(best.loadLabel(pm)));
+            return "notified".equals(r) ? "notified" : "failed".equals(r) ? "I couldn't open " + name + "." : "ok";
         } catch (Exception e) { return "I couldn't open that app."; }
     }
 
@@ -398,8 +427,8 @@ public class Bridge {
                     try { activity.getPackageManager().getPackageInfo(pkg, 0); pkgInstalled = true; } catch (Exception ignored) { }
                     if (pkgInstalled) i.setPackage(pkg);
                 }
-                activity.runOnUiThread(new Runnable() { @Override public void run() { launch(i); } });
-                return "ok";
+                String r = launch(i, "your music");
+                return "notified".equals(r) ? "notified" : "ok";
             }
             return "I can't do that with music here.";
         } catch (Exception e) { return "I couldn't control the music app."; }
@@ -561,9 +590,7 @@ public class Bridge {
     }
     @JavascriptInterface
     public void openOfferReaderSettings() {
-        activity.runOnUiThread(new Runnable() { @Override public void run() {
-            launch(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
-        } });
+        launch(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS), "accessibility settings");
     }
 
     /** Short sine chime (wake / end of session / timers), played natively so it always sounds. */
