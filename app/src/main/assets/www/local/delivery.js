@@ -28,6 +28,16 @@ export function looksComplete(text) {
   if (/,\s*(KY|OH|WV|VA|TN|IN|Kentucky|Ohio|West Virginia)\b/i.test(t)) return true;
   return (t.match(/,/g) || []).length >= 2;
 }
+/** How exact a found place is. Nominatim's place_rank: 30 = a building or business, 26-27 = a street, lower = an area. */
+export function precisionOf(hit) {
+  if (!hit || hit.rank === undefined || hit.rank === null) return 'exact';            // unknown: treat as exact (as before)
+  return hit.rank >= 28 ? 'exact' : hit.rank >= 25 ? 'street' : 'area';
+}
+/** "near the Tempe Marketplace", "somewhere around Arcadia", "off Main Street" -> the place itself */
+export function cleanPlace(text) {
+  return String(text || '').replace(/^\s*(?:somewhere\s+)?(?:near|by|around|close to|next to|behind|across from|off|in|at|the area (?:of|around|near))\s+/i, '')
+    .replace(/^the\s+/i, '').replace(/\s+(?:area|side|neighbou?rhood|vicinity)\s*$/i, '').replace(/\s+/g, ' ').trim();
+}
 const r1 = x => Math.round(x * 10) / 10, r2 = x => Math.round(x * 100) / 100;
 const dayKey = ts => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
@@ -70,7 +80,10 @@ export class Copilot {
       const r = res[0], a = r.address || {};
       const town = a.city || a.town || a.village || a.hamlet || a.county || '';
       const area = `${town}, ${a.state || ''}`.trim().replace(/^,\s*|,\s*$/g, '');
-      return { lat: parseFloat(r.lat), lon: parseFloat(r.lon), display: r.display_name || q, area, short: `${a.house_number || ''} ${a.road || ''}`.trim() };
+      const hit = { lat: parseFloat(r.lat), lon: parseFloat(r.lon), display: r.display_name || q, area, short: `${a.house_number || ''} ${a.road || ''}`.trim() };
+      if (r.place_rank !== undefined) { hit.rank = Number(r.place_rank); if (a.house_number) hit.rank = Math.max(hit.rank, 30); }
+      if (a.road) hit.road = a.road;
+      return hit;
     }
     return null;
   }
@@ -81,8 +94,12 @@ export class Copilot {
     if (feats.length) {
       const f = feats[0], [lon, lat] = f.geometry.coordinates, p = f.properties || {};
       const disp = [p.name, p.street, p.city, p.state].filter(Boolean).join(', ');
-      return { lat: parseFloat(lat), lon: parseFloat(lon), display: disp || q, area: `${p.city || ''}, ${p.state || ''}`.trim().replace(/^,\s*|,\s*$/g, ''),
+      const hit = { lat: parseFloat(lat), lon: parseFloat(lon), display: disp || q, area: `${p.city || ''}, ${p.state || ''}`.trim().replace(/^,\s*|,\s*$/g, ''),
         short: `${p.housenumber || ''} ${p.street || ''}`.trim() };
+      const t = String(p.type || '').toLowerCase();
+      hit.rank = p.housenumber ? 30 : t === 'street' ? 26 : ['city', 'county', 'state', 'country'].includes(t) ? 14 : ['district', 'locality', 'suburb', 'neighbourhood'].includes(t) ? 20 : 30;
+      if (p.street || (t === 'street' && p.name)) hit.road = p.street || p.name;
+      return hit;
     }
     return null;
   }
@@ -94,12 +111,24 @@ export class Copilot {
   async geocode(text, cache = true) {
     text = String(text || '').replace(/\s+/g, ' ').trim(); if (!text) return null;
     const key = text.toLowerCase(), useCache = cache && /\d/.test(text);
-    if (useCache) { const g = this._db().geo[key]; if (g) return { lat: g.lat, lon: g.lon, display: g.display, area: '', short: shortAddr(g.display) }; }
+    if (useCache) { const g = this._db().geo[key]; if (g) { const h = { lat: g.lat, lon: g.lon, display: g.display, area: '', short: shortAddr(g.display) }; if (g.rank !== undefined) h.rank = g.rank; return h; } }
     const cands = this._candidates(text); let hit = null;
     for (const q of cands) { hit = await this._nominatim(q); if (hit) break; }
     if (!hit) for (const q of cands.slice(0, 2)) { hit = await this._photon(q); if (hit) break; }
-    if (hit && useCache) { const d = this._db(); d.geo[key] = { lat: hit.lat, lon: hit.lon, display: hit.display, ts: Date.now() / 1000 }; this._save(d); }
+    if (hit && useCache) { const d = this._db(); d.geo[key] = { lat: hit.lat, lon: hit.lon, display: hit.display, ts: Date.now() / 1000 }; if (hit.rank !== undefined) d.geo[key].rank = hit.rank; this._save(d); }
     return hit;
+  }
+  /** A place, landmark or area is fine too: "near Tempe Marketplace", "Arcadia", "the Maple apartments on 5th". */
+  async geocodeLoose(text, near = null) {
+    const saved = this._viewbox;
+    if (near) this._viewbox = () => { const d = 0.08; return `${near.lon - d},${near.lat + d},${near.lon + d},${near.lat - d}`; };
+    try {
+      let hit = await this.geocode(text, false);
+      const c = cleanPlace(text);
+      if (!hit && c && c.toLowerCase() !== String(text).trim().toLowerCase()) hit = await this.geocode(c, false);
+      if (!hit && c.includes(',')) hit = await this.geocode(c.split(',').slice(1).join(',').trim(), false);   // "Unit 4, Maple apartments, Tempe" -> the rest
+      return hit;
+    } finally { this._viewbox = saved; }
   }
 
   // -- routing matrix
@@ -189,6 +218,7 @@ export class Copilot {
         eta_ts: r.arrive, eta_clock: clockOf(r.arrive), mins: Math.max(0, pyRound((r.arrive - now) / 60)), wait_min: pyRound(r.wait_s / 60),
         leg_min: r1(r.leg_s / 60), leg_mi: r1(r.leg_m / this.unitM), late_min: pyRound(r.late_s / 60),
         food_age_min: r.age_s === null ? null : pyRound(r.age_s / 60) };
+      if (!isPick && o.drop_precision) { s.approx = o.drop_precision; s.short_addr = `near ${shortAddr(addr)}`; }
       const el = Math.max(0, r.arrive - now), spread = Math.max(60, 0.15 * el);
       s.eta_lo = clockOf(r.arrive - 0.6 * spread); s.eta_hi = clockOf(r.arrive + 1.6 * spread);
       s.mins_lo = Math.max(0, pyRound((el - 0.6 * spread) / 60)); s.mins_hi = pyRound((el + 1.6 * spread) / 60);
@@ -212,6 +242,8 @@ export class Copilot {
       if (s.kind === 'pickup' && s.wait_min >= 3) plan.warnings.push(`Expect to wait about ${s.wait_min} minutes at ${s.restaurant}.`);
     }
     if (source === 'estimate') plan.warnings.push('Map service unreachable, so times are straight-line estimates.');
+    const rough = stops.filter(s => s.approx);
+    if (rough.length) plan.warnings.push(`${rough.map(s => s.restaurant).join(' and ')} drop-off${rough.length > 1 ? 's are' : ' is'} approximate (area only), so times there are rough.`);
     const rank = { low: 0, medium: 1, high: 2 }, risks = stops.filter(s => s.risk).map(s => s.risk);
     plan.risk = risks.length ? risks.reduce((a, b) => (rank[b] > rank[a] ? b : a)) : 'low';
     plan.total_min_lo = Math.max(0, pyRound(totalS / 60 - 0.6 * Math.max(1, 0.15 * totalS / 60)));
@@ -249,14 +281,42 @@ export class Copilot {
     now = now || Date.now() / 1000; restaurant = String(restaurant || '').trim() || 'the restaurant';
     if (this.activeOrders().length >= MAX_STACK) return { ok: false, error: `Stack is full at ${MAX_STACK} orders. Finish one first.` };
     const p = await this.geocode(pickup || restaurant); if (!p) return { ok: false, error: `Couldn't find ${pickup || restaurant}. Give me its street address.` };
-    const d = await this.geocode(dropoff, false); if (!d) return { ok: false, error: `Couldn't find the drop-off ${dropoff}. Give me the street number and street.` };
+    const d = await this.geocodeLoose(dropoff); if (!d) return { ok: false, error: `Couldn't find ${dropoff}. Tell me a nearby street, landmark or neighbourhood and I'll use that until you have the number.` };
+    const precision = precisionOf(d);
     payout = Number(payout); payout = Number.isFinite(payout) ? Math.max(0, payout) : 0;
     const db = this._db(), id = db.nextId++;
     db.orders.push({ id, platform: normalizePlatform(platform), restaurant, pickup_addr: Copilot.pickupLabel(pickup, p, restaurant), pickup_lat: p.lat, pickup_lon: p.lon,
       drop_addr: tidyAddr(dropoff), drop_lat: d.lat, drop_lon: d.lon, payout, ready_at: now + Math.max(0, Number(readyInMin || 0)) * 60,
       deadline_at: (withinMin && Number(withinMin) > 0) ? now + Number(withinMin) * 60 : null, status: 'active', picked_at: null, created_at: now });
-    this._save(db);
-    return { ok: true, id, restaurant, pickup: Copilot.pickupLabel(pickup, p, restaurant), dropoff: tidyAddr(dropoff), count: this.activeOrders().length };
+    if (precision !== 'exact') Object.assign(db.orders[db.orders.length - 1], { drop_precision: precision, drop_road: d.road || '', drop_area: d.area || '' });
+    this._save(db); this._lastPlan = null;
+    const out = { ok: true, id, restaurant, pickup: Copilot.pickupLabel(pickup, p, restaurant), dropoff: tidyAddr(dropoff), count: this.activeOrders().length };
+    if (precision !== 'exact') out.approx = precision;
+    return out;
+  }
+  /** Fill in or correct a drop-off later: "1420" (the number on the street we already have) or a full / better address. */
+  async updateAddress(ref, text) {
+    const all = this.activeOrders();
+    let o = ref ? this.findOrder(ref) : null;
+    if (!o) { const rough = all.filter(x => x.drop_precision); o = rough.length ? rough[rough.length - 1] : (all.length === 1 ? all[0] : null); }
+    if (!o) return { ok: false, error: all.length ? 'Which order is that for?' : 'No active orders.' };
+    let q = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!q) return { ok: false, error: 'What is the address?' };
+    const num = /^(?:number\s+|#\s*)?(\d+[a-z]?)$/i.exec(q);
+    if (num) {
+      if (!o.drop_road) return { ok: false, error: `I only have the area for the ${o.restaurant} order, not a street. Tell me the number and the street.` };
+      q = `${num[1]} ${o.drop_road}${o.drop_area ? ', ' + o.drop_area : ''}`;
+    }
+    const near = { lat: o.drop_lat, lon: o.drop_lon };
+    const g = await this.geocodeLoose(q, near);
+    if (!g) return { ok: false, error: `Couldn't find ${q}. Check the number and street?` };
+    const precision = precisionOf(g), moved = haversineM(near.lat, near.lon, g.lat, g.lon);
+    const db = this._db(), row = db.orders.find(x => x.id === o.id);
+    Object.assign(row, { drop_addr: tidyAddr(q), drop_lat: g.lat, drop_lon: g.lon });
+    if (precision === 'exact') { delete row.drop_precision; delete row.drop_road; delete row.drop_area; }
+    else Object.assign(row, { drop_precision: precision, drop_road: g.road || row.drop_road || '', drop_area: g.area || row.drop_area || '' });
+    this._save(db); this._lastPlan = null;
+    return { ok: true, id: o.id, restaurant: o.restaurant, dropoff: tidyAddr(q), precision, moved_m: Math.round(moved) };
   }
   findOrder(ref) {
     const orders = this.activeOrders(); ref = String(ref ?? '').trim().toLowerCase(); if (!ref) return null;
