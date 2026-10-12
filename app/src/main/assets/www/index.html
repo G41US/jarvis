@@ -210,7 +210,7 @@ const FADE_OUT_RATE = 5.0, FADE_IN_RATE = 3.0;
 
 const container = document.getElementById('three');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? 1.25 : 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? ((navigator.deviceMemory || 4) <= 4 ? 1 : 1.25) : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -447,7 +447,7 @@ const particleMat = new THREE.PointsMaterial({ color: 0x88aacc, size: 0.045, tra
 const particles = new THREE.Points(particleGeo, particleMat); faceGroup.add(particles);
 
 const composer = new EffectComposer(renderer);
-composer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? 1.25 : 2));
+composer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? ((navigator.deviceMemory || 4) <= 4 ? 1 : 1.25) : 2));
 composer.setSize(window.innerWidth, window.innerHeight);
 composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.6, 0.85);
@@ -519,7 +519,7 @@ const clock = new THREE.Clock();
 let t0 = 0, diagTimer = 0;
 let _lastFrame = 0;
 function animate() {
-  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
+  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
   const dt = clock.getDelta(); t0 += dt; const t = t0;
   lerpColors(STATE_COLORS[appState] || STATE_COLORS.idle, dt);
   applyColors();
