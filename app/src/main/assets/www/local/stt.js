@@ -1,14 +1,24 @@
-// stt.js - speech to text on the phone: the page streams 16 kHz mic audio here; we cut it into utterances (adaptive
-// voice-activity detection, same logic as server.py) and transcribe each one with Groq's hosted Whisper.
+// stt.js - speech to text on the phone: microphone audio arrives here while Jarvis is listening; we cut it into utterances and
+// transcribe each one with Groq's hosted Whisper. End of speech is found by the phone's speech detector (Silero VAD, a probability
+// per chunk from VoiceEngine.java) so background noise can't hold a sentence open; a loudness detector is the fallback.
 
-const SR = 16000, FRAMES_END = 3, MIN_SPEECH = 2, MAX_SAMPLES = SR * 15, MIN_SAMPLES = SR / 2;
+const SR = 16000;
+const PRE_MS = 300;          // audio kept from just before speech starts
+const END_MS = 550;          // this much quiet after speech = you've finished
+const MIN_SPEECH_MS = 200;   // shorter blips are noise
+const NOISE_RESET_MS = 350;  // a blip followed by this much quiet is discarded
+const MAX_MS = 12000;        // never hold a clip longer than this
+const SPEECH_ON = 0.5, SPEECH_OFF = 0.35;
 const HALLU = new Set(['you', 'thank you', 'thanks', 'please subscribe', 'subscribe', 'thank you for watching', 'thank you for watching.', '.', '..', '...', '...?', '…', '[blank_audio]', '[music]', '[applause]', '[laughter]', '♪', '♪♪', '♪ ♪', 'amara.org', 'subtitles by', 'transcription by', 'subtitle by', 'please subscribe to my channel']);
 export const isHallucination = t => { t = String(t || '').trim().toLowerCase(); return !t || HALLU.has(t) || (t.length <= 2 && !/[a-z0-9]/i.test(t)); };
 
+/** Loudness fallback: tracks the room's noise floor (drops fast, rises slowly) so steady noise stops counting as speech. */
 export class Vad {
   constructor() { this.floor = 40; }
-  get threshold() { return Math.max(90, this.floor * 3); }
-  ambient(rms) { this.floor += (Math.min(rms, 600) - this.floor) * 0.05; }
+  get threshold() { return Math.max(100, this.floor * 2.5); }
+  /** idle: learn the room quickly; mid-sentence: drift slowly so your own voice isn't learned as noise */
+  track(rms, talking = false) { const r = Math.min(rms, 4000); this.floor += (r - this.floor) * (r < this.floor ? 0.25 : talking ? 0.008 : 0.05); }
+  ambient(rms) { this.track(rms); }
 }
 export function rmsOf(int16) { let s = 0; for (let i = 0; i < int16.length; i++) s += int16[i] * int16[i]; return Math.sqrt(s / Math.max(1, int16.length)); }
 export function normalize(samples, target = 0.7, maxGain = 20) {          // Float32 in [-1,1]
@@ -25,44 +35,49 @@ export function wavBytes(f32) {
 }
 
 export class SttPipeline {
-  /** opts: {api, getConfig(k,d), onTranscript(text), onNotice(text), log, transcribe} */
+  /** opts: {api, getConfig(k,d), onTranscript(text, info), onNotice(text), log, transcribe, now} */
   constructor(opts) {
-    Object.assign(this, { log: () => {}, onNotice: () => {}, ...opts });
-    this.vad = new Vad(); this.chunks = []; this.total = 0; this.sil = 0; this.spk = 0; this.queue = []; this.busy = false;
-    this.recent = []; this.skipUntil = 0; this.noticeAt = {};
+    Object.assign(this, { log: () => {}, onNotice: () => {}, now: () => performance.now(), ...opts });
+    this.vad = new Vad(); this.recent = []; this.skipUntil = 0; this.noticeAt = {}; this.order = Promise.resolve(); this.inFlight = 0;
+    this.cut();
   }
   notice(kind, text) { const now = Date.now(); if (now - (this.noticeAt[kind] || 0) < 90000) return; this.noticeAt[kind] = now; this.onNotice(text); }
-  /** One chunk of Int16 PCM (ArrayBuffer or Int16Array). */
-  feed(data) {
+
+  /** One chunk of Int16 PCM. speech = the phone's speech probability for it (0..1), or null/-1 when unknown. */
+  feed(data, speech = null) {
     const arr = data instanceof Int16Array ? data : new Int16Array(data.buffer ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data);
     if (!arr.length) return;
-    this.chunks.push(arr); this.total += arr.length;
-    const rms = rmsOf(arr);
-    if (rms > this.vad.threshold) { this.sil = 0; this.spk++; }
-    else if (this.spk === 0) this.vad.ambient(rms);
-    else { this.sil++; if (this.spk < MIN_SPEECH && this.sil >= 2) { this.spk = 0; this.sil = 0; } }
-    if (this.spk === 0 && this.total > SR) this._keepTail(Math.floor(SR / 3));
-    const flush = this.spk >= MIN_SPEECH && this.sil >= FRAMES_END, tooLong = this.total >= MAX_SAMPLES;
-    if (flush || tooLong) {
-      const all = new Int16Array(this.total); let o = 0; for (const c of this.chunks) { all.set(c, o); o += c.length; }
-      this.chunks = []; this.total = 0; this.sil = 0; this.spk = 0;
-      if (all.length < MIN_SAMPLES) return;
-      const f = new Float32Array(all.length); for (let i = 0; i < all.length; i++) f[i] = all[i] / 32768;
-      this._enqueue(normalize(f));
+    const ms = arr.length * 1000 / SR, rms = rmsOf(arr), model = typeof speech === 'number' && speech >= 0;
+    let isSpeech, isQuiet;
+    if (model) { isSpeech = speech >= SPEECH_ON; isQuiet = speech < SPEECH_OFF; }
+    else { this.vad.track(rms, this.active); isSpeech = rms > this.vad.threshold; isQuiet = !isSpeech; }
+
+    if (!this.active) {                                                   // waiting for you to start talking
+      this.pre.push(arr); this.preMs += ms;
+      while (this.pre.length > 1 && this.preMs - this.pre[0].length * 1000 / SR >= PRE_MS) this.preMs -= this.pre.shift().length * 1000 / SR;
+      if (isSpeech) { this.active = true; this.chunks = this.pre; this.totalMs = this.preMs; this.pre = []; this.preMs = 0; this.speechMs = ms; this.quietMs = 0; }
+      return;
     }
+    this.chunks.push(arr); this.totalMs += ms;
+    if (isSpeech) { this.speechMs += ms; this.quietMs = 0; } else if (isQuiet) this.quietMs += ms;
+    if (this.speechMs < MIN_SPEECH_MS && this.quietMs >= NOISE_RESET_MS) { this.cut(); return; }      // a click or a cough
+    if ((this.speechMs >= MIN_SPEECH_MS && this.quietMs >= END_MS) || this.totalMs >= MAX_MS) this._flush(this.totalMs >= MAX_MS ? 'max' : 'pause');
+  }
+  _flush(why) {
+    const n = this.chunks.reduce((a, c) => a + c.length, 0), all = new Int16Array(n); let o = 0; for (const c of this.chunks) { all.set(c, o); o += c.length; }
+    const info = { endedAt: this.now(), audioMs: Math.round(n * 1000 / SR), why };
+    this.cut();
+    const f = new Float32Array(all.length); for (let i = 0; i < all.length; i++) f[i] = all[i] / 32768;
+    this._enqueue(normalize(f), info);
   }
   /** Drop whatever is half-recorded (Jarvis started talking or the session closed). */
-  cut() { this.chunks = []; this.total = 0; this.sil = 0; this.spk = 0; }
-  _keepTail(n) {
-    let have = 0; const keep = [];
-    for (let i = this.chunks.length - 1; i >= 0 && have < n; i--) { keep.unshift(this.chunks[i]); have += this.chunks[i].length; }
-    this.chunks = keep; this.total = have;
-  }
-  _enqueue(f32) { this.queue.push(f32); while (this.queue.length > 2) this.queue.shift(); this._pump(); }
-  async _pump() {
-    if (this.busy) return; this.busy = true;
-    try { while (this.queue.length) { const f = this.queue.shift(); const t = await this._transcribe(f); if (t) this.onTranscript(t); } }
-    finally { this.busy = false; }
+  cut() { this.active = false; this.chunks = []; this.totalMs = 0; this.speechMs = 0; this.quietMs = 0; this.pre = []; this.preMs = 0; }
+  /** Transcribe right away (clips overlap), but hand the words over in the order you said them. */
+  _enqueue(f32, info) {
+    if (this.inFlight >= 3) return;                                       // something is badly backed up; don't pile on
+    this.inFlight++;
+    const job = this._transcribe(f32).finally(() => { this.inFlight--; });
+    this.order = this.order.then(async () => { const t = await job; if (t) this.onTranscript(t, { ...info, delayMs: Math.round(this.now() - info.endedAt) }); }).catch(() => {});
   }
   async _transcribe(f32) {
     if (this.transcribe) return this.transcribe(f32);               // tests
@@ -85,7 +100,7 @@ export class SttPipeline {
       if (r.status === 401) { if (this.onError) this.onError('HTTP 401: key rejected'); this.skipUntil = Date.now() + 600000; this.notice('auth', 'Groq rejected my API key, so I can not hear you. Open my settings and paste a fresh one.'); return ''; }
       if (r.status === 429) { if (this.onError) this.onError('HTTP 429: speech limit reached'); this.skipUntil = Date.now() + 15000; this.notice('rate', "I've hit the speech limit for a moment. Give me a few seconds."); return ''; }
       if (!r.ok) {
-        this.skipUntil = Date.now() + 3000;
+        this.skipUntil = Date.now() + 1500;
         let why = ''; try { const j = JSON.parse(await r.text()); why = (j.error && j.error.message) || ''; } catch {}
         const msg = `HTTP ${r.status}${why ? ': ' + why : ''}`; this.log('[STT]', msg); if (this.onError) this.onError(msg);
         this.notice('http', `My speech service turned the audio down (${msg}). I can't hear you until that's fixed.`);
@@ -97,7 +112,7 @@ export class SttPipeline {
       const ms = Math.round(performance.now() - t0); this.log(`[STT] groq ${ms} ms: ${JSON.stringify(text)}`); if (this.onTiming) this.onTiming(ms, text);
       return isHallucination(text) ? '' : text;
     } catch (e) {
-      this.skipUntil = Date.now() + 8000; this.log('[STT] failed', e && e.name); if (this.onError) this.onError(`network: ${(e && e.message) || e}`);
+      this.skipUntil = Date.now() + 1500; this.log('[STT] failed', e && e.name); if (this.onError) this.onError(`network: ${(e && e.message) || e}`);
       if (navigator.onLine === false || (e && e.name !== 'AbortError')) this.notice('net', "I can't reach the speech service. Check the data connection.");
       return '';
     }

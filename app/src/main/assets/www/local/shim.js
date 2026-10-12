@@ -137,32 +137,21 @@ export function applySettings({ voiceChanged = false } = {}) {
 
 // ---------------------------------------------------------------- ears: native mic + wake word -> speech to text
 const stats = { mic: has('micStart') ? 'starting' : 'browser', wake: false, rms: 0, score: 0, wakes: 0, lastWakeAt: 0, listening: false, heard: [], sttMs: 0, notice: '' };
-function deliverTranscript(text) {
+function deliverTranscript(text, info) {
+  if (info && typeof info.delayMs === 'number') { stats.delayMs = info.delayMs; stats.clipMs = info.audioMs; stats.clipWhy = info.why; }
   stats.heard.unshift({ text, at: Date.now() }); stats.heard.length = Math.min(stats.heard.length, 6);
   for (const s of audioSockets) { s._deliver(JSON.stringify({ type: 'transcript', text })); s._deliver(JSON.stringify({ type: 'partial', text })); }
 }
 const stt = new SttPipeline({ api, getConfig: (k, d) => cfgStore.get(k, d), onTranscript: deliverTranscript, onNotice: t => { stats.notice = t; broadcast('proactive:' + t); }, log,
   onTiming: ms => { stats.sttMs = ms; stats.sttError = ''; }, onSent: () => { stats.sttSent = (stats.sttSent || 0) + 1; }, onError: e => { stats.sttError = e; } });
-const ears = {
-  pending: [], pendingLen: 0,
-  /** native chunks are 80 ms; the speech detector was tuned on 128 ms frames, so re-cut to 2048 samples */
-  feed(int16) {
-    this.pending.push(int16); this.pendingLen += int16.length;
-    while (this.pendingLen >= 2048) {
-      const out = new Int16Array(2048); let o = 0;
-      while (o < 2048) { const h = this.pending[0], take = Math.min(h.length, 2048 - o); out.set(h.subarray(0, take), o); o += take; if (take === h.length) this.pending.shift(); else this.pending[0] = h.subarray(take); this.pendingLen -= take; }
-      stt.feed(out);
-    }
-  },
-  reset() { this.pending = []; this.pendingLen = 0; stt.cut(); },
-};
+const ears = { feed: (int16, speech = null) => stt.feed(int16, speech), reset: () => stt.cut() };
 W.__jvDebug = (text, kind) => { if (kind !== 'heard') stats.dropped = { text: String(text), kind, at: Date.now() }; };
 const meter = () => document.getElementById('mic-level-fill');
-W.__jvPcm = b64 => { const b = b64ToBytes(b64); ears.feed(new Int16Array(b.buffer, b.byteOffset, b.byteLength >> 1)); };
-W.__jvLevel = (rms, score) => {
-  stats.rms = rms; stats.score = score;
+W.__jvPcm = (b64, speech) => { const b = b64ToBytes(b64); ears.feed(new Int16Array(b.buffer, b.byteOffset, b.byteLength >> 1), typeof speech === 'number' ? speech : null); };
+W.__jvLevel = (rms, score, speech) => {
+  stats.rms = rms; stats.score = score; stats.speech = typeof speech === 'number' ? speech : -1;
   const m = meter(); if (m) m.style.width = Math.min(100, Math.sqrt(rms) * 2.2) + '%';
-  if (!stats.listening && rms < stt.vad.threshold) stt.vad.ambient(rms);     // keep the noise floor current while idle
+  if (!stats.listening) stt.vad.track(rms);                                  // keep the loudness fallback's noise floor current while idle
 };
 W.__jvWake = score => {
   stats.wakes++; stats.lastWakeAt = Date.now(); stats.lastWakeScore = score;
@@ -174,7 +163,7 @@ W.__jvWake = score => {
 W.__jvMic = state => {
   stats.mic = String(state);
   if (state === 'permission') micStart();
-  try { const s = JSON.parse(bridge().micStatus()); stats.wake = !!s.wake; stats.wakeError = s.wakeError || ''; } catch {}
+  try { const s = JSON.parse(bridge().micStatus()); stats.wake = !!s.wake; stats.vad = !!s.vad; stats.wakeError = s.wakeError || ''; } catch {}
 };
 function micStart() { if (!has('micStart')) return; const r = bridge().micStart(); stats.mic = r === 'ok' ? 'starting' : r; }
 

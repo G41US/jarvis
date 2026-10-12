@@ -24,8 +24,8 @@ import ai.onnxruntime.OrtSession;
 public final class VoiceEngine implements Runnable {
     public interface Listener {
         void onWake(float score);
-        void onLevel(float rms, float score);
-        void onPcm(short[] pcm);
+        void onLevel(float rms, float score, float speech);
+        void onPcm(short[] pcm, float speech);
         void onState(String state);
     }
 
@@ -39,8 +39,10 @@ public final class VoiceEngine implements Runnable {
     private volatile float threshold = 0.3f, speakingThreshold = 0.5f;   // same trigger as wake.py; stricter over Jarvis's own voice
     private Thread thread;
     private WakeWord wake;
+    private SileroVad vad;                                   // speech probability per chunk (-1 when the model is missing)
     private String wakeError = "";
     private final ArrayDeque<short[]> preroll = new ArrayDeque<>();
+    private final ArrayDeque<Float> prerollSpeech = new ArrayDeque<>();
 
     public VoiceEngine(Context ctx, Listener out) { this.ctx = ctx.getApplicationContext(); this.out = out; }
 
@@ -55,12 +57,17 @@ public final class VoiceEngine implements Runnable {
     public synchronized void stop() { running = false; if (thread != null) thread.interrupt(); thread = null; }
     public boolean isRunning() { return running; }
     public boolean hasWakeWord() { return wake != null; }
+    public boolean hasVad() { return vad != null; }
     public String wakeError() { return wakeError; }
 
     /** Page says whether Jarvis is listening to the user right now (session open, not talking). */
     public void setListening(boolean on) {
         synchronized (preroll) {
-            if (on && !listening) { for (short[] c : preroll) out.onPcm(c); preroll.clear(); }
+            if (on && !listening) {
+                java.util.Iterator<Float> sp = prerollSpeech.iterator();
+                for (short[] c : preroll) out.onPcm(c, sp.hasNext() ? sp.next() : -1f);
+                preroll.clear(); prerollSpeech.clear();
+            }
             listening = on;
         }
     }
@@ -101,6 +108,37 @@ public final class VoiceEngine implements Runnable {
         };
     }
 
+    private static SileroVad.Net silero(final OrtEnvironment env, byte[] model) throws Exception {
+        OrtSession.SessionOptions o = new OrtSession.SessionOptions();
+        o.setIntraOpNumThreads(1);
+        o.setInterOpNumThreads(1);
+        final OrtSession s = env.createSession(model, o);
+        final OnnxTensor sr = OnnxTensor.createTensor(env, java.nio.LongBuffer.wrap(new long[]{16000}), new long[]{});
+        return new SileroVad.Net() {
+            @Override public float[] run(float[] input, float[] state) throws Exception {
+                OnnxTensor x = OnnxTensor.createTensor(env, FloatBuffer.wrap(input), new long[]{1, input.length});
+                OnnxTensor st = OnnxTensor.createTensor(env, FloatBuffer.wrap(state), new long[]{2, 1, 128});
+                try {
+                    java.util.Map<String, OnnxTensor> in = new java.util.HashMap<>();
+                    in.put("input", x); in.put("state", st); in.put("sr", sr);
+                    OrtSession.Result r = s.run(in);
+                    try {
+                        FloatBuffer p = ((OnnxTensor) r.get(0)).getFloatBuffer(), ns = ((OnnxTensor) r.get(1)).getFloatBuffer();
+                        float[] res = new float[1 + ns.remaining()];
+                        res[0] = p.get(0);
+                        ns.get(res, 1, res.length - 1);
+                        return res;
+                    } finally { r.close(); }
+                } finally { x.close(); st.close(); }
+            }
+        };
+    }
+
+    private void loadVad() {
+        try { vad = new SileroVad(silero(OrtEnvironment.getEnvironment(), asset(ctx, "vad/silero_vad.onnx"))); }
+        catch (Throwable e) { vad = null; Log.e(TAG, "speech detector failed to load", e); }
+    }
+
     private void loadWake() {
         try {
             OrtEnvironment env = OrtEnvironment.getEnvironment();
@@ -117,6 +155,7 @@ public final class VoiceEngine implements Runnable {
     @Override public void run() {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
         loadWake();
+        loadVad();
         AudioRecord rec = null;
         try {
             int min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
@@ -138,7 +177,7 @@ public final class VoiceEngine implements Runnable {
             short[] buf = new short[CHUNK];
             long lastWake = 0;
             int n = 0;
-            float peakScore = 0f;
+            float peakScore = 0f, peakSpeech = -1f;
             while (running) {
                 int got = 0;
                 while (got < CHUNK && running) {
@@ -164,12 +203,19 @@ public final class VoiceEngine implements Runnable {
                 }
                 peakScore = Math.max(peakScore, score);
 
+                float speech = -1f;
+                if (vad != null) { try { speech = vad.process(chunk); } catch (Exception e) { Log.w(TAG, "vad", e); } }
+                peakSpeech = Math.max(peakSpeech, speech);
+
                 synchronized (preroll) {
-                    if (listening && !muted) out.onPcm(chunk);
-                    else { preroll.add(chunk); while (preroll.size() > PREROLL_CHUNKS) preroll.removeFirst(); }
+                    if (listening && !muted) out.onPcm(chunk, speech);
+                    else {
+                        preroll.add(chunk); prerollSpeech.add(speech);
+                        while (preroll.size() > PREROLL_CHUNKS) { preroll.removeFirst(); prerollSpeech.removeFirst(); }
+                    }
                 }
 
-                if (++n % 2 == 0) { out.onLevel(rms, peakScore); peakScore = 0f; }
+                if (++n % 2 == 0) { out.onLevel(rms, peakScore, peakSpeech); peakScore = 0f; peakSpeech = -1f; }
             }
         } catch (Throwable e) {
             Log.e(TAG, "mic loop stopped", e);

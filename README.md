@@ -66,7 +66,8 @@ If the build fails, open the red run in the Actions tab, copy the last error lin
 ## Layout
 
 ```
-app/src/main/java/com/jarvis/assistant/   Android shell: MainActivity, Bridge (speech, http, apps, music), VoiceEngine + WakeWord (mic, "Hey Jarvis"), JarvisService
+app/src/main/java/com/jarvis/assistant/   Android shell: MainActivity, Bridge (speech, http, apps, music), VoiceEngine + WakeWord (mic, "Hey Jarvis"),
+                                          SileroVad (knows when you've stopped talking, even in noise; MIT licence), JarvisService
 server/                                   optional proxy that holds your Groq key (Cloudflare Worker)
 app/src/main/assets/www/                  the page and the on-device brain (local/*.js)
 pc_source/                                your PC page; tools/make_www.py turns it into the phone page
