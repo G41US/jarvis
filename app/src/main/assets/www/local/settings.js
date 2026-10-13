@@ -59,7 +59,7 @@ function field(kind, key, label, opts = {}) {
   if (kind === 'select') { inp = el('select'); for (const [v, t] of opts.options) inp.append(el('option', { value: v }, t)); inp.value = String(cur); if (inp.value !== String(cur)) inp.value = opts.options[0][0]; }
   else { inp = el('input', { type: kind, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' }); if (opts.ph) inp.placeholder = opts.ph; if (opts.inputmode) inp.setAttribute('inputmode', opts.inputmode); inp.value = cur == null ? '' : String(cur); }
   wrap.append(inp); if (opts.hint) wrap.append(el('p', { class: 'hint' }, opts.hint));
-  inp._key = key; inp._num = !!opts.num; return [wrap, inp];
+  inp._key = key; inp._num = !!opts.num; inp._def = opts.def ?? ''; return [wrap, inp];
 }
 
 export function initSettings() {
@@ -135,7 +135,7 @@ export function initSettings() {
   const meter = el('div', { class: 'meter' }, el('b')), wmeter = el('div', { class: 'meter wake' }, el('b'));
   const dl = el('dl');
   const row = (k) => { const dd = el('dd'); dl.append(el('dt', {}, k), dd); return dd; };
-  const dMic = row('Microphone'), dWake = row('Wake word'), dVad = row('Speech detector'), dHeard = row('Last heard'), dBrain = row('Brain'), dSpeed = row('Speech to text');
+  const dMic = row('Microphone'), dWake = row('Wake word'), dVad = row('Speech detector'), dHeard = row('Last heard'), dBrain = row('Brain'), dSpeed = row('Speech to text'), dLat = row('Last answer');
   diag.append(el('div', {}, 'Your voice'), meter, el('div', {}, 'Wake score (say "Hey Jarvis")'), wmeter, dl);
   sEar.append(diag);
   let diagTimer = null, wakesSeen = 0;
@@ -156,6 +156,7 @@ export function initSettings() {
     const m = J().api.mode(); put(dBrain, m === 'key' ? 'Your Groq key' : m === 'proxy' ? 'Jarvis service' : 'Not set up');
     put(dSpeed, s.sttError ? `Failed: ${s.sttError}` : s.sttMs ? `Working · ${s.sttMs} ms · ${s.sttSent || 0} clips` : (s.sttSent ? `${s.sttSent} clips sent…` : 'Nothing sent yet'));
     dSpeed.className = s.sttError ? 'bad' : '';
+    const L = s.lat; put(dLat, !L ? '—' : L.instant ? `Instant (done on the phone, ${L.firstWordsMs} ms)` : `First words ${(L.firstWordsMs / 1000).toFixed(1)} s after the words arrived · ${L.tools} tools sent${L.toolRounds ? ` · ${L.toolRounds} step${L.toolRounds > 1 ? 's' : ''}` : ''}${s.warmMs ? ` · link warmed in ${s.warmMs} ms` : ''}`);
   };
 
   // ---- offer reader
@@ -215,6 +216,46 @@ export function initSettings() {
     }
   };
 
+  // ---- smart home
+  const sHome = section('Smart home', 'Lights, plugs, thermostats, blinds and locks by voice, through Home Assistant (works with most brands) or a Philips Hue bridge.');
+  add(sHome, 'text', 'ha_url', 'Home Assistant address', { ph: 'http://192.168.1.20:8123', hint: 'Your home address for Home Assistant, or its Nabu Casa link to use it away from home.' });
+  add(sHome, 'password', 'ha_token', 'Home Assistant token', { ph: 'eyJ…', hint: 'In Home Assistant: your profile, Security, Long-lived access tokens, Create token.' });
+  add(sHome, 'text', 'hue_ip', 'Hue bridge address', { ph: 'Found by "Connect Hue bridge"' });
+  const homeMsg = el('div', { class: 'msg', id: 'jv-home-msg' });
+  const homeRun = async (tool, busy) => {
+    for (const i of inputs) if (['ha_url', 'ha_token', 'hue_ip'].includes(i._key)) J().config.set(i._key, i.value.trim());
+    homeMsg.className = 'msg'; homeMsg.textContent = busy;
+    const r = await J().reg.exec(tool, '{}'); homeMsg.className = 'msg ' + (/couldn't|can't|didn't|refused|haven't/i.test(r) ? 'bad' : 'ok'); homeMsg.textContent = r.length > 260 ? r.slice(0, 260) + '…' : r;
+  };
+  sHome.append(el('div', { class: 'row' }, el('button', { type: 'button', id: 'jv-home-test', onclick: () => homeRun('smart_home_devices', 'Checking…') }, 'Test connection'),
+    el('button', { type: 'button', onclick: () => homeRun('connect_hue', 'Looking for your Hue bridge…') }, 'Connect Hue bridge')), homeMsg);
+
+  // ---- safety
+  const sSafe = section('Safety', 'Say "emergency" and Jarvis texts these people your location, then an update every 5 minutes until you say "I\'m safe".');
+  sSafe.id = 'jv-safety';
+  const ecList = el('div'), ecIn = el('input', { type: 'text', placeholder: 'A name in your contacts, or a number', autocomplete: 'off', 'aria-label': 'Add an emergency contact' }), ecMsg = el('div', { class: 'msg' });
+  const paintEc = () => {
+    ecList.textContent = '';
+    const l = J().config.get('emergency_contacts', []) || [];
+    if (!l.length) ecList.append(el('p', { class: 'hint' }, 'No emergency contacts yet.'));
+    for (const c of l) ecList.append(el('div', { class: 'pw' }, el('div', { class: 'pw-t' }, el('b', {}, c.name), el('span', { class: 'pw-st' }, c.number)),
+      el('button', { type: 'button', onclick: async () => { await J().reg.exec('set_emergency_contact', JSON.stringify({ who: c.name, remove: true })); paintEc(); } }, 'Remove')));
+  };
+  sSafe.append(ecList, el('label', {}, 'Add an emergency contact'), ecIn, el('div', { class: 'row' }, el('button', { type: 'button', onclick: async () => {
+    if (!ecIn.value.trim()) return; ecMsg.className = 'msg'; ecMsg.textContent = 'Adding…';
+    const r = await J().reg.exec('set_emergency_contact', JSON.stringify({ who: ecIn.value.trim() })); ecMsg.className = 'msg ' + (/now an emergency contact/.test(r) ? 'ok' : 'bad'); ecMsg.textContent = r; ecIn.value = ''; paintEc();
+  } }, 'Add contact')), ecMsg);
+
+  // ---- alerts
+  const sAl = section('Alerts', 'Things Jarvis tells you without being asked.');
+  add(sAl, 'time', 'pa_briefing', 'Morning briefing', { hint: 'Weather, your calendar, reminders and the news at this time every day. Leave blank for none.' });
+  const yesNo = [['true', 'On'], ['false', 'Off']];
+  add(sAl, 'select', 'pa_weather', 'Severe weather where you are', { def: 'true', options: yesNo });
+  add(sAl, 'select', 'pa_leave', 'Time to leave for calendar events', { def: 'true', options: yesNo });
+  add(sAl, 'select', 'pa_birthdays', 'Birthdays from your contacts', { def: 'true', options: yesNo });
+  add(sAl, 'select', 'pa_battery', 'Low battery while driving', { def: 'true', options: yesNo });
+  add(sAl, 'select', 'pa_breaks', 'Break reminders on long shifts', { def: 'true', options: yesNo });
+
   // ---- navigation & delivery
   const nd = el('details'); nd.append(el('summary', {}, 'Navigation and deliveries')); box.append(nd);
   add(nd, 'select', 'units', 'Distance', { def: 'auto', options: [['auto', 'Automatic'], ['miles', 'Miles'], ['km', 'Kilometres']] });
@@ -238,7 +279,7 @@ export function initSettings() {
   const close = () => { ov.classList.remove('on'); document.body.classList.remove('jv-settings'); window.__jvPaused = false; clearInterval(diagTimer); };
   const save = () => {
     const out = {};
-    for (const i of inputs) { let v = i.value.trim(); if (i._key === 'use_gps') v = v !== 'false'; else if (i._num) v = v === '' ? '' : Number(v); out[i._key] = v; }
+    for (const i of inputs) { let v = i.value.trim(); if (i._key === 'use_gps' || (/^pa_/.test(i._key) && i._key !== 'pa_briefing')) v = v !== 'false'; else if (i._num) v = v === '' ? '' : Number(v); out[i._key] = v; }
     out.wake_sensitivity = Number(sens.value); out.avatar_gender = gender; out.voice = vsel.value;
     J().config.merge(out); J().applySettings({ voiceChanged: true });
     saveMsg.className = 'msg ok'; saveMsg.textContent = 'Saved.'; setTimeout(close, 300);
@@ -247,7 +288,14 @@ export function initSettings() {
   document.body.append(ov);
 
   let powTick = 0;
-  const open = () => { J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); };
+  /** Fresh values every time Settings opens: something may have changed by voice since (a Hue bridge, a key...). */
+  const reload = () => {
+    for (const i of inputs) {
+      const v = J().config.get(i._key, i._def); i.value = v == null ? '' : String(v);
+      if (i.tagName === 'SELECT' && i.value !== String(v ?? '')) i.value = i.options[0].value;
+    }
+  };
+  const open = () => { reload(); J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); paintEc(); };
   J().openSettings = open;
   if (!J().api.ready()) open();
 }

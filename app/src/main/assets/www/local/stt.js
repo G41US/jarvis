@@ -76,11 +76,12 @@ export class SttPipeline {
   _enqueue(f32, info) {
     if (this.inFlight >= 3) return;                                       // something is badly backed up; don't pile on
     this.inFlight++;
-    const job = this._transcribe(f32).finally(() => { this.inFlight--; });
-    this.order = this.order.then(async () => { const t = await job; if (t) this.onTranscript(t, { ...info, delayMs: Math.round(this.now() - info.endedAt) }); }).catch(() => {});
+    const meta = {};                                                       // the language Whisper heard (interpreter mode)
+    const job = this._transcribe(f32, meta).finally(() => { this.inFlight--; });
+    this.order = this.order.then(async () => { const t = await job; if (t) this.onTranscript(t, { ...info, ...meta, delayMs: Math.round(this.now() - info.endedAt) }); }).catch(() => {});
   }
-  async _transcribe(f32) {
-    if (this.transcribe) return this.transcribe(f32);               // tests
+  async _transcribe(f32, meta = {}) {
+    if (this.transcribe) return this.transcribe(f32, meta);         // tests
     if (!this.api.ready()) { this.notice('nokey', 'I need my Groq key to hear you. Open my settings and paste it in.'); return ''; }
     const now = Date.now(); if (now < this.skipUntil) return '';
     this.recent = this.recent.filter(t => now - t < 60000);
@@ -94,7 +95,8 @@ export class SttPipeline {
       fd.append('model', this.getConfig('stt_model', 'whisper-large-v3-turbo') || 'whisper-large-v3-turbo');
       if (/^[a-z]{2,3}$/.test(lang)) fd.append('language', lang);                 // a bad value would make Groq reject every clip
       if (this.onSent) this.onSent();
-      fd.append('prompt', this.prompt()); fd.append('response_format', 'json'); fd.append('temperature', '0');
+      const detect = !!this.getConfig('stt_detect', false);                 // interpreter: any language, and say which
+      if (this.prompt()) fd.append('prompt', this.prompt()); fd.append('response_format', detect ? 'verbose_json' : 'json'); fd.append('temperature', '0');
       const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 9000);
       const r = await this.api.fetch('/audio/transcriptions', { method: 'POST', body: fd, signal: ctl.signal, timeoutMs: 9000 }).finally(() => clearTimeout(to));
       if (r.status === 401) { if (this.onError) this.onError('HTTP 401: key rejected'); this.skipUntil = Date.now() + 600000; this.notice('auth', 'Groq rejected my API key, so I can not hear you. Open my settings and paste a fresh one.'); return ''; }
@@ -106,10 +108,12 @@ export class SttPipeline {
         this.notice('http', `My speech service turned the audio down (${msg}). I can't hear you until that's fixed.`);
         return '';
       }
-      let text = ((await r.json()).text || '').trim();
+      const j = await r.json(); let text = (j.text || '').trim();
+      if (j.language) meta.language = String(j.language).toLowerCase();
       const norm = text.toLowerCase().replace(/[^a-z ]/g, ''), pn = this.prompt().toLowerCase().replace(/[^a-z ]/g, '');
-      if (text.length > 25 && pn.includes(norm)) text = '';              // the prompt echoed back on silence
+      if (text.length > 25 && pn && norm && pn.includes(norm)) text = '';   // the prompt echoed back on silence
       const ms = Math.round(performance.now() - t0); this.log(`[STT] groq ${ms} ms: ${JSON.stringify(text)}`); if (this.onTiming) this.onTiming(ms, text);
+      if (detect) { const l = text.toLowerCase().replace(/[.!]+$/, ''); return !text || (HALLU.has(l) && l !== 'thank you' && l !== 'thanks') ? '' : text; }   // interpreter: '好', 'Sí' and 'thank you' are real answers
       return isHallucination(text) ? '' : text;
     } catch (e) {
       this.skipUntil = Date.now() + 1500; this.log('[STT] failed', e && e.name); if (this.onError) this.onError(`network: ${(e && e.message) || e}`);
@@ -117,5 +121,5 @@ export class SttPipeline {
       return '';
     }
   }
-  prompt() { return 'Hey Jarvis. ' + (this.getConfig('stt_words', 'DoorDash, Uber Eats, Grubhub, Dasher.') || ''); }
+  prompt() { const p = this.getConfig('stt_prompt', null); if (p != null) return p; return 'Hey Jarvis. ' + (this.getConfig('stt_words', 'DoorDash, Uber Eats, Grubhub, Dasher.') || ''); }
 }

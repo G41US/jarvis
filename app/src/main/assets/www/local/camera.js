@@ -12,6 +12,69 @@ const CSS = `
 
 let busy = false;
 
+/** jsQR (Apache-2.0), loaded the first time a code is scanned. */
+let qrLib = null;
+export function loadQr() {
+  if (qrLib) return qrLib;
+  qrLib = new Promise((res, rej) => {
+    if (window.jsQR) return res(window.jsQR);
+    const s = document.createElement('script'); s.src = './vendor/jsqr/jsQR.js';
+    s.onload = () => (window.jsQR ? res(window.jsQR) : rej(new Error('jsQR missing'))); s.onerror = () => { qrLib = null; rej(new Error('jsQR failed to load')); };
+    document.head.append(s);
+  });
+  return qrLib;
+}
+/** Decode a QR code in an image (data URL or ImageData). -> text or null. */
+export async function qrFromImage(src) {
+  const jsQR = await loadQr();
+  let data = src;
+  if (typeof src === 'string') {
+    const img = new Image(); img.src = src; await img.decode();
+    const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0); data = g.getImageData(0, 0, c.width, c.height);
+  }
+  const r = jsQR(data.data, data.width, data.height, { inversionAttempts: 'attemptBoth' });
+  return r && r.data ? r.data : null;
+}
+
+/** Live QR scan: keeps the preview open and reads ~5 frames a second until a code is found. -> { ok, text } or { ok: false, error } */
+export async function scanQr({ facing = 'environment', timeoutMs = 20000, label = 'Point at the QR code' } = {}) {
+  if (busy) return { ok: false, error: 'busy' };
+  let jsQR; try { jsQR = await loadQr(); } catch (e) { return { ok: false, error: 'noscanner' }; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return { ok: false, error: 'nocamera' };
+  busy = true;
+  if (!document.getElementById('jv-cam-css')) { const s = document.createElement('style'); s.id = 'jv-cam-css'; s.textContent = CSS; document.head.append(s); }
+  const ov = document.createElement('div'); ov.id = 'jv-cam';
+  ov.innerHTML = '<div class="frame"><video playsinline muted autoplay></video><div class="flash"></div><div class="label"></div><button aria-label="Cancel">×</button></div>';
+  ov.querySelector('.label').textContent = label;
+  let cancelled = false; ov.querySelector('button').onclick = () => { cancelled = true; };
+  document.body.append(ov);
+  const video = ov.querySelector('video'); let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+    video.srcObject = stream;
+    await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('the camera did not start')), 6000); video.onloadeddata = () => { clearTimeout(t); res(); }; });
+    try { await video.play(); } catch {}
+    const c = document.createElement('canvas'), g = c.getContext('2d', { willReadFrequently: true }), until = performance.now() + timeoutMs;
+    while (!cancelled && performance.now() < until) {
+      const vw = video.videoWidth, vh = video.videoHeight, k = Math.min(1, 800 / Math.max(vw, vh || 1));
+      if (vw && vh) {
+        c.width = Math.round(vw * k); c.height = Math.round(vh * k); g.drawImage(video, 0, 0, c.width, c.height);
+        const d = g.getImageData(0, 0, c.width, c.height), r = jsQR(d.data, d.width, d.height, { inversionAttempts: 'dontInvert' });
+        if (r && r.data) { const fl = ov.querySelector('.flash'); fl.style.opacity = '0.6'; ov.querySelector('.label').textContent = 'Got it'; await new Promise(x => setTimeout(x, 400)); return { ok: true, text: r.data }; }
+      }
+      await new Promise(x => setTimeout(x, 200));
+    }
+    return { ok: false, error: cancelled ? 'cancelled' : 'timeout' };
+  } catch (e) {
+    const n = (e && e.name) || '';
+    return { ok: false, error: n === 'NotAllowedError' || n === 'SecurityError' ? 'denied' : n === 'NotFoundError' ? 'nocamera' : String((e && e.message) || e) };
+  } finally {
+    try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch {}
+    ov.remove(); busy = false;
+  }
+}
+
 /**
  * Takes one picture. facing: 'environment' (back) or 'user' (front).
  * Resolves { ok: true, dataUrl, width, height } or { ok: false, error: 'denied' | 'nocamera' | 'busy' | 'cancelled' | message }.

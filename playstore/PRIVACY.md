@@ -45,6 +45,20 @@ There are no ads and no accounts, and we never sell your data.
 - **Calendar:** to tell you what's on and add events you ask for. Events stay in your calendar; what Jarvis reads out is part of your question.
 - **Clipboard:** read only when you ask ("what did I copy?").
 
+## Live interpreter (only while it's on)
+What you and the other person say is sent to Groq to be written down and translated, the same way as any question to Jarvis. Nothing is kept.
+
+## Driving, safety and expenses (only when you use them)
+- **Shifts and mileage:** while a shift is on, your phone's GPS adds up the miles. Only the totals per shift (date, times, miles) are kept, on your phone.
+- **Parking:** the spot you saved is kept on your phone until you save another.
+- **SOS:** when you say "emergency", Jarvis texts your location (a map link) to the emergency contacts you chose, from your own phone number, every 5 minutes until you say "I'm safe". Only those people receive it.
+- **Receipts:** a receipt photo is sent to Groq to read the store, date and total; only those details are kept, on your phone.
+- **Nearby gas:** your approximate position is sent to OpenStreetMap's Overpass service to find stations.
+- **Weather alerts:** your approximate position is sent to the US National Weather Service (or Open-Meteo outside the US).
+
+## Smart home (only if you connect one)
+Jarvis talks directly to your Home Assistant or Philips Hue bridge with the address and token you enter. They stay on your phone and are not sent to us.
+
 ## Reminders, alarms and documents
 Reminders and timers are stored on your phone and ring through Android's alarm system. Wake-up alarms go to your Clock app. Documents
 Jarvis writes for you are saved in your phone's Documents/Jarvis folder.

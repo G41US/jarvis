@@ -137,7 +137,9 @@ export function registerPhoneTools(ctx) {
     ctx.stopTimers = () => clearInterval(iv);
   }
   W.__jvAlarm = (json, visible) => {
-    const r = parse(json); if (!r || !visible) return;                               // in the background the app speaks it natively
+    const r = parse(json); if (!r) return;
+    if (r.kind === 'briefing') { if (ctx.briefingText) ctx.briefingText().then(([t]) => broadcast('proactive:' + t)).catch(() => {}); return; }   // composed here, even in the background
+    if (!visible) return;                                                               // in the background the app speaks it natively
     broadcast(r.kind === 'timer' ? 'timer:' + (r.text || 'timer') : 'proactive:Reminder. ' + (r.text || ''));
   };
 
@@ -168,8 +170,9 @@ export function registerPhoneTools(ctx) {
   });
 
   // ================================================================== eyes: camera and screen
-  async function see(dataUrl, question, what) {
-    const sys = `You are the eyes of Jarvis, a voice assistant. You are looking at ${what}. Answer the question for someone who will HEAR your answer: plain sentences, no markdown, no lists, at most four sentences unless they asked you to read text out, then read it faithfully. If you can't tell, say so.`;
+  async function see(dataUrl, question, what, { raw = false } = {}) {
+    const sys = raw ? `You read images precisely. You are looking at ${what}. Follow the instructions exactly and reply only in the format asked for.`
+      : `You are the eyes of Jarvis, a voice assistant. You are looking at ${what}. Answer the question for someone who will HEAR your answer: plain sentences, no markdown, no lists, at most four sentences unless they asked you to read text out, then read it faithfully. If you can't tell, say so.`;
     const body = { model: VISION_MODEL, max_tokens: 700, messages: [{ role: 'system', content: sys }, { role: 'user', content: [{ type: 'text', text: question || 'What do you see?' }, { type: 'image_url', image_url: { url: dataUrl } }] }] };
     try {
       const r = await api.fetch('/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -361,5 +364,7 @@ export function registerPhoneTools(ctx) {
     const [from, to] = dayRange('today'); const l = parse(call('calendarEvents', from, to)) || [];
     return l.length ? `On your calendar today: ${l.slice(0, 5).map(e => e.title + (e.allDay ? '' : ' at ' + clock(e.begin))).join('; ')}.` : '';
   };
-  return { see, status: () => parse(call('status')) || {}, request: n => call('request', n) };
+  const helpers = { see, shoot, camFail, call, has, parse, needed, opened, openUrl, clock, when, dayWord, items, addItem, cancelItem, NEED };
+  ctx.phoneHelpers = helpers;
+  return { see, status: () => parse(call('status')) || {}, request: n => call('request', n), helpers };
 }

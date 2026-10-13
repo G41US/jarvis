@@ -21,6 +21,7 @@ export default {
     if (!env.GROQ_API_KEY) return fail(500, 'The proxy has no GROQ_API_KEY set.');
     if (env.APP_TOKEN && req.headers.get('x-jarvis-token') !== env.APP_TOKEN) return fail(403, 'Unknown app.');
 
+    if (new URL(req.url).pathname.replace(/^\/v1(?=\/)/, '') === '/ping') return new Response(null, { status: 204, headers: CORS });   // the app warms its connection on "Hey Jarvis"
     const device = (req.headers.get('x-jarvis-device') || 'anonymous').slice(0, 64);
     if (env.LIMITER) {
       const { success } = await env.LIMITER.limit({ key: device });

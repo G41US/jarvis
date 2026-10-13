@@ -110,7 +110,7 @@ public class Bridge {
         Reminders.listener = new Reminders.Listener() {
             @Override public void onFire(JSONObject item) {
                 js("window.__jvAlarm&&window.__jvAlarm(" + JSONObject.quote(item.toString()) + "," + visible + ")");
-                if (!visible) {
+                if (!visible && !"briefing".equals(item.optString("kind"))) {             // the page composes and speaks the briefing itself
                     String t = item.optString("text"), k = item.optString("kind");
                     sayNow("timer".equals(k) ? (t.isEmpty() || "timer".equalsIgnoreCase(t) ? "Your timer is done." : "Your " + t + " timer is done.") : "Reminder. " + t);
                 }
@@ -169,7 +169,7 @@ public class Bridge {
                 String text = "";
                 HttpURLConnection c = null;
                 try {
-                    if (url == null || !url.startsWith("https://")) throw new IllegalArgumentException("https only");
+                    if (!allowed(url)) throw new IllegalArgumentException("https only (plain http only inside your home network)");
                     c = (HttpURLConnection) new URL(url).openConnection();
                     int t = Math.max(3000, Math.min(timeoutMs > 0 ? timeoutMs : 12000, 60000));
                     c.setConnectTimeout(t);
@@ -208,6 +208,19 @@ public class Bridge {
                 js("window.__httpResult(" + id + "," + status + "," + JSONObject.quote(text) + ")");
             }
         });
+    }
+
+    /** https anywhere; plain http only to devices on your own network (Home Assistant, a Hue bridge). */
+    static boolean allowed(String url) {
+        if (url == null) return false;
+        if (url.startsWith("https://")) return true;
+        if (!url.startsWith("http://")) return false;
+        try { return privateHost(Uri.parse(url).getHost()); } catch (Exception e) { return false; }
+    }
+    static boolean privateHost(String h) {
+        if (h == null) return false;
+        h = h.toLowerCase(Locale.ROOT);
+        return h.matches("^(10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|169\\.254\\.)[0-9.]+$") || h.endsWith(".local") || h.equals("homeassistant") || h.endsWith(".lan") || h.endsWith(".home.arpa");
     }
 
     // ------------------------------------------------------------------ speech out
@@ -292,6 +305,40 @@ public class Bridge {
         if (ttsFailed) { ttsEvent(id, "error"); return; }
         if (!ttsReady) { synchronized (ttsPending) { ttsPending.add(new Object[]{(long) id, text, (float) rate, (float) pitch}); } return; }
         speakNow(id, text, (float) rate, (float) pitch);
+    }
+
+    /** Speaks in another language (the interpreter): always the phone's own voice for that language, then back to normal. */
+    @JavascriptInterface
+    public void ttsSpeakLang(final int id, final String text, final double rate, final double pitch, final String lang) {
+        if (text == null || text.trim().isEmpty()) { ttsEvent(id, "done"); return; }
+        if (ttsFailed || tts == null) { ttsEvent(id, "error"); return; }
+        if (!ttsReady) { synchronized (ttsPending) { ttsPending.add(new Object[]{(long) id, text, (float) rate, (float) pitch}); } return; }
+        try {
+            Locale want = Locale.forLanguageTag(lang == null ? "" : lang);
+            Voice before = tts.getVoice();
+            boolean switched = false;
+            if (tts.isLanguageAvailable(want) >= TextToSpeech.LANG_AVAILABLE) { tts.setLanguage(want); switched = true; }
+            speakNow(id, text, (float) rate, (float) pitch);
+            if (switched) { if (before != null) tts.setVoice(before); else tts.setLanguage(Locale.getDefault()); applyVoiceNow(); }
+        } catch (Exception e) { Log.w(TAG, "speakLang", e); ttsEvent(id, "error"); }
+    }
+
+    /** 1 if the phone can speak this language now (e.g. "es", "fr", "yo"), 0 if its voice still needs downloading, -1 if not at all. */
+    @JavascriptInterface
+    public int ttsLangAvailable(String lang) {
+        try {
+            if (tts == null || !ttsReady) return -1;
+            Locale want = Locale.forLanguageTag(lang == null ? "" : lang);
+            int r = tts.isLanguageAvailable(want);
+            if (r < TextToSpeech.LANG_AVAILABLE) return r == TextToSpeech.LANG_MISSING_DATA ? 0 : -1;
+            boolean any = false;
+            for (Voice v : tts.getVoices()) {
+                if (v.getLocale() == null || !v.getLocale().getLanguage().equals(want.getLanguage())) continue;
+                any = true;
+                if (!v.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) return 1;
+            }
+            return any ? 0 : 1;
+        } catch (Exception e) { return -1; }
     }
 
     @JavascriptInterface

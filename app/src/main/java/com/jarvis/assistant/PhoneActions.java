@@ -69,6 +69,7 @@ public class PhoneActions {
         this.a = a;
         Reminders.ensureChannel(a);
         try { Reminders.rescheduleAll(a); } catch (Exception e) { Log.w(TAG, "reschedule", e); }
+        try { ShiftTracker.get(a).resume(); } catch (Exception e) { Log.w(TAG, "shift resume", e); }
     }
     void setVisible(boolean v) { visible = v; }
 
@@ -111,6 +112,8 @@ public class PhoneActions {
             case "calls": return Manifest.permission.CALL_PHONE;
             case "calendar": return Manifest.permission.READ_CALENDAR;
             case "notifications": return Build.VERSION.SDK_INT >= 33 ? Manifest.permission.POST_NOTIFICATIONS : null;
+            case "sms": return Manifest.permission.SEND_SMS;
+            case "location": return Manifest.permission.ACCESS_FINE_LOCATION;
             default: return null;
         }
     }
@@ -133,6 +136,8 @@ public class PhoneActions {
             o.put("dnd", nm.isNotificationPolicyAccessGranted());
             o.put("brightness", Settings.System.canWrite(a));
             o.put("screenshots", Build.VERSION.SDK_INT >= 30);
+            o.put("sms", has(Manifest.permission.SEND_SMS));
+            o.put("location", has(Manifest.permission.ACCESS_FINE_LOCATION));
         } catch (Exception e) { Log.w(TAG, "status", e); }
         return o.toString();
     }
@@ -370,6 +375,27 @@ public class PhoneActions {
         return NotifListener.reply(a, who, text);
     }
 
+    /** Birthdays saved in the phone's contacts: [{name, md: "MM-DD", year: 1990 | 0}]. */
+    @JavascriptInterface
+    public String birthdays() {
+        if (!has(Manifest.permission.READ_CONTACTS)) return "need-contacts";
+        JSONArray out = new JSONArray();
+        String[] cols = {ContactsContract.CommonDataKinds.Event.DISPLAY_NAME, ContactsContract.CommonDataKinds.Event.START_DATE};
+        String where = ContactsContract.Data.MIMETYPE + "=? AND " + ContactsContract.CommonDataKinds.Event.TYPE + "=?";
+        String[] args = {ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE, String.valueOf(ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY)};
+        try (Cursor c = a.getContentResolver().query(ContactsContract.Data.CONTENT_URI, cols, where, args, null)) {
+            while (c != null && c.moveToNext() && out.length() < 2000) {
+                String d = c.getString(1) == null ? "" : c.getString(1).trim();      // "1990-04-12", "--04-12", "19900412"
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(\\d{4}|-)-?(\\d{2})-?(\\d{2})").matcher(d);
+                if (!m.find()) continue;
+                JSONObject o = new JSONObject();
+                o.put("name", c.getString(0)); o.put("md", m.group(2) + "-" + m.group(3)); o.put("year", m.group(1).length() == 4 ? Integer.parseInt(m.group(1)) : 0);
+                out.put(o);
+            }
+        } catch (Exception e) { Log.w(TAG, "birthdays", e); }
+        return out.toString();
+    }
+
     // ================================================================== calendar
     @JavascriptInterface
     public String calendarEvents(double fromMs, double toMs) {
@@ -533,6 +559,7 @@ public class PhoneActions {
             byte[] data; String mime, ext;
             if (k.startsWith("pdf")) { data = pdf(t, body); mime = "application/pdf"; ext = ".pdf"; }
             else if (k.startsWith("doc")) { data = docx(t, body); mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; ext = ".docx"; }
+            else if (k.startsWith("csv")) { data = body.getBytes(StandardCharsets.UTF_8); mime = "text/csv"; ext = ".csv"; }
             else { data = (t + "\n\n" + body).getBytes(StandardCharsets.UTF_8); mime = "text/plain"; ext = ".txt"; }
             String name = safeName(t) + " " + stamp + ext;
             Uri u = saveFile(Environment.DIRECTORY_DOCUMENTS, name, mime, data);
@@ -589,6 +616,27 @@ public class PhoneActions {
             saveFile(Environment.DIRECTORY_PICTURES, name, "image/jpeg", data);
             return name;
         } catch (Exception e) { Log.w(TAG, "photoSave", e); return ""; }
+    }
+
+    // ================================================================== driving: shifts, mileage, location (ShiftTracker)
+    @JavascriptInterface public String shiftStart() { return ShiftTracker.get(a).start(); }
+    @JavascriptInterface public String shiftEnd() { return ShiftTracker.get(a).end(); }
+    @JavascriptInterface public String shiftStatus() { return ShiftTracker.get(a).status(); }
+    @JavascriptInterface public String trips() { return ShiftTracker.get(a).trips().toString(); }
+    @JavascriptInterface public String lastLocation() { return ShiftTracker.get(a).lastLocation(); }
+    /** Waits up to timeoutMs for a fresh GPS fix when the last one is stale. */
+    @JavascriptInterface public String freshLocation(int timeoutMs) { return ShiftTracker.get(a).freshLocation(Math.max(1000, Math.min(timeoutMs, 15000))); }
+
+    // ================================================================== safety (SosManager)
+    @JavascriptInterface public String sosStart(String contactsJson, String name, String message) { return SosManager.get(a).start(contactsJson, name, message); }
+    @JavascriptInterface public String sosStop(String message) { return SosManager.get(a).stop(message); }
+    @JavascriptInterface public boolean sosActive() { return SosManager.get(a).active(); }
+    @JavascriptInterface public int shareLocation(String numbersJson, String text) { return SosManager.get(a).shareLocation(numbersJson, text); }
+    @JavascriptInterface public String placeText() { return SosManager.get(a).placeText(); }
+    /** Opens the phone dialer with an emergency number ready (Android lets only the user place emergency calls). */
+    @JavascriptInterface public String dialEmergency(String number) {
+        String n = number == null || number.replaceAll("[^\\d]", "").isEmpty() ? "911" : number.replaceAll("[^\\d]", "");
+        return start(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + n)), "the dialer");
     }
 
     // ================================================================== faces (FaceEngine): "remember my face", "who is this?"

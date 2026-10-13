@@ -2,6 +2,7 @@
 """End-to-end test of the phone page: real patched index.html + real on-device JS, with a fake Android bridge, a stand-in for three.js,
 and mocked Groq / map services. Run:  python3 tests/e2e/e2e.py   (needs playwright + chromium)"""
 import json, os, re, sys, time
+from urllib.parse import unquote
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -83,9 +84,20 @@ def groq_handler(route):
     body = json.loads(req.post_data or '{}'); state['groq_calls'].append(body)
     msgs = body.get('messages', [])
     if not body.get('stream'):
+        sysm = (msgs[0].get('content') or '') if msgs else ''
+        if 'live interpreter' in sysm or sysm.startswith('Translate into'):   # the interpreter (gpt-oss-20b, JSON)
+            state.setdefault('interp', []).append(body)
+            u = msgs[-1]['content'].lower()
+            if sysm.startswith('Translate into'): out = {'translation': 'Hola. Soy Jarvis, un intérprete.'}
+            elif 'hola' in u or 'necesito' in u: out = {'from': 'es', 'translation': 'Hello, I need help with my order.'}
+            else: out = {'from': 'en', 'translation': '¿Cómo estás? Llego en cinco minutos.'}
+            return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'choices': [{'message': {'role': 'assistant', 'content': json.dumps(out, ensure_ascii=False)}}]}))
         if body.get('model') == 'qwen/qwen3.8-27b':                   # Jarvis's eyes
             state.setdefault('vision', []).append(body)
-            return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'choices': [{'message': {'role': 'assistant', 'content': 'A red coffee mug on a wooden desk.'}}]}))
+            q = json.dumps(body['messages'][-1]['content'])
+            said = '{"merchant":"Shell","date":"","total":42.10,"currency":"$","category":"fuel","items":"Unleaded 12.1 gal"}' if 'This is a receipt' in q else \
+                   'A menu. Tacos al pastor, twelve dollars.' if 'translate it into' in q else 'A red coffee mug on a wooden desk.'
+            return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'choices': [{'message': {'role': 'assistant', 'content': said}}]}))
         return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'choices': [{'message': {'role': 'assistant', 'content': 'summary'}}]}))
     last = msgs[-1]
     # "!script [[tool, args], ...]" as the user's words: the fake model calls those tools one round at a time, like the real one does
@@ -126,6 +138,14 @@ def other_handler(route):
         if '/table/' in url: return route.fulfill(status=400, headers=cors, body='{}')
         return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps(OSRM))
     if 'photon' in url: return route.fulfill(status=200, headers=cors, content_type='application/json', body='{"features":[]}')
+    if 'overpass-api.de' in url:
+        return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'elements': [
+            {'type': 'node', 'lat': A[0] + 0.004, 'lon': A[1], 'tags': {'amenity': 'fuel', 'brand': 'Circle K'}},
+            {'type': 'way', 'center': {'lat': A[0], 'lon': A[1] + 0.002}, 'tags': {'amenity': 'fuel', 'brand': 'Shell', 'addr:housenumber': '300', 'addr:street': 'Main Street'}}]}))
+    if 'api.weather.gov/alerts' in url:
+        state['nws'] = state.get('nws', 0) + 1
+        return route.fulfill(status=200, headers=cors, content_type='application/geo+json', body=json.dumps({'features': [{'id': 'x1', 'properties': {'id': 'urn:alert:1', 'event': 'Tornado Warning', 'severity': 'Extreme',
+            'ends': '2030-10-13T18:45:00-07:00', 'instruction': 'TAKE COVER NOW! Move to a basement or an interior room.'}}]}))
     if 'open-meteo' in url and 'geocoding' in url: return route.fulfill(status=200, headers=cors, content_type='application/json', body='{"results":[]}')
     return route.fulfill(status=404, headers=cors, body='')
 
@@ -153,7 +173,8 @@ BRIDGE = r"""
   window.AndroidBridge = {
     httpRequest(id, method, url, headersJson, body, timeoutMs) {
       window.__native.http.push({ method, url, ua: (JSON.parse(headersJson || '{}')['User-Agent'] || '') });
-      of(url, { method, body: body || undefined }).then(async r => window.__httpResult(id, r.status, await r.text())).catch(() => window.__httpResult(id, 0, ''));
+      const hh = JSON.parse(headersJson || '{}'); delete hh['User-Agent'];
+      of(url, { method, body: body || undefined, headers: url.includes('192.168.') ? hh : undefined }).then(async r => window.__httpResult(id, r.status, await r.text())).catch(() => window.__httpResult(id, 0, ''));
     },
     httpStream(id, method, url, headersJson, bodyB64, timeoutMs) {
       const h = JSON.parse(headersJson || '{}'); window.__native.streams.push(url);
@@ -167,6 +188,8 @@ BRIDGE = r"""
     httpAbort(id) {},
     ttsSpeak(id, text, rate, pitch) { window.__native.tts.push(text); window.__native.ttsPitch.push(pitch); setTimeout(() => window.__ttsEvent(id, 'done'), 15); },
     ttsStop() { window.__native.stopped++; },
+    ttsSpeakLang(id, text, rate, pitch, lang) { (window.__native.ttsLang = window.__native.ttsLang || []).push([lang, text]); window.__native.tts.push(text); setTimeout(() => window.__ttsEvent(id, 'done'), 15); },
+    ttsLangAvailable(l) { return 1; },
     ttsVoices() { return JSON.stringify(window.__fakeVoices); },
     ttsSetVoice(v) { window.__native.voice = v; },
     openUrl(u) { window.__native.opened.push(u); return 'ok'; },
@@ -232,6 +255,17 @@ BRIDGE = r"""
     press(w) { rec('press', w); return 'Done.'; },
     screenshot() { rec('screenshot'); return P.status.control ? '/9j/4AAQSkZJRgABAQ' : 'need-control'; },
     currentApp() { return 'com.whatsapp'; },
+    lastLocation() { return JSON.stringify(P.loc || {}); }, freshLocation(t) { rec('freshLocation', t); return JSON.stringify(P.loc || {}); },
+    shiftStart() { rec('shiftStart'); P.shift = P.shift || { active: true, start: Date.now(), meters: 0 }; return JSON.stringify(P.shift); },
+    shiftStatus() { return JSON.stringify(P.shift || { active: false }); },
+    shiftEnd() { rec('shiftEnd'); if (!P.shift) return '{"error":"none"}'; const t = { start: Date.now() - 4 * 3600000, end: Date.now(), meters: 80 * 1609.344 }; P.trips = (P.trips || []).concat([t]); P.shift = null; return JSON.stringify(t); },
+    trips() { return JSON.stringify(P.trips || []); },
+    sosStart(c, n, m) { rec('sosStart', JSON.parse(c), n, m); P.sos = true; return P.status.sms ? JSON.stringify({ sent: JSON.parse(c).length, contacts: JSON.parse(c).length }) : '{"error":"sms"}'; },
+    sosStop(m) { rec('sosStop'); const w = !!P.sos; P.sos = false; return JSON.stringify({ sent: w ? 1 : 0, was_active: w }); },
+    sosActive() { return !!P.sos; }, placeText() { return 'https://maps.google.com/?q=33.448400,-112.074000 (within 5 m)'; },
+    shareLocation(n, t) { rec('shareLocation', JSON.parse(n), t); return P.status.sms ? 1 : -1; },
+    dialEmergency(n) { rec('dialEmergency', n); return 'ok'; },
+    birthdays() { const d = new Date(); return JSON.stringify([{ name: 'Ada Lovelace', md: String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'), year: 1990 }, { name: 'Tunde', md: '02-29', year: 0 }]); },
     faceRemember(b, name, title) { rec('faceRemember', b.slice(0, 23), name, title); P.faces = (P.faces || []).concat([{ name, title }]); return JSON.stringify({ ok: true, samples: P.faces.filter(f => f.name === name).length }); },
     faceIdentify(b) { rec('faceIdentify', b.slice(0, 23)); const f = (P.faces || [])[0]; return JSON.stringify({ ok: true, face: true, match: f ? { name: f.name, title: f.title, similarity: 0.71 } : null }); },
     faceList() { return JSON.stringify((P.faces || []).map(f => ({ name: f.name, title: f.title, samples: 1 }))); },
@@ -254,6 +288,7 @@ def main():
         pg.goto(ORIGIN + '/index.html')
         pg.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000)
         ev = pg.evaluate
+        ev('JARVIS.proactive.stop()')     # no surprise alerts mid-test; the proactive tests run its checks by hand
 
         # ---- first run: settings opens by itself, key test works
         pg.wait_for_selector('#jv-ov.on', timeout=5000)
@@ -309,7 +344,9 @@ def main():
         check('log shows exchange', 'times 12' in ev("document.getElementById('log').textContent"))
         sent = [c for c in state['groq_calls'] if c.get('stream')]
         check('chat went through the app (no browser CORS)', any('chat/completions' in u for u in ev('window.__native.streams')))
-        check('Groq request had tools + system prompt', sent and len(sent[0]['tools']) > 20 and sent[0]['messages'][0]['role'] == 'system')
+        names = [t['function']['name'] for t in sent[0].get('tools', [])]
+        check('Groq request had the system prompt and only the tools this question needs (router)', sent[0]['messages'][0]['role'] == 'system' and 'calculate' in names and len(names) < 30 and 'tap_on_screen' not in names, (len(names), names[:20]))
+        print(f"   request size: {len(names)} tools, {len(json.dumps(sent[0]['tools']))} chars of tools, {len(sent[0]['messages'][0]['content'])} chars of instructions")
 
         # ---- plain chat
         ev("window.__native.tts.length=0"); pg.wait_for_timeout(1500)
@@ -511,6 +548,169 @@ def main():
         check('the camera preview closes afterwards', ev("!document.getElementById('jv-cam')"))
         r = ev("JARVIS.reg.exec('take_photo', '{}')")
         check('take a photo -> saved to the gallery', calls('photoSave') and calls('photoSave')[0][1].startswith('data:image/jpeg') and 'gallery' in r, (calls('photoSave'), r))
+
+        # instant commands: done on the phone, no AI round trip
+        reset(); n0 = len(state['groq_calls'])
+        said = ask('Hey Jarvis, could you turn on the flashlight please', 'Flashlight on')
+        check('"turn on the flashlight" is instant: done on the phone, nothing sent to the AI', calls('flashlight') == [['flashlight', 'on']] and len(state['groq_calls']) == n0 and 'Flashlight on' in said, (calls('flashlight'), len(state['groq_calls']) - n0, said[:80]))
+        said = ask('set a timer for 5 minutes', 'Timer set')
+        check('"set a timer for 5 minutes" is instant', len(state['groq_calls']) == n0 and 'Timer set for 5 minutes' in said, said[:80])
+        check('the speed meter shows it', ev('JARVIS.stats.lat && JARVIS.stats.lat.instant') is True)
+        said = ask(script(('get_weather', {})) , 'Done')
+        check('...while a real question still goes to the AI', len(state['groq_calls']) > n0)
+
+        # live interpreter
+        state['interp'] = []; ev("window.__native.ttsLang = []")
+        said = ask(script(('start_interpreter', {'language': 'Spanish'})), 'Interpreter on', timeout=12000)
+        check('interpreter starts (English <-> Spanish)', 'Interpreter on: English and Spanish' in said and ev('JARVIS.interp.on') is True, said[:200])
+        check('...speech-to-text listens for any language and reports it', ev("JARVIS.stt.getConfig('stt_language')") == 'auto' and ev("JARVIS.stt.getConfig('stt_detect')") is True and ev("JARVIS.stt.getConfig('stt_prompt')") == '')
+        check('...the page keeps the conversation open and ignores "thank you"', ev('window.__jvInterpreting') is True and ev('window.__jvSessionMs') == 600000)
+        pg.wait_for_timeout(3500)
+        check('...and greets the other person in Spanish, in a Spanish voice', ['es', 'Hola.'] in ev('window.__native.ttsLang') or any(l == 'es' and 'Hola' in t for l, t in ev('window.__native.ttsLang')), ev('window.__native.ttsLang'))
+        check('the face-to-face screen is up, top half turned to them', ev("document.getElementById('jv-int').classList.contains('on') && getComputedStyle(document.querySelector('#jv-int .them')).transform !== 'none'"))
+        ev("window.__native.ttsLang = []; window.__native.tts.length = 0")
+        ev("JARVIS.say('how are you, I will be there in five minutes')")
+        try: pg.wait_for_function("(window.__native.ttsLang || []).length >= 2", timeout=8000)
+        except Exception: pass
+        check('after Jarvis speaks by himself, he listens again without "Hey Jarvis"', ev('window.__jv.state().speaking') is False or len(ev('window.__native.ttsLang')) > 0, ev('window.__jv.state()'))
+        check('what I say is spoken to them in Spanish, with the Spanish voice', ev('window.__native.ttsLang')[0][0] == 'es' and 'Cómo estás' in ev('window.__native.ttsLang')[0][1], ev('window.__native.ttsLang'))
+        check('...their half shows the Spanish, mine shows what I said', 'Llego en cinco minutos' in ev("document.querySelector('#jv-int .them .big').textContent") and 'five minutes' in ev("document.querySelector('#jv-int .me .big').textContent"))
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/interpreter.png'))
+        req = state['interp'][-1]
+        check('...translated by the fast model as JSON', req['model'] == 'openai/gpt-oss-20b' and req.get('response_format', {}).get('type') == 'json_object')
+        ev("window.__native.ttsLang = []; window.__native.tts.length = 0"); pg.wait_for_timeout(1300)
+        ev("JARVIS.say('hola necesito ayuda con mi pedido')")
+        pg.wait_for_function("window.__native.tts.join(' ').includes('Hello, I need help')", timeout=8000)
+        check('what they say comes back to me in English, in Jarvis\'s own voice', not ev('window.__native.ttsLang') and 'Hello, I need help with my order' in ev("document.querySelector('#jv-int .me .big').textContent"), ev('window.__native.ttsLang'))
+        pg.wait_for_timeout(1300); ev("JARVIS.say('stop interpreting')"); pg.wait_for_timeout(1200)
+        check('"stop interpreting" turns it off and restores normal hearing', ev('JARVIS.interp.on') is False and not ev("document.getElementById('jv-int').classList.contains('on')") and ev("JARVIS.stt.getConfig('stt_language', 'en')") == 'en' and ev('window.__jvInterpreting') is False)
+
+        # ================================================================== camera extras
+        state['vision'] = []; reset()
+        r = ev("JARVIS.reg.exec('scan_receipt', '{}')")
+        check('scan a receipt -> logged as a fuel expense', r.startswith('Logged $42.10 at Shell, as fuel'), r)
+        check('...read with the vision model asked for JSON', 'reply only in the format asked for' in state['vision'][-1]['messages'][0]['content'])
+        r = ev("JARVIS.reg.exec('add_expense', JSON.stringify({amount: 6, merchant: 'Downtown garage', category: 'parking'}))")
+        r = ev("JARVIS.reg.exec('expense_summary', JSON.stringify({period: 'month', export: 'csv'}))")
+        c = calls('docSave')
+        check('expense summary by category, deductible part, CSV export', '$48.10 this month' in r and 'fuel $42.10' in r and 'parking $6.00' in r and 'usually deduct' in r and c and c[-1][1] == 'csv' and c[-1][3].startswith('date,amount,category'), (r, c[-1:] if c else c))
+        r = ev("JARVIS.reg.exec('translate_with_camera', JSON.stringify({language: 'Spanish'}))")
+        check('translate a menu through the camera', 'Tacos al pastor' in r and 'translate it into Spanish' in json.dumps(state['vision'][-1]['messages'][-1]['content']), r)
+        import cv2, base64 as b64
+        qr = cv2.QRCodeEncoder.create().encode('WIFI:T:WPA;S:Cafe Guest;P:sunshine42;;'); qr = cv2.copyMakeBorder(cv2.resize(qr, None, fx=8, fy=8, interpolation=cv2.INTER_NEAREST), 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=255)
+        url = 'data:image/png;base64,' + b64.b64encode(cv2.imencode('.png', qr)[1].tobytes()).decode()
+        txt = ev(f"import('/local/camera.js').then(m => m.qrFromImage({json.dumps(url)}))")
+        check('QR codes are decoded on the phone (jsQR)', txt == 'WIFI:T:WPA;S:Cafe Guest;P:sunshine42;;', txt)
+        d = ev(f"import('/local/tools_extras.js').then(m => m.describeQr({json.dumps(txt)}).say)")
+        check('...and a Wi-Fi code gives the network and password', 'Cafe Guest' in d and 's u n s h i n e 4 2' in d, d)
+
+        # ================================================================== driving helpers
+        reset(); ev(f"window.__phone.loc = {{ lat: {A[0]}, lon: {A[1]}, acc: 8, age_s: 3 }}")
+        r = ev("JARVIS.reg.exec('remember_parking', JSON.stringify({minutes: 60, note: 'level 3'}))")
+        check('"I parked here" saves the spot with the street, and a meter reminder', 'Parking spot saved at 1 Washington St, level 3' in r and "10 minutes before the meter" in r and any(x['text'].startswith('Your parking meter') for x in ev('window.__phone.reminders')), r)
+        ev(f"window.__phone.loc = {{ lat: {A[0] + 0.002}, lon: {A[1] + 0.002}, acc: 8, age_s: 3 }}")
+        r = ev("JARVIS.reg.exec('find_my_car', '{}')")
+        check('"where did I park" gives distance and direction', re.search(r'about \d+ feet south-west of you, at 1 Washington St, level 3', r), r)
+        ev(f"window.__phone.loc = {{ lat: {A[0]}, lon: {A[1]}, acc: 8, age_s: 3 }}")
+        r = ev("JARVIS.reg.exec('find_gas', '{}')")
+        check('nearest gas stations, closest first', r.startswith('Nearest: Shell on 300 Main Street') and 'Circle K' in r, r)
+        r = ev("JARVIS.reg.exec('start_shift', '{}')"); check('start a shift', 'Shift started' in r and calls('shiftStart'), r)
+        r = ev("JARVIS.reg.exec('end_shift', '{}')")
+        check('end of shift: hours, miles, IRS deduction at 76¢', 'Shift done. 4 hours, 80.0 miles' in r and 'worth a $60.80 deduction' in r, r)
+        r = ev("JARVIS.reg.exec('mileage_log', JSON.stringify({period: 'week', export: 'csv'}))")
+        c = calls('docSave')
+        check('mileage log for taxes, with CSV export', '80.0 business miles this week' in r and c[-1][1] == 'csv' and c[-1][3].startswith('date,start,end,miles,purpose,irs_rate,deduction') and '"Delivery driving","0.760","60.80"' in c[-1][3], (r, c[-1][3][:200]))
+
+        # ================================================================== safety
+        reset(); r = ev("JARVIS.reg.exec('emergency', '{}')")
+        check('SOS with no contacts yet -> dialer with 911', calls('dialEmergency') == [['dialEmergency', '911']] and '911' in r, r)
+        r = ev("JARVIS.reg.exec('set_emergency_contact', JSON.stringify({who: 'John'}))")
+        check('add an emergency contact from the contacts (and ask to send texts)', 'John Smith is now an emergency contact' in r and ['request', 'sms'] in calls('request'), r)
+        r = ev("JARVIS.reg.exec('emergency', JSON.stringify({message: 'car broke down'}))")
+        check('SOS without text permission -> message to all contacts opens, with location', "open with your location" in r and any(u.startswith('smsto:+15551234567?body=EMERGENCY') and '33.4484' in unquote(u) for u in ev('window.__native.opened')), (r, ev('window.__native.opened')[-1:]))
+        ev("window.__phone.status.sms = true"); reset()
+        r = ev("JARVIS.reg.exec('emergency', JSON.stringify({message: 'car broke down'}))")
+        c = calls('sosStart')
+        check('SOS texts the contacts with location, every 5 minutes', c and c[0][1] == [{'name': 'John Smith', 'number': '+15551234567'}] and c[0][3] == 'car broke down' and 'SOS sent to John Smith' in r and 'call 911' in r, (c, r))
+        r = ev("JARVIS.reg.exec('im_safe', '{}')")
+        check('"I\'m safe" stops it and tells them', calls('sosStop') and "told John Smith you're safe" in r, r)
+
+        # ================================================================== smart home (Home Assistant on the home network)
+        state['ha'] = []
+        def ha_handler(route):
+            req = route.request; cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*'}
+            if req.method == 'OPTIONS': return route.fulfill(status=204, headers=cors)
+            if (req.headers.get('authorization') or '') != 'Bearer ha-token': return route.fulfill(status=401, headers=cors, body='')
+            if req.url.endswith('/api/states'):
+                return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps([
+                    {'entity_id': 'light.bedroom', 'state': 'on', 'attributes': {'friendly_name': 'Bedroom'}},
+                    {'entity_id': 'light.living_room', 'state': 'off', 'attributes': {'friendly_name': 'Living Room'}},
+                    {'entity_id': 'climate.hallway', 'state': 'heat', 'attributes': {'friendly_name': 'Thermostat', 'temperature': 70, 'current_temperature': 68}},
+                    {'entity_id': 'lock.front_door', 'state': 'locked', 'attributes': {'friendly_name': 'Front Door'}},
+                    {'entity_id': 'scene.movie_time', 'state': 'scening', 'attributes': {'friendly_name': 'Movie Time'}},
+                    {'entity_id': 'sensor.cpu', 'state': '3', 'attributes': {'friendly_name': 'CPU'}}]))
+            state['ha'].append((req.url.split('8123')[1], json.loads(req.post_data or '{}')))
+            return route.fulfill(status=200, headers=cors, content_type='application/json', body='[]')
+        ctx.route('http://192.168.1.50:8123/**', ha_handler)
+        r = ev("JARVIS.reg.exec('smart_home_control', JSON.stringify({target: 'bedroom lights', action: 'off'}))")
+        check('smart home not set up -> says how', 'Smart home' in r, r)
+        ev("JARVIS.config.merge({ha_url: 'http://192.168.1.50:8123/', ha_token: 'ha-token'})")
+        r = ev("JARVIS.reg.exec('smart_home_control', JSON.stringify({target: 'bedroom lights', action: 'off'}))")
+        check('"turn off the bedroom lights" -> Home Assistant light.turn_off', state['ha'][-1:] == [('/api/services/light/turn_off', {'entity_id': 'light.bedroom'})] and r == 'Bedroom off.', (state['ha'], r))
+        r = ev("JARVIS.reg.exec('smart_home_control', JSON.stringify({target: 'living room', action: 'on', brightness: 30, color: 'warm white'}))")
+        check('dim to 30 percent, warm white', state['ha'][-1] == ('/api/services/light/turn_on', {'entity_id': 'light.living_room', 'brightness_pct': 30, 'color_temp_kelvin': 2700}), state['ha'][-1])
+        r = ev("JARVIS.reg.exec('smart_home_control', JSON.stringify({target: 'thermostat', action: 'set', temperature: 72}))")
+        check('thermostat to 72', state['ha'][-1] == ('/api/services/climate/set_temperature', {'entity_id': 'climate.hallway', 'temperature': 72}) and '72 degrees' in r, r)
+        r = ev("JARVIS.reg.exec('smart_home_scene', JSON.stringify({name: 'movie'}))")
+        check('scenes', state['ha'][-1] == ('/api/services/scene/turn_on', {'entity_id': 'scene.movie_time'}), state['ha'][-1])
+        r = ev("JARVIS.reg.exec('smart_home_devices', '{}')")
+        check('list devices (noise like CPU sensors left out)', 'Bedroom (light): on' in r and 'Thermostat (climate): 68°, set 70' in r and 'CPU' not in r and 'Movie Time' in r, r)
+
+        # ================================================================== proactive
+        reset(); r = ev("JARVIS.reg.exec('set_proactive', JSON.stringify({alert: 'briefing', time: '7:30 am'}))")
+        bri = [x for x in ev('window.__phone.reminders') if x['id'] == 'briefing']
+        check('"brief me every morning at 7:30" -> a daily alarm', '7:30 AM' in r and bri and bri[0]['kind'] == 'briefing' and bri[0]['repeat'] == 'daily' and ev(f"new Date({bri[0]['at'] if bri else 0}).getHours()") == 7, (r, bri))
+        ev("window.__native.tts.length = 0"); pg.wait_for_timeout(1300)
+        ev("window.__jvAlarm(JSON.stringify({ id: 'briefing', kind: 'briefing', text: 'Morning briefing' }), false)")
+        try: pg.wait_for_function("window.__native.tts.join(' ').match(/Good (morning|afternoon|evening)/)", timeout=8000)
+        except Exception: pass
+        check('...when it rings, Jarvis speaks the briefing (even in the background)', re.search(r'Good (morning|afternoon|evening)', ev("window.__native.tts.join(' ')")), ev('window.__native.tts'))
+        ev("window.__native.tts.length = 0"); pg.wait_for_timeout(1500)
+        ev("JARVIS.proactive.resetPacing(); JARVIS.proactive.tick()")
+        try: pg.wait_for_function("window.__native.tts.join(' ').includes('Tornado Warning')", timeout=8000)
+        except Exception: pass
+        check('severe weather where you are is announced', 'Weather alert: Tornado Warning' in ev("window.__native.tts.join(' ')") and 'TAKE COVER NOW' in ev("window.__native.tts.join(' ')"), ev('window.__native.tts'))
+        n_nws = state.get('nws', 0); ev("JARVIS.proactive.tick()"); pg.wait_for_timeout(500)
+        check('...checked every 20 minutes, not every minute', state.get('nws', 0) == n_nws)
+        r = ev("JARVIS.reg.exec('birthdays', '{}')")
+        check('birthdays from the contacts', r.startswith('Ada Lovelace turns') and 'today' in r, r)
+        r = ev("JARVIS.reg.exec('set_proactive', JSON.stringify({alert: 'weather', on: false}))")
+        check('alerts can be turned off by voice', r == 'Off: severe weather alerts.' and ev("JARVIS.config.get('pa_weather')") is False)
+
+        # ================================================================== the new interface
+        ev("window.__phone.shift = { active: true, start: Date.now() - (2 * 3600000 + 10 * 60000), meters: 34.2 * 1609.344 }; window.dispatchEvent(new Event('jv-refresh'))"); pg.wait_for_timeout(300)
+        txt = ev("document.getElementById('jv-shift').innerText.replace(/\\s+/g, ' ')")
+        check('on a shift, the top shows time, miles and earnings', ev("document.body.classList.contains('on-shift')") and '2:10' in txt and '34.2' in txt and 'miles' in txt, txt)
+        ev("window.__phone.sos = true; window.dispatchEvent(new Event('jv-refresh'))"); pg.wait_for_timeout(300)
+        check('an SOS shows a red banner with "I\'m safe"', ev("document.body.classList.contains('sos-on') && getComputedStyle(document.getElementById('jv-sos')).display === 'flex'"))
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/hud.png'))
+        ev("document.querySelector('#jv-sos button').click()"); pg.wait_for_timeout(500)
+        check('...tapping it stands the SOS down', not ev("document.body.classList.contains('sos-on')") and calls('sosStop'))
+        ev("document.getElementById('state').className = 'thinking'"); pg.wait_for_timeout(100)
+        ev("window.dispatchEvent(new CustomEvent('jv-activity', { detail: 'get_weather' }))"); pg.wait_for_timeout(100)
+        check('while thinking, the status says what Jarvis is doing', ev("document.getElementById('jv-status').textContent") == 'Checking the weather…', ev("document.getElementById('jv-status').textContent"))
+        ev("document.getElementById('state').className = 'standby'"); pg.wait_for_timeout(100)
+        ev("window.__phone.shift = null; window.dispatchEvent(new Event('jv-refresh'))")
+        ev("JARVIS.openSettings()"); pg.wait_for_timeout(600)
+        txt = ev("document.getElementById('jv-ov').textContent")
+        check('settings has Smart home, Safety (with John Smith) and Alerts', 'Smart home' in txt and 'Home Assistant token' in txt and 'John Smith' in txt and 'Severe weather where you are' in txt, txt[:100])
+        ev("document.getElementById('jv-home-test').click()"); pg.wait_for_timeout(1500)
+        hm = ev("document.getElementById('jv-home-msg').className + ' | ' + document.getElementById('jv-home-msg').textContent")
+        check('smart home "Test connection" lists the devices', 'ok' in hm.split('|')[0] and 'Bedroom' in hm, hm)
+        ev("document.querySelector('#jv-ov input[type=time]').value = '06:45'; [...document.querySelectorAll('#jv-ov select')].find(x => x.options[0].text === 'On' && x.closest('div').textContent.includes('Low battery')).value = 'false'")
+        ev("document.querySelector('#jv-ov .pri').click()"); pg.wait_for_timeout(500)
+        bri = [x for x in ev('window.__phone.reminders') if x['id'] == 'briefing']
+        check('saving Alerts: briefing moves to 6:45, battery warnings off (a real off, not the word "false")', ev("JARVIS.config.get('pa_battery')") is False and ev("JARVIS.config.get('pa_breaks')") is True and bri and ev(f"new Date({bri[0]['at']}).getHours() * 60 + new Date({bri[0]['at']}).getMinutes()") == 405, (ev("JARVIS.config.get('pa_battery')"), bri))
 
         # faces, like the PC
         reset(); r = ev("JARVIS.reg.exec('who_is_this', '{}')")

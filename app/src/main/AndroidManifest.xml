@@ -22,6 +22,8 @@
     <!-- call and text people by name, place calls hands-free, read and add calendar events: each asked for when first needed -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- SOS: text your emergency contacts your location (asked for when you set up emergency contacts) -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <!-- optional, switched on in Settings > Phone powers: open apps while Jarvis is in the background, Do Not Disturb, brightness -->
@@ -66,7 +68,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.Jarvis"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true">
 
         <activity

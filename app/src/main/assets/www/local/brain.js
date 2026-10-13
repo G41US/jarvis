@@ -16,6 +16,7 @@ export function needsTool(text) {
   if (/\b(doordash|dasher|uber ?eats|grubhub|deliver\w*|pick ?up|picked up|drop ?off|next stop|my route|orders?|stack|earnings|offer)\b/.test(t)) return true;
   if (/\b(navigat\w*|directions?|map|maps|gps|route|reroute|zoom|mini ?map|take me|drive to|walk to|how far|eta)\b/.test(t)) return true;
   if (/\b(screen|tap|press|scroll|swipe|type|go back|go home|lock|screenshot|flash ?light|torch|volume|louder|quieter|mute|silent|vibrate|disturb|dnd|bright\w*|wi-?fi|bluetooth|hotspot|airplane|settings?|camera|photo|picture|selfie|look|see|read this|what.?s this|website|youtube|browser|google|cam|call|text|message|whatsapp|sms|notifications?|reply|calendar|schedule|meeting|event|appointment|clipboard|copy|paste|document|pdf|word|docx|alarm|wake me|remind\w*|timer|cancel|contacts?)\b/.test(t)) return true;
+  if (/\b(emergency|sos|help|danger|scared|unsafe|safe|911|parked|park|parking|car|gas|fuel|shift|miles|mileage|receipt|expense|spent|qr|scan|lights?|lamp|thermostat|heat|scene|hue|interpret\w*|birthdays?|briefing|alerts?|translate|menu|sign)\b/.test(t)) return true;
   if (t.split(/\s+/).length > 5) return true;
   if (/\d/.test(t)) return true;
   return ['search', 'look up', 'google', 'wikipedia', 'play', 'music', 'note', 'calculate', 'compute', 'plus', 'minus', 'times', 'divided', 'timer', 'alarm', 'countdown', 'flip', 'coin', 'dice', 'roll', 'password', 'save', 'write', 'brief', 'spotify', 'track', 'song', 'call', 'text', 'battery'].some(k => t.includes(k));
@@ -46,6 +47,10 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
     "PHONE CONTROL (doing things inside other apps): open_app, then read_screen, then tap_on_screen / type_on_screen / scroll_screen / press_button, reading the screen again after each step to check what happened, until the task is done. " +
     "Work step by step and don't guess numbers from an old read. Before anything that sends, posts, pays, buys, deletes or can't be undone, tell the user exactly what you're about to do and wait for a yes, unless their request already said to send it. " +
     "Never operate the DoorDash Dasher, Uber Driver or Grubhub Driver apps (you may read them). Never type passwords or card numbers. If a tool says a permission is needed, tell the user the one step to take.\n" +
+    "- MORE: two-way conversation in another language->start_interpreter (it then translates by itself until 'stop interpreting'). Camera: menus, signs, labels in another language->translate_with_camera; QR codes->scan_qr; receipts->scan_receipt; spoken expenses->add_expense; spending->expense_summary. " +
+    "Driving: 'I parked here'->remember_parking, 'where's my car'->find_my_car, gas->find_gas, shifts->start_shift / shift_status / end_shift, miles and taxes->mileage_log. " +
+    "Smart home (lights, plugs, thermostat, blinds, locks, scenes)->smart_home_control / smart_home_scene / smart_home_devices; Hue setup->connect_hue. Alerts and briefing time->set_proactive; birthdays->birthdays. " +
+    "SAFETY: if the user is in danger, hurt, scared for their safety, or says emergency / SOS / help me, call emergency AT ONCE without asking first, then offer to call 911. 'I'm safe'->im_safe. Emergency contacts->set_emergency_contact. Send my location->share_location.\n" +
     "- Music: play_music, spotify_play, spotify_pause, spotify_next, spotify_previous control the music app on this phone. Call them when asked to play, pause or skip.\n" +
     "- DELIVERY: the user drives for DoorDash, Uber Eats and Grubhub and you are their route copilot. You CANNOT see or control those apps. Never claim you accepted, declined or changed anything in them; the driver does that. " +
     "When they tell you an order they accepted, call add_delivery_order (ask only for what is missing: the restaurant and where it goes; payout and platform are optional). A place, landmark, apartment complex, street or neighbourhood is enough to add it: never insist on a street number. When they later give the number or a better address ('it's 1420', 'the number is 22B', 'actually it's 1420 Mill Avenue'), call update_delivery_address. Stack at most four orders. " +
@@ -67,7 +72,7 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
 
 export class GroqError extends Error { constructor(msg, status, body) { super(msg); this.status = status; this.body = body; } }
 
-export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a) => console.log(...a) }) {
+export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = null, instant = null, onTiming = () => {}, onTool = () => {}, log = (...a) => console.log(...a) }) {
   const G = { bad: false, announced: false, noEffort: false, offlineAnnounced: false };
   let conversation = [], summarising = false;
   const model = () => config.get('groq_model', '') || DEFAULT_MODEL;
@@ -118,12 +123,12 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a)
   }
 
   // ---------------------------------------------------------------- streaming rounds
-  async function* streamTools(messages, scratch, signal) {
+  async function* streamTools(messages, scratch, signal, tools) {
     let spoke = false;
     try {
       const MAX_ROUNDS = 10;                                   // phone control works step by step: open, read, tap, read, type...
       for (let rnd = 0; rnd < MAX_ROUNDS; rnd++) {
-        const kw = { model: model(), messages, max_tokens: 2000, tools: reg.schemas };
+        const kw = { model: model(), messages, max_tokens: 2000, tools };
         if (rnd < MAX_ROUNDS - 1) { kw.tool_choice = 'auto'; kw.parallel_tool_calls = true; } else kw.tool_choice = 'none';
         const text = [], calls = {};
         for await (const chunk of groqStream(kw, signal)) {
@@ -139,6 +144,7 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a)
         const am = { role: 'assistant', content: text.join(''), tool_calls: idx.map(i => ({ id: calls[i].id || `call_${i}`, type: 'function', function: { name: calls[i].name, arguments: calls[i].args || '{}' } })) };
         messages.push(am); scratch.push(am);
         for (const i of idx) {
+          try { onTool(calls[i].name); } catch {}
           const out = await reg.exec(calls[i].name, calls[i].args); log('[TOOL]', calls[i].name, '->', out.slice(0, 120));
           const tm = { role: 'tool', tool_call_id: calls[i].id || `call_${i}`, name: calls[i].name, content: out }; messages.push(tm); scratch.push(tm);
         }
@@ -146,16 +152,16 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a)
       return;
     } catch (e) { if (e && e.name === 'AbortError') return; noteFailure(e); if (G.bad || spoke) return; }
     if (scratch.length) {
-      try { for await (const chunk of groqStream({ model: model(), messages, max_tokens: 1200, tools: reg.schemas, tool_choice: 'none' }, signal)) { const t = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content; if (t) yield t; } }
+      try { for await (const chunk of groqStream({ model: model(), messages, max_tokens: 1200, tools, tool_choice: 'none' }, signal)) { const t = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content; if (t) yield t; } }
       catch (e) { noteFailure(e); }
       return;
     }
-    yield* streamSync(messages, signal);
+    yield* streamSync(messages, signal, tools);
   }
   const cleanForStream = messages => messages.filter(m => m.role !== 'tool').flatMap(m => m.role === 'assistant' ? ((m.content || '').trim() ? [{ role: 'assistant', content: m.content.trim() }] : []) : [m]);
-  async function* streamSync(messages, signal) {
+  async function* streamSync(messages, signal, tools = []) {
     const clean = cleanForStream(messages);
-    try { for await (const chunk of groqStream({ model: model(), messages: clean, max_tokens: 2000, tools: reg.schemas, tool_choice: 'none' }, signal)) { const t = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content; if (t) yield t; } return; }
+    try { for await (const chunk of groqStream({ model: model(), messages: clean, max_tokens: 2000, ...(tools.length ? { tools, tool_choice: 'none' } : {}) }, signal)) { const t = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content; if (t) yield t; } return; }
     catch (e) { if (e && e.name === 'AbortError') return; noteFailure(e); if (G.bad) return; }
     const c2 = clean.filter(m => m.role !== 'system'); c2.unshift({ role: 'system', content: 'Answer the user directly in plain text. Do not call tools. Keep it short.' });
     try { for await (const chunk of groqStream({ model: model(), messages: c2, max_tokens: 2000 }, signal)) { const t = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content; if (t) yield t; } }
@@ -184,16 +190,27 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a)
   async function* chat(userText, signal) {
     try {
       refreshPrompt();                                          // current time for "remind me at 5" / "tomorrow"
+      const t0 = performance.now();
+      if (instant) {                                            // "flashlight on", "volume up", "timer for 5 minutes": done on the phone, no AI
+        let r = null; try { r = await instant(userText); } catch (e) { log('[INSTANT]', e && e.message); }
+        if (r) {
+          onTiming({ instant: true, firstWordsMs: Math.round(performance.now() - t0) });
+          conversation.push({ role: 'user', content: userText }, { role: 'assistant', content: r }); saveHistory();
+          for (const s of emitSentences(r)) yield { type: 'sentence', text: s };
+          yield { type: 'done' }; return;
+        }
+      }
       conversation.push({ role: 'user', content: userText });
       for (const fp of fastpaths) {
         try { const r = await fp(userText); if (r) { yield { type: 'status', text: 'thinking' }; for (const s of emitSentences(r)) yield { type: 'sentence', text: s }; conversation.push({ role: 'assistant', content: r }); saveHistory(); yield { type: 'done' }; return; } }
         catch (e) { log('[FASTPATH]', e && e.message); }
       }
-      const useTools = needsTool(userText), t0 = performance.now(), scratch = [];
+      const useTools = needsTool(userText), scratch = [];
+      const tools = useTools ? (pickTools ? pickTools(userText) : reg.schemas) : [];
       if (!api.ready() || G.bad) { const m = noBrainMessage(); yield { type: 'sentence', text: m }; conversation.push({ role: 'assistant', content: m }); yield { type: 'done' }; return; }
       if (useTools) yield { type: 'status', text: 'thinking' };
       let full = '', buffer = '', sent = false; CLAUSE_SPLIT.lastIndex = 0;
-      const src = useTools ? streamTools(conversation, scratch, signal) : streamSync(conversation, signal);
+      const src = useTools ? streamTools(conversation, scratch, signal, tools) : streamSync(conversation, signal);
       for await (const tok of src) {
         full += tok; buffer += tok;
         for (;;) {
@@ -201,10 +218,10 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], log = (...a)
           if (!m && !sent && buffer.length >= 60) { CLAUSE_SPLIT.lastIndex = 30; m = CLAUSE_SPLIT.exec(buffer); }
           if (!m) break;
           const end = m.index + m[0].length, s = buffer.slice(0, end).trim(); buffer = buffer.slice(end);
-          if (s && s.length >= 4) { if (!sent) log(`[LAT] first words ${Math.round(performance.now() - t0)} ms after your question (tools=${scratch.length ? 'yes' : 'no'})`); sent = true; yield { type: 'sentence', text: s }; }
+          if (s && s.length >= 4) { if (!sent) { const ms = Math.round(performance.now() - t0); log(`[LAT] first words ${ms} ms after your question (tools=${scratch.length ? 'yes' : 'no'}, sent ${tools.length})`); onTiming({ firstWordsMs: ms, tools: tools.length, toolRounds: scratch.filter(m => m.role === 'assistant').length }); } sent = true; yield { type: 'sentence', text: s }; }
         }
       }
-      if (buffer.trim()) { if (!sent) log(`[LAT] first words ${Math.round(performance.now() - t0)} ms (tools=${scratch.length ? 'yes' : 'no'})`); yield { type: 'sentence', text: buffer.trim() }; }
+      if (buffer.trim()) { if (!sent) { const ms = Math.round(performance.now() - t0); log(`[LAT] first words ${ms} ms (tools=${scratch.length ? 'yes' : 'no'})`); onTiming({ firstWordsMs: ms, tools: tools.length, toolRounds: scratch.filter(m => m.role === 'assistant').length }); } yield { type: 'sentence', text: buffer.trim() }; }
       if (scratch.length) { const set = new Set(scratch), keep = conversation.filter(m => !set.has(m)); conversation.length = 0; conversation.push(...keep); }
       if (!full.trim()) { const m = G.bad ? noBrainMessage() : (navigator.onLine === false ? "I'm offline right now." : "I didn't get an answer back. Say that again?"); yield { type: 'sentence', text: m }; }
       else if (G.bad && !G.announced) { G.announced = true; yield { type: 'sentence', text: noBrainMessage() }; }
