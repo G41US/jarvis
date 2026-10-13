@@ -171,8 +171,9 @@ public final class Reminders {
             ensureChannel(c);
             String id = item.optString("id"), kind = item.optString("kind", "reminder"), text = item.optString("text");
             boolean timer = "timer".equals(kind);
-            String title = timer ? "Timer done" : "Reminder";
-            String body = text.isEmpty() ? (timer ? "Your timer is up." : "You asked me to remind you.") : (timer && !"timer".equalsIgnoreCase(text) ? text + " timer is up." : text);
+            boolean briefing = "briefing".equals(kind);
+            String title = timer ? "Timer done" : briefing ? "Good morning" : "Reminder";
+            String body = briefing ? "Your morning briefing. Tap to hear it." : text.isEmpty() ? (timer ? "Your timer is up." : "You asked me to remind you.") : (timer && !"timer".equalsIgnoreCase(text) ? text + " timer is up." : text);
             PendingIntent open = PendingIntent.getActivity(c, notifId(id), new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE);
             Intent sn = new Intent(c, AlarmReceiver.class).setAction(ACTION_SNOOZE).putExtra("id", id).putExtra("text", text).putExtra("kind", kind);
             PendingIntent snooze = PendingIntent.getBroadcast(c, notifId(id) + 1, sn, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

@@ -84,6 +84,11 @@ driving and for people with motor impairments), with a short video. If Google re
   Add Contacts, Calendar, Photos and Messages (notifications) rows to the Data safety form: collected only when the user asks, shared with
   Groq as part of the request, not stored.
 - Notification access (`NotifListener`): read and reply to messages by voice. Declared in the listing and the privacy policy.
+- `SEND_SMS` (SOS texts to emergency contacts): Google restricts SMS permissions to default SMS apps and a few exceptions. Apply under the
+  safety/emergency exception with a video of the SOS flow. If it's refused, remove `SEND_SMS` from the manifest for the Play build: SOS then
+  opens a ready-to-send message with the location (the user taps send), which needs no permission.
+- `usesCleartextTraffic`: plain http is used only to reach the user's own Home Assistant or Hue bridge on their home network
+  (Bridge.java refuses plain http to any public address).
 - `SYSTEM_ALERT_WINDOW` ("display over other apps"): only so Jarvis can open apps the user asks for while in the background.
 - `WRITE_SETTINGS`, `ACCESS_NOTIFICATION_POLICY`: brightness and Do Not Disturb by voice, user-granted.
 

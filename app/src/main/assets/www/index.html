@@ -807,7 +807,7 @@ async function handleServerTranscript(raw) {
     beep(1200, 0.08); cancelAllSpeech();
   } else if (now - lastCommandTime < COMMAND_COOLDOWN_MS) { showDebug(text + ' cooldown', 'rejected'); return; }
   const words = cleanPunct(text).split(' ').filter(Boolean);
-  if (words.length < MIN_WORDS) { showDebug(`"${text}" too short`, 'rejected'); return; }
+  if (words.length < (window.__jvInterpreting ? 1 : MIN_WORDS)) { showDebug(`"${text}" too short`, 'rejected'); return; }
   const ec = !speaking ? isEcho(text) : { echo: false };
   if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
   if (sessionActive) {
@@ -973,7 +973,7 @@ function connectWS() {
       else if (data.startsWith('proactive:')) {
         const text = data.slice(10);
         addMsg(text, 'proactive');
-        if (!muted) enqueueSpeech(text);
+        if (!muted) { if (!bargeAbort) bargeAbort = new AbortController(); const ch = enqueueSpeech(text); ch.then(() => { if (speakChain === ch && speaking) { speaking = false; if (active && !muted) { if (sessionActive) { setState('session'); armSessionSilenceTimer(); } else setState('standby'); } } }); }
       }
       else if (data.startsWith('route:')) { try { renderRoute(JSON.parse(data.slice(6))); } catch (e) {} }
       else if (data.startsWith('nav:')) { try { navMessage(JSON.parse(data.slice(4))); } catch (e) { console.warn('[NAV]', e); } }
@@ -1063,11 +1063,11 @@ function containsWakeWord(text) {
   for (const w of WAKE_WORDS) if (lower.includes(w.replace('.', ''))) return true;
   return false;
 }
-function hasEndPhrase(text) { const t = cleanPunct(text); return END_PHRASES.some(p => t.includes(p)); }
+function hasEndPhrase(text) { if (window.__jvInterpreting) return false; const t = cleanPunct(text); return END_PHRASES.some(p => t.includes(p)); }
 function armSessionSilenceTimer() {
   if (sessionSilenceTimer) clearTimeout(sessionSilenceTimer);
   if (SESSION_SILENCE_MS <= 0) return;
-  sessionSilenceTimer = setTimeout(() => { if (sessionActive) { addMsg('— Session timed out —', 'sys'); endSession(); } }, SESSION_SILENCE_MS);
+  sessionSilenceTimer = setTimeout(() => { if (sessionActive) { addMsg('— Session timed out —', 'sys'); endSession(); } }, (window.__jvSessionMs || SESSION_SILENCE_MS));
 }
 function startRecognition() {
   if (!recognition || recognizing || !active || muted) return;

@@ -7,6 +7,11 @@ TZ=UTC node tests/golden.test.mjs | tail -1                       # nav + delive
 node server/worker.test.mjs | tail -1                              # the key-holding proxy
 node tests/stt.test.mjs | tail -1                                  # end-of-speech timing in noise
 node tests/approx.test.mjs | tail -1                               # orders with only a place or area, filled in later
+node tests/speed.test.mjs | tail -1                                # instant commands + the tool router (smaller, faster requests)
+node tests/extras.test.mjs | tail -1                               # QR codes, receipts, expense periods
+node tests/driving.test.mjs | tail -1                              # IRS mileage rate, parking directions, shift sums
+node tests/home.test.mjs | tail -1                                 # smart home name matching
+node tests/proactive.test.mjs | tail -1                            # birthdays, time to leave, weather alert wording
 python3 tools/make_www.py >/dev/null
 python3 tests/e2e/e2e.py | tail -1                                 # the whole phone page, fake Android bridge, mocked services
 S=$(mktemp -d); python3 tests/android_stubs/gen_stubs.py "$S/src" >/dev/null; mkdir "$S/out"

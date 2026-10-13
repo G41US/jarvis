@@ -126,6 +126,16 @@ def main():
     # ---- tell the Hearing panel when something you said was ignored, and why
     html = sub_once(html, "function showDebug(text, kind) {\n", "function showDebug(text, kind) {\n  try { if (window.__jvDebug) window.__jvDebug(text, kind); } catch (e) {}\n", 'debug hook')
     html = sub_once(html, '</style>', MOBILE_CSS + '</style>', 'mobile css')
+    # ---- things Jarvis says by himself (reminders, offers, messages, the interpreter's hello): they must play even before
+    #      the first question (no speech controller yet), and end "speaking" when done, or the next thing you say without
+    #      "Hey Jarvis" is ignored as talking over him
+    html = sub_once(html, "        addMsg(text, 'proactive');\n        if (!muted) enqueueSpeech(text);",
+                    "        addMsg(text, 'proactive');\n        if (!muted) { if (!bargeAbort) bargeAbort = new AbortController(); const ch = enqueueSpeech(text); ch.then(() => { if (speakChain === ch && speaking) { speaking = false; if (active && !muted) { if (sessionActive) { setState('session'); armSessionSilenceTimer(); } else setState('standby'); } } }); }",
+                    'proactive speech ends')
+    # ---- live interpreter: a conversation can pause for minutes, "thank you" must not end it, and one word ("Sí") is a full reply
+    html = sub_once(html, "}, SESSION_SILENCE_MS);\n}", "}, (window.__jvSessionMs || SESSION_SILENCE_MS));\n}", 'interpreter session length')
+    html = sub_once(html, "function hasEndPhrase(text) { const t = cleanPunct(text);", "function hasEndPhrase(text) { if (window.__jvInterpreting) return false; const t = cleanPunct(text);", 'interpreter end phrases')
+    html = sub_once(html, "if (words.length < MIN_WORDS) {", "if (words.length < (window.__jvInterpreting ? 1 : MIN_WORDS)) {", 'interpreter short replies')
 
     # no localhost anywhere: the page must only talk to its own origin (which the app answers itself)
     os.makedirs(WWW, exist_ok=True)

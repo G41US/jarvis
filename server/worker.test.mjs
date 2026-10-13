@@ -33,4 +33,9 @@ await call('/v1/models', { headers: H }, limited); await call('/v1/models', { he
 check('per-phone rate limit', r.status === 429);
 r = await call('/v1/models', { headers: H }, { APP_TOKEN: 'tok' });
 check('missing key reported', r.status === 500);
+let groqHits = 0; const realFetch = globalThis.fetch; globalThis.fetch = async (...x) => { groqHits++; return realFetch(...x); };
+r = await call('/v1/ping', { headers: H }); globalThis.fetch = realFetch;
+check('ping answers at once, without calling Groq', r.status === 204 && groqHits === 0, r.status + ' ' + groqHits);
+r = await call('/v1/ping', { headers: { 'x-jarvis-token': 'wrong' } });
+check('ping still needs the app token', r.status === 403, r.status);
 console.log('FAILURES:', fails); process.exit(fails ? 1 : 0);

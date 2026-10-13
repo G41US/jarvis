@@ -9,9 +9,16 @@ import { createNavService } from './navsvc.js';
 import { registerDeliveryTools } from './tools_delivery.js';
 import { registerGeneralTools, timeOfDay, parseWhen } from './tools_general.js';
 import { registerPhoneTools } from './tools_phone.js';
+import { registerExtraTools } from './tools_extras.js';
+import { registerDrivingTools } from './tools_driving.js';
+import { registerHomeTools } from './tools_home.js';
+import { createProactive, registerProactiveTools } from './proactive.js';
 import { createBrain } from './brain.js';
 import { SttPipeline } from './stt.js';
 import { createApi } from './api.js';
+import { createRouter } from './router.js';
+import { matchIntent } from './intents.js';
+import { createInterpreter } from './interpreter.js';
 import { describeVoices, pickVoice, fallbackPitch } from './voices.js';
 
 const W = window; W.JARVIS_NATIVE = true;
@@ -56,6 +63,8 @@ W.WebSocket = LocalAwareWebSocket;
 // First choice: the PC's own Piper voices, Alan (male) and Amy (female), run on the phone (PiperTts.java).
 // Until one is downloaded (about 67 MB, once), the phone's own voices stand in, matched by gender.
 const tts = { active: new Map(), uid: 0, pitchMul: 1 };
+const langFor = new Map();                       // sentence -> language to speak it in (the interpreter)
+let interpObj = null;                             // set once the interpreter exists (below)
 const PC = { m: { name: 'alan', label: 'Alan · your PC voice' }, f: { name: 'amy', label: 'Amy · your PC voice' } };
 let rawVoices = [], pcState = {};
 function loadVoices() { if (!rawVoices.length && has('ttsVoices')) { try { rawVoices = JSON.parse(bridge().ttsVoices() || '[]'); } catch { rawVoices = []; } } return rawVoices; }
@@ -122,7 +131,12 @@ if (has('ttsSpeak')) {
       // Watchdog: if the phone's speech engine never reports back, carry on anyway instead of freezing in "speaking".
       const timer = setTimeout(() => { log('tts watchdog released', id); finish(id, 'done'); }, 2500 + u.text.length * 95 / Math.max(0.5, rate));
       tts.active.set(id, { u, timer });
-      try { u.onstart && u.onstart({}); bridge().ttsSpeak(id, u.text, rate, (u.pitch || 1) * tts.pitchMul); } catch (e) { finish(id, 'error'); }
+      const lang = langFor.get(u.text.trim()); if (lang) langFor.delete(u.text.trim());
+      try {
+        u.onstart && u.onstart({});
+        if (lang && interpObj && lang !== interpObj.state.mine && has('ttsSpeakLang')) bridge().ttsSpeakLang(id, u.text, rate, 1, lang);   // their language, their voice
+        else bridge().ttsSpeak(id, u.text, rate, (u.pitch || 1) * tts.pitchMul);
+      } catch (e) { finish(id, 'error'); }
     },
     cancel() { try { bridge().ttsStop(); } catch {} for (const id of [...tts.active.keys()]) finish(id, 'done'); },
     getVoices() { return []; }, pause() {}, resume() {}, get speaking() { return tts.active.size > 0; }, get pending() { return false; }, get paused() { return false; },
@@ -148,12 +162,31 @@ const delivery = new Copilot(kv, deliveryConfig(), { broadcast, http: httpJson }
 const navsvc = createNavService({ reg, config: cfgStore, delivery, broadcast, openUrl, navigator: navigator_ });
 const dtools = registerDeliveryTools({ reg, delivery, navsvc, openUrl });
 let brain = null;
-const gctx = { reg, kv, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
+const gctx = { reg, kv, nav: navigator_, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
 registerGeneralTools(gctx);
 Object.assign(gctx, { api, parseWhen });
 const phone = registerPhoneTools(gctx);                 // also gives gctx reminderItems / calendarToday for the briefing
+registerExtraTools(gctx);                                // camera extras, expenses
+registerDrivingTools(gctx);                              // parking, gas, shifts and mileage, SOS
+registerHomeTools(gctx);                                 // Home Assistant, Philips Hue
+const proactive = createProactive({ ...gctx, log });   // briefing, weather, birthdays, time to leave, battery, breaks
+registerProactiveTools(gctx, proactive);
 const briefingFast = async text => (/\b(morning briefing|brief me|briefing|what.?s my day|what.?s on today)\b/i.test(text) ? (await gctx.briefingText())[0] : null);
-brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log });
+const router = createRouter();
+const instant = async text => {                                   // instant commands: no trip to the AI
+  if (W.__jvInstantOff) return null;
+  const m = matchIntent(text, n => reg.has(n)); if (!m) return null;
+  log('[INSTANT]', m.tool, JSON.stringify(m.args));
+  return await reg.exec(m.tool, JSON.stringify(m.args));
+};
+brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log,
+  pickTools: text => { const r = router.pick(reg.schemas, text); stats.lastTools = r.tools.length; return r.tools; },
+  instant, onTiming: t => { stats.lat = { ...(stats.lat || {}), ...t, at: Date.now() }; },
+  onTool: name => W.dispatchEvent(new CustomEvent('jv-activity', { detail: name })) });
+const interp = createInterpreter({ api, broadcast, langFor, log, bridge }); interpObj = interp;
+reg.add('start_interpreter', "Live interpreter between the user and someone who speaks another language: from now on everything either of them says is translated into the other language and spoken aloud, with face-to-face captions. language: the other person's language. my_language: the user's (default English).",
+  { language: { type: 'string' }, my_language: { type: 'string' } }, ['language'], async a => (await interp.start(a.language, a.my_language || 'en')).message);
+reg.add('stop_interpreter', 'Turn the live interpreter off.', {}, [], () => interp.stop());
 log(`on-device Jarvis ready: ${reg.schemas.length} tools, native http: ${nativeHttp()}, native mic: ${W.JARVIS_NATIVE_MIC}, brain: ${api.mode() || 'no key'}`);
 
 /** Re-read settings after the settings screen saves. */
@@ -164,6 +197,7 @@ export function applySettings({ voiceChanged = false } = {}) {
   brain.refreshPrompt(); if (voiceChanged) announceVoice(); else applyVoice();
   const th = Number(cfgStore.get('wake_sensitivity', 0.3)); if (has('setWakeThreshold') && th) bridge().setWakeThreshold(th);
   if (typeof pushOfferPrefs === 'function') pushOfferPrefs();
+  if (typeof proactive !== 'undefined' && proactive) proactive.scheduleBriefing();                // a new briefing time takes effect at once
   broadcast('nav:' + JSON.stringify({ cmd: 'provider', value: cfgStore.get('map_provider', 'jarvis'), cfg: navsvc.config() }));
   broadcast('nav:' + JSON.stringify({ cmd: 'theme', value: cfgStore.get('map_theme', 'auto') }));
 }
@@ -189,12 +223,15 @@ function pushOfferPrefs() {
 
 // ---------------------------------------------------------------- ears: native mic + wake word -> speech to text
 const stats = { mic: has('micStart') ? 'starting' : 'browser', wake: false, rms: 0, score: 0, wakes: 0, lastWakeAt: 0, listening: false, heard: [], sttMs: 0, notice: '' };
+let lastHeardLang = '';
 function deliverTranscript(text, info) {
+  lastHeardLang = (info && info.language) || '';
   if (info && typeof info.delayMs === 'number') { stats.delayMs = info.delayMs; stats.clipMs = info.audioMs; stats.clipWhy = info.why; }
   stats.heard.unshift({ text, at: Date.now() }); stats.heard.length = Math.min(stats.heard.length, 6);
   for (const s of audioSockets) { s._deliver(JSON.stringify({ type: 'transcript', text })); s._deliver(JSON.stringify({ type: 'partial', text })); }
 }
-const stt = new SttPipeline({ api, getConfig: (k, d) => cfgStore.get(k, d), onTranscript: deliverTranscript, onNotice: t => { stats.notice = t; broadcast('proactive:' + t); }, log,
+const INTERP_STT = { stt_language: 'auto', stt_detect: true, stt_prompt: '' };
+const stt = new SttPipeline({ api, getConfig: (k, d) => (interp && interp.on && k in INTERP_STT ? INTERP_STT[k] : cfgStore.get(k, d)), onTranscript: deliverTranscript, onNotice: t => { stats.notice = t; broadcast('proactive:' + t); }, log,
   onTiming: ms => { stats.sttMs = ms; stats.sttError = ''; }, onSent: () => { stats.sttSent = (stats.sttSent || 0) + 1; }, onError: e => { stats.sttError = e; } });
 const ears = { feed: (int16, speech = null) => stt.feed(int16, speech), reset: () => stt.cut() };
 W.__jvDebug = (text, kind) => { if (kind !== 'heard') stats.dropped = { text: String(text), kind, at: Date.now() }; };
@@ -205,8 +242,14 @@ W.__jvLevel = (rms, score, speech) => {
   const m = meter(); if (m) m.style.width = Math.min(100, Math.sqrt(rms) * 2.2) + '%';
   if (!stats.listening) stt.vad.track(rms);                                  // keep the loudness fallback's noise floor current while idle
 };
+let lastWarm = 0;
+function warmUp() {                                                // a tiny request on "Hey Jarvis": the secure connection is ready before you finish talking
+  if (!api.ready() || Date.now() - lastWarm < 45000) return; lastWarm = Date.now();
+  const t = performance.now();
+  api.fetch(api.mode() === 'proxy' ? '/ping' : '/models', { method: 'GET' }).then(r => { stats.warmMs = Math.round(performance.now() - t); r.text().catch(() => {}); }).catch(() => {});
+}
 W.__jvWake = score => {
-  stats.wakes++; stats.lastWakeAt = Date.now(); stats.lastWakeScore = score;
+  stats.wakes++; stats.lastWakeAt = Date.now(); stats.lastWakeScore = score; warmUp();
   log(`wake word (${Number(score).toFixed(2)})`);
   const st = pageState(); if (st && st.muted) return;
   // Idle: open the mic at once, with the second before the wake word ("Hey Jarvis, what's the time" in one breath).
@@ -244,11 +287,12 @@ setInterval(() => {                                      // follow the page: lis
 }, 100);
 micStart();
 applySettings();
+proactive.start();
 setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady('amy') }; ensurePcVoice(); }, 1500);   // PC voice for this face (Wi-Fi only)
 
 W.JARVIS = {
   wake: () => W.__jvWake(1), say: t => deliverTranscript(t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
-  phone, verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
+  phone, interp, proactive, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };
 
@@ -258,7 +302,8 @@ async function handle(method, path, query, body, signal) {
   switch (path) {
     case '/chat_stream': {
       const ctl = new AbortController(); if (signal) signal.addEventListener('abort', () => ctl.abort());
-      const enc = new TextEncoder(); const it = brain.chat(String((body && body.text) || ''), ctl.signal)[Symbol.asyncIterator]();
+      const enc = new TextEncoder(), said = String((body && body.text) || '');
+      const it = (interp.on ? interp.respond(said, lastHeardLang) : brain.chat(said, ctl.signal))[Symbol.asyncIterator]();
       const stream = new ReadableStream({
         async pull(c) { try { const { value, done } = await it.next(); if (done) { c.close(); return; } c.enqueue(enc.encode(`data: ${JSON.stringify(value)}\n\n`)); } catch (e) { c.error(e); } },
         cancel() { ctl.abort(); try { it.return(); } catch {} } });
