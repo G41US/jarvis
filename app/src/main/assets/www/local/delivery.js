@@ -345,6 +345,7 @@ export class Copilot {
       if (!stop) return { ok: false, error: `Nothing left to ${kind === 'pickup' ? 'pick up' : 'drop off'}.` };
       order = orders.find(o => o.id === stop.order_id); stopKind = stop.kind; legMi = stop.leg_mi || 0;
     }
+    const snap = { db: JSON.stringify(this._db()), loc: this._getState('loc'), miles: this._getState('shift_miles') };   // for "undo"
     const [lat, lon, addr] = stopKind === 'pickup' ? [order.pickup_lat, order.pickup_lon, order.pickup_addr] : [order.drop_lat, order.drop_lon, order.drop_addr];
     this._setState('loc', { lat, lon, label: shortAddr(addr) });
     if (legMi) {
@@ -358,7 +359,13 @@ export class Copilot {
       db.orders = db.orders.filter(x => x.id !== order.id);                 // the customer's address is gone
       msg = { kind: 'drop', restaurant: order.restaurant, payout: order.payout };
     }
-    this._save(db); this._lastPlan = null; msg.ok = true; return msg;
+    this._save(db); this._lastPlan = null; msg.ok = true; this._undo = { snap, msg, at: now }; return msg;
+  }
+  /** Put back the last stop marked done (within 15 minutes): "undo", "not yet". */
+  undoLast(now = null) {
+    now = now || Date.now() / 1000; const u = this._undo; if (!u || now - u.at > 900) return null;
+    this._save(JSON.parse(u.snap.db)); if (u.snap.loc) this._setState('loc', u.snap.loc); if (u.snap.miles) this._setState('shift_miles', u.snap.miles);
+    this._undo = null; this._lastPlan = null; return u.msg;
   }
   earnings(now = null) {
     now = now || Date.now() / 1000; const d0 = new Date(now * 1000); const midnight = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()).getTime() / 1000;

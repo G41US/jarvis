@@ -19,7 +19,7 @@ import { forSpeech } from './speech.js';
 import { SttPipeline } from './stt.js';
 import { createApi } from './api.js';
 import { createRouter } from './router.js';
-import { matchIntent } from './intents.js';
+import { matchIntent, normalise as normaliseCmd } from './intents.js';
 import { createInterpreter } from './interpreter.js';
 import { describeVoices, pickVoice, fallbackPitch } from './voices.js';
 
@@ -175,7 +175,8 @@ function deliveryConfig() {
 }
 const delivery = new Copilot(kv, deliveryConfig(), { broadcast, http: httpJson });
 const navsvc = createNavService({ reg, config: cfgStore, delivery, broadcast, openUrl, navigator: navigator_ });
-const dtools = registerDeliveryTools({ reg, delivery, navsvc, openUrl });
+const dtools = registerDeliveryTools({ reg, delivery, navsvc, openUrl, config: cfgStore, broadcast });
+setTimeout(() => { if (delivery.hasActive()) dtools.refresh().catch(() => {}); }, 2500);   // orders from before a restart: card and map come back
 let brain = null;
 const gctx = { reg, kv, nav: navigator_, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, switchVoice, onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
 registerGeneralTools(gctx);
@@ -188,10 +189,23 @@ const proactive = createProactive({ ...gctx, log });   // briefing, weather, bir
 registerProactiveTools(gctx, proactive);
 const briefingFast = async text => (/\b(morning briefing|brief me|briefing|what.?s my day|what.?s on today)\b/i.test(text) ? (await gctx.briefingText())[0] : null);
 const router = createRouter();
+// "turn it off" right after "turn on the flashlight": the pronoun means the last thing switched
+const SWITCHABLE = { flashlight: a => ({ state: a }), do_not_disturb: a => ({ on: a === 'on' }) };
+let lastSwitch = null;
+const PRONOUN = /^(?:(?:turn|switch|put|shut|flip)\s+(?:it|that|this|them)\s+(?:back\s+)?(on|off)|(?:turn|switch|shut)\s+(?:back\s+)?(on|off)(?:\s+(?:it|that|this))?|(?:back\s+)?(on|off)(?:\s+again)?|(?:kill|shut)\s+it(?:\s+off)?|turn\s+it\s+back)$/;
+// One-word commands the page would otherwise drop as too short to be meant ("delivered", "undo", "off")
+W.__jvShortOk = t => /^\s*(delivered|undo|picked|pickup|done|off|on|stop|pause|resume|next|skip|louder|quieter|mute|unmute|flashlight|torch|torchlight|yes|no|yeah|yep|nope|cancel|back|home)\W*$/i.test(String(t || ''));
 const instant = async text => {                                   // instant commands: no trip to the AI
   if (W.__jvInstantOff) return null;
-  const m = matchIntent(text, n => reg.has(n)); if (!m) return null;
+  let m = matchIntent(text, n => reg.has(n));
+  if (!m && lastSwitch && Date.now() - lastSwitch.at < 5 * 60000) {
+    const t = normaliseCmd(text), p = PRONOUN.exec(t);
+    if (p) { const st = p[1] || p[2] || p[3] || (/kill|shut/.test(t) ? 'off' : (lastSwitch.state === 'on' ? 'off' : 'on')); m = { tool: lastSwitch.tool, args: SWITCHABLE[lastSwitch.tool](st) }; }
+  }
+  if (!m) return null;
   log('[INSTANT]', m.tool, JSON.stringify(m.args));
+  router.note(m.tool);
+  if (SWITCHABLE[m.tool]) lastSwitch = { tool: m.tool, at: Date.now(), state: m.args.state || (m.args.on ? 'on' : 'off') };
   return await reg.exec(m.tool, JSON.stringify(m.args));
 };
 brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log,

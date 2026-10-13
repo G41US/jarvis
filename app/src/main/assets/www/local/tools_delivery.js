@@ -6,9 +6,20 @@ export function registerDeliveryTools(ctx) {
   const money = (v, dec = 2) => D.money(v, dec);
   async function refresh() {
     const plan = await D.plan(); await D.push(plan);
-    if (ctx.navsvc && ctx.navsvc.state.active && ctx.navsvc.state.delivery) ctx.navsvc.refreshDelivery();      // re-route the map in the background
+    const nav = ctx.navsvc;
+    if (nav && nav.state.active && nav.state.delivery) nav.refreshDelivery();                                   // re-route the map in the background
+    else if (nav && plan.ok && ctx.config.get('dash_map', true) !== false) nav.startDash().catch(e => console.warn('[DELIVERY] map', e));   // orders: the map comes up under the card
+    if (nav && !plan.ok) nav.endDash();                                                                          // all done: the face comes back
     return plan;
   }
+  // You parked at a stop for a while and drove off: that stop is done (say "undo" if not).
+  if (ctx.navsvc) ctx.navsvc.onStopDone(async kind => {
+    const r = await D.completeNext('', kind); if (!r.ok) return;
+    const plan = await refresh();
+    let head = r.kind === 'pickup' ? `Marked ${r.restaurant} picked up.` : `Marked ${r.restaurant} delivered.` + (r.payout ? ` ${money(r.payout)} banked.` : '');
+    head += plan.ok ? ' ' + D.spokenNext(plan) : ' That was the last stop.';
+    ctx.broadcast('proactive:' + head + ' Say undo if that was wrong.');
+  });
   T('add_delivery_order', "Add a delivery order the driver has accepted (DoorDash, Uber Eats, Grubhub...) to the stack (max 4) and return the best route. Needs the restaurant and where it goes: a full street address OR just a place, landmark, apartment complex, street or neighbourhood if that's all the driver has. Never insist on a street number.",
     { restaurant: { type: 'string' }, dropoff_address: { type: 'string', description: "customer's address, or the place / area if the exact address isn't known yet (e.g. 'Arcadia', 'near Tempe Marketplace', 'Mill Avenue')" }, pickup_address: { type: 'string', description: 'restaurant street address, if known' },
       payout: { type: 'number', description: 'total money for this order including tip' }, platform: { type: 'string', description: 'doordash, ubereats, grubhub...' },
@@ -37,6 +48,10 @@ export function registerDeliveryTools(ctx) {
     if (!plan.ok) { const e = D.earnings(); return head + ` Stack cleared. Today: ${e.count} deliveries, ${money(e.total)}.`; }
     return head + ' ' + D.spokenNext(plan);
   }
+  T('undo_stop', 'Undo the last stop marked picked up or delivered (said by mistake, or Jarvis marked it when the driver drove off). Use for "undo", "not yet", "I haven\'t picked it up".', {}, [], async () => {
+    const m = D.undoLast(); if (!m) return 'There\'s nothing recent to undo.';
+    const plan = await refresh(); return `Undone: ${m.restaurant} is back as ${m.kind === 'pickup' ? 'not picked up yet' : 'not delivered yet'}. ` + (plan.ok ? D.spokenNext(plan) : '');
+  });
   T('list_delivery_orders', 'List the orders currently in the stack.', {}, [], () => D.spokenOrders());
   T('remove_delivery_order', 'Remove one order from the stack (cancelled or unassigned).', { order: { type: 'string', description: 'restaurant name or order id' } }, ['order'], async a => {
     const o = D.removeOrder(a.order); if (!o) return `No active order matching ${a.order}.`; const plan = await refresh(); return `Removed ${o.restaurant}. ` + (plan.ok ? D.spokenPlan(plan) : 'The stack is empty.');
@@ -75,12 +90,14 @@ export function registerDeliveryTools(ctx) {
   const DONE = /\b(picked (it |them |the \w+ )?up|got (the|my) (food|order)|pick.?up (is )?done|(just )?delivered|dropped (it |them )?off|drop.?off (is )?done|done with (this|that) stop)\b/i;
   const PLAN = /\b(plan|re-?plan|optimi[sz]e)\b.*\b(route|stack|deliver\w*)\b|\b(best|my) route\b/i;
   const CLEAR = /\b(clear|cancel|reset|wipe)\b.*\b(all )?(my )?(orders|stack|route|deliveries)\b/i;
+  const UNDO = /^(undo( that| it)?|not yet|that'?s wrong|i (haven'?t|didn'?t|did not|have not) (picked|pick|got|delivered|deliver|dropped|drop)( \w+)*( (it|them) (up|off))?( yet)?|(it|that) (wasn'?t|was not) (delivered|picked up)( yet)?)[.!]?$/i;
   const EARN = /\b(my earnings|how much (have )?i (made|earned)|earnings (so far|today))\b/i;
   // "it's 1420", "the number is 22B", "house number 1420" while an order still has only a rough address
   const NUMBER_ONLY = /^(?:(?:ok(?:ay)?|so|and)[, ]+)?(?:it'?s|it is|the (?:house |street |building )?number(?: is)?|house number|number)\s+#?(\d{1,6}[a-z]?)[.!]?$/i;
   async function fastpath(text) {
     const t = String(text || '').trim(); if (!t) return null;
     if (EARN.test(t)) return earnings();
+    if (UNDO.test(t) && D._undo) return reg.exec('undo_stop', '{}');
     if (!D.hasActive()) return null;
     const nm = NUMBER_ONLY.exec(t);
     if (nm && D.activeOrders().some(o => o.drop_precision === 'street')) return reg.exec('update_delivery_address', JSON.stringify({ address: nm[1] }));

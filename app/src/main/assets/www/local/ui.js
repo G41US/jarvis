@@ -105,6 +105,27 @@ body[data-nav="full"] #jv-hist { display: none; }
   .ne { bottom: calc(var(--safe-b) + 18px) !important; }
   .ne-c { padding: 8px 14px !important; min-width: 74px !important; }
 }
+
+/* deliveries ("dash"): the route card on top, a small map with directions under it, Jarvis as an orb in the bottom-right */
+body[data-nav="dash"] #nav-frame { inset: auto !important; top: var(--dash-top, 330px) !important; left: 12px !important; right: 12px !important; width: auto !important;
+  height: var(--dash-h, 34vh) !important; border-radius: 18px; opacity: 1; clip-path: inset(0 round 18px);
+  box-shadow: 0 0 0 1px rgba(120,208,240,.3), 0 10px 40px rgba(0,0,0,.55); }
+body[data-nav="dash"] #three { z-index: 5; pointer-events: none; transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% var(--orb-fy, 50%)); }
+body[data-nav="dash"] #nav-orb { opacity: 1; }
+body[data-nav="dash"] #bg-rings, body[data-nav="dash"] #bg-halo, body[data-nav="dash"] #bg-floor { opacity: 0; transition: opacity .6s; }
+body[data-nav="dash"] #route-panel { max-height: 24vh; overflow-y: auto; }
+body[data-nav="dash"] #jv-cap { right: calc(var(--orb-d, 110px) + 30px); max-height: calc(var(--orb-d, 110px) + 24px); overflow: hidden; }
+body[data-nav="dash"] #jv-cap .him { font-size: 17px; }
+body[data-nav="dash"] #jv-cap .you { font-size: 13px; }
+body[data-nav="dash"] .nb { top: 8px !important; left: 8px !important; right: 8px !important; padding: 7px 12px 7px 8px !important; gap: 10px !important; border-radius: 14px !important; }
+body[data-nav="dash"] .nb:has(.nb-dist:empty) { display: none !important; }   /* no route yet (waiting for GPS): no empty banner */
+body[data-nav="dash"] .nb-icon { width: 38px !important; height: 38px !important; }
+body[data-nav="dash"] .nb-dist { font-size: 19px !important; }
+body[data-nav="dash"] .nb-text { font-size: 12px !important; }
+body[data-nav="dash"] .ne { bottom: 8px !important; border-radius: 12px; }
+body[data-nav="dash"] .ne-c { padding: 4px 10px !important; min-width: 56px !important; }
+body[data-nav="dash"] .ne-c b { font-size: 15px !important; } body[data-nav="dash"] .ne-c span { font-size: 8px !important; letter-spacing: 1.5px !important; }
+body[data-nav="dash"] .nb-then, body[data-nav="dash"] #nav-badge, body[data-nav="dash"] .nav-note, body[data-nav="dash"] #nav-caption, body[data-nav="dash"] .ne-stop { display: none !important; }
 `;
 
 const ICON = {
@@ -159,6 +180,25 @@ export function initUi() {
   orb.onclick = () => { if (document.body.classList.contains('st-muted')) { const b = $('muteBtn'); if (b) b.click(); return; } J() && J().wake(); };
   hist.onclick = () => { document.body.classList.toggle('jv-history'); const l = $('log'); if (l) l.scrollTop = l.scrollHeight; };
   const rp = $('route-panel'); if (rp) rp.addEventListener('click', () => rp.classList.toggle('jv-folded'));
+
+  // dash layout: the map fills the space between the route card and Jarvis's corner orb, whatever the card's height
+  let dashKey = '';
+  const dashLayout = () => {
+    if (document.body.getAttribute('data-nav') !== 'dash') { dashKey = ''; return; }
+    const H = window.innerHeight, root = document.documentElement.style, safeT = parseFloat(getComputedStyle(document.body).getPropertyValue('--safe-t')) || 0;
+    const card = $('route-panel'), cr = card && getComputedStyle(card).display !== 'none' && card.offsetHeight > 0 ? card.getBoundingClientRect() : null;
+    const top = Math.round(cr ? cr.bottom + 10 : safeT + 66);
+    const dk = dock.getBoundingClientRect(), orbBottom = Math.round(H - dk.top + 10);
+    const D = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--orb-d')) || 110;
+    const h = Math.max(150, Math.round(H - orbBottom - D - 14 - top));
+    const key = `${top}|${h}|${orbBottom}`; if (key === dashKey) return; dashKey = key;
+    root.setProperty('--dash-top', top + 'px'); root.setProperty('--dash-h', h + 'px'); root.setProperty('--dash-orb-bottom', orbBottom + 'px');
+    window.dispatchEvent(new Event('resize'));                                   // the map and the orb re-fit
+  };
+  new MutationObserver(() => setTimeout(dashLayout, 30)).observe(document.body, { attributes: true, attributeFilter: ['data-nav'] });
+  if (rp && window.ResizeObserver) new ResizeObserver(() => dashLayout()).observe(rp);
+  window.addEventListener('resize', () => setTimeout(dashLayout, 50));
+  setInterval(dashLayout, 1500);
 
   // what Jarvis is doing right now (the tool he's using), shown instead of "Thinking…"
   let activity = '';

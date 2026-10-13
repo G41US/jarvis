@@ -406,6 +406,38 @@ def main():
             if plan.get('stops'): break
         check('delivery plan has stops', len(plan.get('stops', [])) == 2, plan)
         check('route panel rendered', ev("document.getElementById('route-panel').classList.contains('show')"))
+        # ---- with orders, the map comes up by itself under the card and Jarvis shrinks to a corner orb
+        try: pg.wait_for_function("document.body.getAttribute('data-nav') === 'dash'", timeout=10000)
+        except Exception: pass
+        check('orders on: the delivery map comes up by itself (dash view)', ev("document.body.getAttribute('data-nav')") == 'dash' and ev('JARVIS.navsvc.state.delivery') is True, (ev("document.body.getAttribute('data-nav')"), ev('JARVIS.navsvc.state.view')))
+        pg.wait_for_timeout(1200)
+        g = ev("""(()=>{ const r = id => document.getElementById(id).getBoundingClientRect(), f = r('nav-frame'), p = r('route-panel'), o = r('nav-orb');
+          return { ft: f.top, fb: f.bottom, fh: f.height, pt: p.top, pb: p.bottom, ol: o.left, ot: o.top, ow: o.width, W: innerWidth, H: innerHeight,
+                   orb: getComputedStyle(document.getElementById('nav-orb')).opacity, three: getComputedStyle(document.getElementById('three')).transform }; })()""")
+        check('...the map sits under the route card', g['ft'] >= g['pb'] + 4 and g['fh'] >= 150, g)
+        check('...and the face is a small orb in the bottom-right corner, below the map', g['ol'] > g['W'] / 2 and g['ot'] > g['fb'] and g['ow'] < 140 and g['orb'] == '1' and g['three'] != 'none', g)
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/dash.png'))
+        def ask0(text, until, timeout=10000):
+            ev("window.__native.tts.length=0"); pg.wait_for_timeout(1300)
+            ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev(f"JARVIS.say({json.dumps(text)})")
+            try: pg.wait_for_function(f"window.__native.tts.join(' ').includes({json.dumps(until)})", timeout=timeout)
+            except Exception: pass
+            pg.wait_for_timeout(900); return ev("window.__native.tts.join(' ')")
+        # ---- Jarvis notices a finished stop: you stay at the restaurant a while, then drive off
+        ev("window.__jvDwellMs = 600; window.__native.tts.length = 0")
+        post = lambda la, lo: ev("fetch('/nav/position',{method:'POST',body:JSON.stringify({lat:%f,lon:%f,acc:8})})" % (la, lo))
+        post(33.4551, -112.0651); pg.wait_for_timeout(800); post(33.4550, -112.0650); pg.wait_for_timeout(300); post(33.4620, -112.0450)
+        try: pg.wait_for_function("window.__native.tts.join(' ').includes('picked up')", timeout=8000)
+        except Exception: pass
+        plan = ev("fetch('/delivery/plan').then(r=>r.json())")
+        check('stopped at the pickup, then drove off: marked picked up by itself, and says so', len(plan.get('stops', [])) == 1 and 'Marked Chipotle picked up' in ev("window.__native.tts.join(' ')"), (plan.get('stops'), ev("window.__native.tts")))
+        said = ask0('undo', 'Undone')
+        plan = ev("fetch('/delivery/plan').then(r=>r.json())")
+        check('"undo" puts it back', len(plan.get('stops', [])) == 2 and 'not picked up yet' in said, (said[:120], plan.get('stops')))
+        ask0('picked up', 'Picked up')
+        said = ask0('delivered', 'Delivered')
+        pg.wait_for_timeout(1500)
+        check('last drop-off done: card, map and orb go away, the face comes back', ev("document.body.getAttribute('data-nav')") is None and not ev("document.getElementById('route-panel').classList.contains('show')") and ev('JARVIS.navsvc.state.active') is False, (ev("document.body.getAttribute('data-nav')"), said[:120]))
 
         # ---- speech in, the native way: wake word -> listening -> PCM from Java -> VAD -> Whisper (through the app) -> page
         pg.wait_for_timeout(3000)
@@ -564,6 +596,10 @@ def main():
         reset(); n0 = len(state['groq_calls'])
         said = ask('Jarvis, on my torchlight', 'Flashlight on')
         check('"on my torchlight" (how it is said in Nigeria) is the flashlight too, instantly', calls('flashlight') == [['flashlight', 'on']] and len(state['groq_calls']) == n0, (calls('flashlight'), said[:80]))
+
+        reset(); n0 = len(state['groq_calls'])
+        said = ask('turn it off', 'Flashlight off')
+        check('"turn it off" right after means the flashlight (really switched off, not just said)', calls('flashlight') == [['flashlight', 'off']] and len(state['groq_calls']) == n0, (calls('flashlight'), said[:80]))
         reset(); n0 = len(state['groq_calls'])
         said = ask('Switch to the female voice', 'female voice', timeout=12000)
         check('"switch to the female voice" works by voice: voice and face change, no AI needed', ev("JARVIS.chosenVoice().gender") == 'f' and ev("fetch('/get_voice').then(r=>r.json()).then(j=>j.voice)").startswith('amy~') and 'This is my female voice' in said and len(state['groq_calls']) == n0, (ev("JARVIS.chosenVoice()"), said[:120]))

@@ -291,7 +291,15 @@ public class PhoneActions {
         String w = what == null ? "toggle" : what.toLowerCase(Locale.ROOT).trim();
         boolean on = "toggle".equals(w) ? !torchOn : !"off".equals(w);
         Exception last = null;
-        for (int attempt = 0; attempt < 2; attempt++) {
+        if (!on) {                                               // off: every camera with a light, so nothing is left burning
+            boolean any = false;
+            for (int attempt = 0; attempt < 2 && !any; attempt++) {
+                for (String id : ids) { try { cm.setTorchMode(id, false); any = true; } catch (Exception e) { last = e; Log.w(TAG, "torch off " + id, e); } }
+                if (!any) try { Thread.sleep(350); } catch (InterruptedException ignored) { }
+            }
+            if (any) { torchOn = false; return "Flashlight off."; }
+        }
+        for (int attempt = 0; attempt < 2 && on; attempt++) {
             List<String> order = new ArrayList<>(); order.add(torchId); for (String id : ids) if (!id.equals(torchId)) order.add(id);
             for (String id : order) {
                 try { cm.setTorchMode(id, on); torchId = id; torchOn = on; return on ? "Flashlight on." : "Flashlight off."; }

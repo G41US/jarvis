@@ -4,7 +4,7 @@
 // follow-ups ("yes, send it", "and the other one?") still work.
 
 export const CORE = ['get_time', 'get_weather', 'search_web', 'wikipedia', 'calculate', 'remember', 'recall', 'take_note', 'set_reminder', 'set_timer',
-  'list_reminders', 'open_app', 'open_website', 'system_info', 'morning_briefing', 'translate'];
+  'list_reminders', 'open_app', 'open_website', 'system_info', 'morning_briefing', 'translate', 'flashlight', 'set_voice'];
 
 export const GROUPS = {
   memory: [/\b(remember|forget|memor|prefer|preference|notes?|what do you know|about me|wipe|erase)/, ['list_memories', 'forget_memory', 'set_preference', 'list_preferences', 'forget_preference', 'forget_all', 'read_notes']],
@@ -25,9 +25,9 @@ export const GROUPS = {
   calendar: [/\b(calendar|schedule|meeting|appointment|event|agenda|what'?s on|am i (busy|free)|plans|book|tomorrow|today|this week)/, ['get_calendar', 'add_calendar_event']],
   docs: [/\b(clipboard|copy|paste|copied|document|doc\b|pdf|word|docx|file|write (me )?(a|an|up)|letter|report|essay|resume|cv|share (it|that|the))/,
     ['get_clipboard', 'copy_to_clipboard', 'create_document', 'list_documents', 'open_document', 'delete_document']],
-  delivery: [/\b(doordash|door dash|dasher|uber|eats|grubhub|instacart|deliver\w*|order|orders|pick ?up|picked|drop ?off|dropped|stack|restaurant|customer|tip|payout|pay|offer|earn\w*|made|dash|route|next stop|stops|accepted|accept|decline)/,
+  delivery: [/\b(undo|not yet|doordash|door dash|dasher|uber|eats|grubhub|instacart|deliver\w*|order|orders|pick ?up|picked|drop ?off|dropped|stack|restaurant|customer|tip|payout|pay|offer|earn\w*|made|dash|route|next stop|stops|accepted|accept|decline)/,
     ['add_delivery_order', 'update_delivery_address', 'plan_deliveries', 'next_stop', 'complete_stop', 'list_delivery_orders', 'remove_delivery_order', 'clear_deliveries',
-      'set_my_location', 'evaluate_delivery_offer', 'open_navigation', 'delivery_earnings', 'screen_offer', 'start_delivery_navigation']],
+      'set_my_location', 'evaluate_delivery_offer', 'open_navigation', 'delivery_earnings', 'screen_offer', 'start_delivery_navigation', 'undo_stop', 'map_control']],
   nav: [/\b(navigat\w*|directions?|route|map|maps|take me|drive (me )?to|walk(ing)? to|get to|how far|eta|arriv|where am i|save (this|it|here|place)|home|work|zoom|traffic|toll|highway|reroute|stop navigation|guidance)/,
     ['navigate_to', 'start_delivery_navigation', 'stop_navigation', 'navigation_status', 'map_control', 'open_in_maps_app', 'save_place', 'where_am_i', 'set_my_location']],
   voice: [/\b(voice|accent|sound like|speak (like|as)|male|female|man|woman)/, ['list_voices', 'set_voice']],
@@ -64,6 +64,8 @@ export function createRouter() {
       const picked = all.filter(s => want.has(s.function.name));
       return { tools: picked, groups: [...groups] };
     },
+    /** An instant command ran a tool without the AI: keep that tool's group for the follow-ups ("now turn it off"). */
+    note(tool) { const g = Object.keys(GROUPS).filter(k => GROUPS[k][1].includes(tool)); if (g.length) { recent.push(g); while (recent.length > 2) recent.shift(); } },
     reset() { recent.length = 0; },
   };
 }
