@@ -62,16 +62,26 @@ final class Faces {
             if !available { done("{\"ok\":false,\"error\":\"unavailable\"}"); return }
             do {
                 guard let sig = try signature(b64) else { done("{\"ok\":false,\"error\":\"noface\"}"); return }
-                var all = people()
-                var i = all.firstIndex { Faces.key(($0["name"] as? String) ?? "") == Faces.key(name) }
-                if i == nil { all.append(["name": name.trimmingCharacters(in: .whitespaces), "samples": [[Double]]()]); i = all.count - 1 }
-                if !title.trimmingCharacters(in: .whitespaces).isEmpty { all[i!]["title"] = title.trimmingCharacters(in: .whitespaces) }
-                var s = (all[i!]["samples"] as? [[Double]]) ?? []
-                s.append(sig.map { (Double($0) * 10000).rounded() / 10000 })
-                if s.count > 5 { s.removeFirst(s.count - 5) }
-                all[i!]["samples"] = s
+                var all: [[String: Any]] = people()
+                let want = Faces.key(name)
+                var idx: Int = -1
+                for (k, p) in all.enumerated() where Faces.key((p["name"] as? String) ?? "") == want { idx = k; break }
+                if idx < 0 {
+                    let fresh: [String: Any] = ["name": name.trimmingCharacters(in: .whitespaces), "samples": [[Double]]()]
+                    all.append(fresh); idx = all.count - 1
+                }
+                var person: [String: Any] = all[idx]
+                let t = title.trimmingCharacters(in: .whitespaces)
+                if !t.isEmpty { person["title"] = t }
+                var samples: [[Double]] = (person["samples"] as? [[Double]]) ?? []
+                let row: [Double] = sig.map { (Double($0) * 10000).rounded() / 10000 }
+                samples.append(row)
+                if samples.count > 5 { samples.removeFirst(samples.count - 5) }
+                person["samples"] = samples
+                all[idx] = person
                 save(all)
-                done(JSBridge.json(["ok": true, "samples": s.count]))
+                let out: [String: Any] = ["ok": true, "samples": samples.count]
+                done(JSBridge.json(out))
             } catch { done(JSBridge.json(["ok": false, "error": error.localizedDescription])) }
         }
     }
@@ -81,20 +91,36 @@ final class Faces {
             if !available { done("{\"ok\":false,\"error\":\"unavailable\"}"); return }
             do {
                 guard let sig = try signature(b64) else { done("{\"ok\":true,\"face\":false}"); return }
-                var best: [String: Any]? = nil, bestSim = Faces.match
+                var best: [String: Any]? = nil
+                var bestSim: Double = Faces.match
                 for p in people() {
-                    for v in (p["samples"] as? [[Double]]) ?? [] {
-                        let sim = FaceMath.cosine(sig, v.map { Float($0) })
-                        if sim >= bestSim { bestSim = sim; best = ["name": p["name"] ?? "", "title": p["title"] ?? "", "similarity": (sim * 100).rounded() / 100] }
+                    let samples: [[Double]] = (p["samples"] as? [[Double]]) ?? []
+                    let who: String = (p["name"] as? String) ?? "", title: String = (p["title"] as? String) ?? ""
+                    for v in samples {
+                        let ref: [Float] = v.map { Float($0) }
+                        let sim: Double = FaceMath.cosine(sig, ref)
+                        if sim >= bestSim {
+                            bestSim = sim
+                            let entry: [String: Any] = ["name": who, "title": title, "similarity": (sim * 100).rounded() / 100]
+                            best = entry
+                        }
                     }
                 }
-                done(JSBridge.json(["ok": true, "face": true, "match": best ?? NSNull()]))
+                let match: Any = best ?? NSNull()
+                let out: [String: Any] = ["ok": true, "face": true, "match": match]
+                done(JSBridge.json(out))
             } catch { done(JSBridge.json(["ok": false, "error": error.localizedDescription])) }
         }
     }
 
     func list() -> String {
-        JSBridge.json(people().map { ["name": $0["name"] ?? "", "title": $0["title"] ?? "", "samples": (($0["samples"] as? [Any]) ?? []).count] })
+        var out: [[String: Any]] = []
+        for p in people() {
+            let n: Int = ((p["samples"] as? [Any]) ?? []).count
+            let row: [String: Any] = ["name": (p["name"] as? String) ?? "", "title": (p["title"] as? String) ?? "", "samples": n]
+            out.append(row)
+        }
+        return JSBridge.json(out)
     }
 
     func forget(_ name: String) -> Bool {
