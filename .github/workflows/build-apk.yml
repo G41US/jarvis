@@ -361,13 +361,17 @@ jobs:
           xcodebuild -version
           brew install xcodegen >/dev/null 2>&1 || brew install xcodegen
           cd ios && xcodegen generate
+          cd .. && xcodebuild -project ios/Jarvis.xcodeproj -resolvePackageDependencies > resolve.log 2>&1 || { tail -30 resolve.log; echo "::error::$(tail -3 resolve.log | tr '\n' ' ' | cut -c1-900)"; exit 1; }
+          tail -5 resolve.log
 
       - name: Build for the iPhone simulator
         run: |
           set -o pipefail
           xcodebuild -project ios/Jarvis.xcodeproj -scheme Jarvis -configuration Debug -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build > build.log 2>&1 \
-            || { grep -E "error:|warning: .*will be an error" build.log | sort -u | head -60; tail -30 build.log; exit 1; }
+            || { grep -E "error:|warning: .*will be an error" build.log | sort -u | head -60; tail -30 build.log;
+                 grep -E "error:" build.log | sort -u | head -10 | while IFS= read -r l; do echo "::error::$(printf '%s' "$l" | sed 's/%/%25/g' | cut -c1-900)"; done
+                 grep -qE "error:" build.log || echo "::error::$(tail -5 build.log | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-900)"; exit 1; }
           grep -c "warning:" build.log || true
           ls ios/build/Build/Products/Debug-iphonesimulator/
 
@@ -388,6 +392,19 @@ jobs:
           xcrun simctl terminate "$UDID" "$JARVIS_BUNDLE_ID"
           grep -E "\[SMOKE\]|\[PAGE\] (error|warn)|\[JARVIS\]" sim/app.log | head -80
           if grep -q "\[SMOKE\] ready" sim/app.log; then echo "The page started on iPhone."; else echo "::warning title=iPhone smoke test::the page did not report ready (see the sim artifact)"; fi
+
+      # The build log and simulator screenshots, also as files on the "ios-ci" pre-release (handy to look at from anywhere)
+      - name: Publish the iPhone build log and screenshots
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          mkdir -p sim; cp build.log sim/build.log 2>/dev/null; cp archive.log export.log sim/ 2>/dev/null
+          (cd sim && zip -q -r ../ios-ci.zip .)
+          gh release view ios-ci >/dev/null 2>&1 || gh release create ios-ci --prerelease --title "iPhone build check" --notes "Build log and simulator screenshots from the latest iPhone build. Not an app download."
+          gh release upload ios-ci ios-ci.zip --clobber
+          true
 
       - uses: actions/upload-artifact@v4
         if: always()
