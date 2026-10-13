@@ -199,6 +199,15 @@ def main():
     html = sub_once(html, "function hasEndPhrase(text) { const t = cleanPunct(text);", "function hasEndPhrase(text) { if (window.__jvInterpreting) return false; const t = cleanPunct(text);", 'interpreter end phrases')
     html = sub_once(html, "if (words.length < MIN_WORDS) {", "if (words.length < (window.__jvInterpreting ? 1 : MIN_WORDS)) {", 'interpreter short replies')
 
+    # ---- voice change, cinematic: the old face fades out, the new one materialises in a flare of light, and Jarvis
+    #      speaks in the new voice once the new face is up (shim.js waits for 'jv-avatar-ready')
+    html = sub_once(html, "    gidPlane.visible = false; faceGroup.add(avatarModel);\n",
+                    "    gidPlane.visible = false; faceGroup.add(avatarModel);\n    window.__jvSwapFx = window.__jvSwapFx === undefined ? 0 : 1;   // no flare for the very first face\n"
+                    "    try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: url })); } catch (e) {}\n", 'avatar ready event')
+    html = sub_once(html, "  bloomPass.strength = 0.10 + speakingAmount * 0.05;",
+                    "  bloomPass.strength = 0.10 + speakingAmount * 0.05 + (window.__jvSwapFx || 0) * 0.85;\n"
+                    "  if (window.__jvSwapFx > 0) window.__jvSwapFx = Math.max(0, window.__jvSwapFx - 0.025);", 'swap flare')
+
     # no localhost anywhere: the page must only talk to its own origin (which the app answers itself)
     os.makedirs(WWW, exist_ok=True)
     open(os.path.join(WWW, 'index.html'), 'w', encoding='utf-8').write(html)

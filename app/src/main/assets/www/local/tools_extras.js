@@ -20,15 +20,16 @@ const isoDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1
 /** [from, to) epoch ms for today / week / month / year / last week / last month / all. Weeks start on Monday. */
 export function periodRange(period = 'week', now = new Date()) {
   const p = String(period || 'week').toLowerCase(), d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();   // to the end of today (expenses are dated by day, at noon)
   if (/today/.test(p)) return [d0.getTime(), d0.getTime() + 86400000, 'today'];
   if (/yesterday/.test(p)) return [d0.getTime() - 86400000, d0.getTime(), 'yesterday'];
   if (/last week/.test(p)) { const m = new Date(d0); m.setDate(m.getDate() - ((m.getDay() + 6) % 7) - 7); return [m.getTime(), m.getTime() + 7 * 86400000, 'last week']; }
-  if (/week/.test(p)) { const m = new Date(d0); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return [m.getTime(), now.getTime() + 1, 'this week']; }
+  if (/week/.test(p)) { const m = new Date(d0); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return [m.getTime(), end, 'this week']; }
   if (/last month/.test(p)) { const a = new Date(now.getFullYear(), now.getMonth() - 1, 1), b = new Date(now.getFullYear(), now.getMonth(), 1); return [a.getTime(), b.getTime(), 'last month']; }
-  if (/month/.test(p)) return [new Date(now.getFullYear(), now.getMonth(), 1).getTime(), now.getTime() + 1, 'this month'];
+  if (/month/.test(p)) return [new Date(now.getFullYear(), now.getMonth(), 1).getTime(), end, 'this month'];
   if (/last year/.test(p)) return [new Date(now.getFullYear() - 1, 0, 1).getTime(), new Date(now.getFullYear(), 0, 1).getTime(), 'last year'];
-  if (/year/.test(p)) return [new Date(now.getFullYear(), 0, 1).getTime(), now.getTime() + 1, 'this year'];
-  return [0, now.getTime() + 1, 'in total'];
+  if (/year/.test(p)) return [new Date(now.getFullYear(), 0, 1).getTime(), end, 'this year'];
+  return [0, end, 'in total'];
 }
 
 /** What a QR code holds, in words Jarvis can say. */

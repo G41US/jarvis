@@ -92,6 +92,10 @@ def groq_handler(route):
             elif 'hola' in u or 'necesito' in u: out = {'from': 'es', 'translation': 'Hello, I need help with my order.'}
             else: out = {'from': 'en', 'translation': '¿Cómo estás? Llego en cinco minutos.'}
             return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'choices': [{'message': {'role': 'assistant', 'content': json.dumps(out, ensure_ascii=False)}}]}))
+        if sysm.startswith('You pick out lasting facts'):                # learning about the user (gpt-oss-20b, JSON)
+            state.setdefault('learn', []).append(body)
+            out = {'facts': ["The user's sister Ada lives in Abuja."], 'preferences': []} if 'sister' in msgs[-1]['content'] else {'facts': [], 'preferences': []}
+            return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'choices': [{'message': {'role': 'assistant', 'content': json.dumps(out)}}]}))
         if body.get('model') == 'qwen/qwen3.8-27b':                   # Jarvis's eyes
             state.setdefault('vision', []).append(body)
             q = json.dumps(body['messages'][-1]['content'])
@@ -119,6 +123,8 @@ def groq_handler(route):
         if 'times' in u:
             chunks = [delta(tool_calls=[{'index': 0, 'id': 'c1', 'type': 'function', 'function': {'name': 'calculate', 'arguments': '{"expression":'}}]),
                       delta(tool_calls=[{'index': 0, 'function': {'arguments': '"12*12"}'}}])]
+        elif 'weather in markdown' in u:                              # the model sometimes writes markdown; Jarvis must not say "asterisk"
+            chunks = [delta(content='**Lagos**: partly cloudy, **31 °C**.\n'), delta(content='- Rain: *40%* chance 🌧️\n- Wind: 12 km/h')]
         elif 'doordash' in u:
             chunks = [delta(tool_calls=[{'index': 0, 'id': 'c2', 'type': 'function', 'function': {'name': 'add_delivery_order', 'arguments': json.dumps({'restaurant': 'Chipotle', 'dropoff_address': '123 Oak Street Phoenix', 'pickup_address': '5 Elm Street Phoenix', 'payout': 8.5, 'platform': 'doordash'})}}])]
         else:
@@ -301,6 +307,7 @@ def main():
         pg.fill('#jv-ov input[type=text] >> nth=0', 'Marcus')
         pg.click('#jv-ov .pri'); pg.wait_for_function("!document.querySelector('#jv-ov').classList.contains('on')", timeout=3000)
         check('settings saved + closed', ev("JARVIS.config.get('groq_key')") == 'gsk_good' and ev("JARVIS.config.get('user_name')") == 'Marcus')
+        ev("JARVIS.config.set('learn', false)")      # learning is tested on its own below (it adds background AI calls)
 
         # ---- page booted with the fake mic, audio socket is ours
         pg.wait_for_function("document.getElementById('log').textContent.includes('Jarvis online')", timeout=8000)
@@ -553,6 +560,19 @@ def main():
         reset(); n0 = len(state['groq_calls'])
         said = ask('Hey Jarvis, could you turn on the flashlight please', 'Flashlight on')
         check('"turn on the flashlight" is instant: done on the phone, nothing sent to the AI', calls('flashlight') == [['flashlight', 'on']] and len(state['groq_calls']) == n0 and 'Flashlight on' in said, (calls('flashlight'), len(state['groq_calls']) - n0, said[:80]))
+
+        reset(); n0 = len(state['groq_calls'])
+        said = ask('Jarvis, on my torchlight', 'Flashlight on')
+        check('"on my torchlight" (how it is said in Nigeria) is the flashlight too, instantly', calls('flashlight') == [['flashlight', 'on']] and len(state['groq_calls']) == n0, (calls('flashlight'), said[:80]))
+        reset(); n0 = len(state['groq_calls'])
+        said = ask('Switch to the female voice', 'female voice', timeout=12000)
+        check('"switch to the female voice" works by voice: voice and face change, no AI needed', ev("JARVIS.chosenVoice().gender") == 'f' and ev("fetch('/get_voice').then(r=>r.json()).then(j=>j.voice)").startswith('amy~') and 'This is my female voice' in said and len(state['groq_calls']) == n0, (ev("JARVIS.chosenVoice()"), said[:120]))
+        said = ask('go back to the male voice', 'male voice', timeout=12000)
+        check('...and back to male', ev("JARVIS.chosenVoice().gender") == 'm' and 'This is my male voice' in said, said[:120])
+        said = ask("What's the weather in markdown", 'Lagos')
+        check('markdown and emoji are never spoken (no "asterisk")', 'Lagos: partly cloudy, 31 degrees Celsius.' in said and '*' not in said and '🌧' not in said and 'Rain: 40% chance' in said, said[:200])
+        check('...and the answer on screen is clean too', '*' not in ev("document.getElementById('log').textContent.slice(-400)"))
+        n0 = len(state['groq_calls'])
         said = ask('set a timer for 5 minutes', 'Timer set')
         check('"set a timer for 5 minutes" is instant', len(state['groq_calls']) == n0 and 'Timer set for 5 minutes' in said, said[:80])
         check('the speed meter shows it', ev('JARVIS.stats.lat && JARVIS.stats.lat.instant') is True)
@@ -774,10 +794,27 @@ def main():
         r = ev("JARVIS.reg.exec('open_document', JSON.stringify({name: 'it', share: true}))")
         check('share the last document', calls('docOpen') and calls('docOpen')[0][3] is True, calls('docOpen'))
 
+        # new-message announcements: short, from the native wording; nothing for updates
+        ev("JARVIS.config.set('announce_messages', true); window.__native.tts.length = 0")
+        ev("""window.__jvMessage(JSON.stringify({ app: 'Snapchat', title: 'Valerie🍒', text: 'sent you a voice note', message: true, spoken: 'Valerie sent you a voice note on Snapchat.' }), true)"""); pg.wait_for_timeout(1800)
+        said = ev("window.__native.tts.join(' ')")
+        check('a new message is announced in a few words ("Valerie sent you a voice note on Snapchat.")', 'Valerie sent you a voice note on Snapchat' in said and 'Message from' not in said, said[:160])
+        ev("window.__native.tts.length = 0; window.__jvMessage(JSON.stringify({ app: 'WhatsApp', title: 'WhatsApp', text: '3 new messages', message: true }), true)"); pg.wait_for_timeout(900)
+        check('...and nothing is said for a notification Android marks as not worth saying', ev("window.__native.tts.join(' ')") == '', ev("window.__native.tts"))
+        ev("JARVIS.config.set('announce_messages', false)")
+        # learning: lasting facts the user mentions are remembered by themselves
+        ev("JARVIS.config.set('learn', true)"); state['learn'] = []
+        said = ask('My sister Ada lives in Abuja', 'Hello'); pg.wait_for_timeout(1500)
+        facts = ev("(() => { try { return JARVIS.brain.conversation[0].content; } catch (e) { return ''; } })()")
+        check('Jarvis learns lasting facts from conversation (asked the small model, fact now in what he knows)', len(state['learn']) == 1 and state['learn'][0]['model'] == 'openai/gpt-oss-20b' and "sister Ada lives in Abuja" in facts, (len(state['learn']), facts[-300:]))
+        n0 = len(state['learn']); ask('turn on my flashlight', 'Flashlight'); pg.wait_for_timeout(600)
+        check('...but not from commands ("turn on my flashlight")', len(state['learn']) == n0)
+        ev("JARVIS.config.set('learn', false)")
+
         # settings: phone powers
         ev("JARVIS.openSettings()"); pg.wait_for_timeout(700)
         rows = ev("[...document.querySelectorAll('#jv-powers .pw')].map(r => [r.querySelector('b').textContent, r.querySelector('.pw-st').textContent, getComputedStyle(r.querySelector('button')).display !== 'none'])")
-        check('settings lists the phone powers with on/off', len(rows) == 11 and ['Camera', 'On', False] in rows and ['Phone control', 'On', False] in rows and ['Brightness', 'Off', True] in rows, rows)
+        check('settings lists the phone powers with on/off', len(rows) == 12 and ['Offer reader', 'Off', True] in rows and ['Camera', 'On', False] in rows and ['Phone control', 'On', False] in rows and ['Brightness', 'Off', True] in rows, rows)
         reset(); ev("document.querySelector('#jv-powers button[data-power=overlay]').click()")
         check('"Allow" asks Android for it', calls('request') == [['request', 'overlay']], calls('request'))
         ev("document.getElementById('jv-powers').scrollIntoView()"); pg.wait_for_timeout(200)
@@ -800,6 +837,31 @@ def main():
         ctx2.route(re.compile(r'https://(?!appassets|jarvis-proxy).*'), other_handler)
         p2 = ctx2.new_page(); p2.goto(ORIGIN + '/index.html'); p2.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000); p2.wait_for_timeout(800)
         check('proxy build: settings does not demand a key', p2.evaluate("!document.getElementById('jv-ov').classList.contains('on')") and p2.evaluate("JARVIS.api.mode()") == 'proxy')
+        # ---- first run: the setup walkthrough opens by itself and takes the permissions one at a time
+        p2.wait_for_selector('#jv-setup.on', timeout=5000)
+        q = lambda sel: p2.evaluate(f"document.querySelector('#jv-setup {sel}').textContent")
+        check('first run: setup walkthrough opens by itself, starting with the basics', q('.card h2') == 'Hear, see and help', q('.card h2'))
+        p2.screenshot(path=os.path.join(ROOT, 'tests/e2e/setup.png'))
+        p2.click('#jv-setup .go')
+        check('"Allow" asks Android for all the ordinary permissions at once', ['request', 'basics'] in p2.evaluate('window.__phone.calls'))
+        p2.evaluate("Object.assign(window.__phone.status, { mic: true, location: true, notifications: true, camera: true, contacts: true, calls: true, sms: true, calendar: true }); window.__jvPerm()"); p2.wait_for_timeout(900)
+        check('when Android answers, it moves on to reading messages', q('.card h2') == 'Read and announce your messages', q('.card h2'))
+        p2.click('#jv-setup .go'); p2.evaluate("window.__phone.status.restricted = true; window.dispatchEvent(new Event('focus'))"); p2.wait_for_timeout(700)
+        check('it opens the exact settings page (notification access)', ['request', 'notifAccess'] in p2.evaluate('window.__phone.calls'))
+        check('back without switching it on: explains Android\'s "restricted setting" and how to allow it', 'installed from a file' in q('.note') and 'Allow restricted settings' in q('.note') and p2.evaluate("document.querySelector('#jv-setup .note').classList.contains('on')"), q('.note'))
+        p2.click('#jv-setup .note .info'); check('...with a button to Jarvis\'s App info', ['request', 'appInfo'] in p2.evaluate('window.__phone.calls'))
+        p2.click('#jv-setup .go'); p2.evaluate("window.__phone.status.notifAccess = true; window.__phone.status.restricted = false; window.dispatchEvent(new Event('focus'))"); p2.wait_for_timeout(700)
+        check('switched on -> next: phone control', q('.card h2') == 'Phone control' and 'on' in q('.state'), (q('.card h2'), q('.state')))
+        p2.click('#jv-setup .go'); check('phone control opens its own page', ['request', 'control'] in p2.evaluate('window.__phone.calls'))
+        p2.evaluate("window.__phone.status.control = true; window.dispatchEvent(new Event('focus'))"); p2.wait_for_timeout(700)
+        check('then the offer reader, marked optional, with Skip', q('.card h2') == 'Offer reader (for drivers) (optional)', q('.card h2'))
+        p2.click('#jv-setup .skip'); p2.wait_for_timeout(200)
+        check('skipping moves on', q('.card h2') == 'Open apps for you', q('.card h2'))
+        p2.click('#jv-setup .done'); p2.wait_for_timeout(200)
+        check('"finish later" closes it and it won\'t nag on every start', not p2.evaluate("document.getElementById('jv-setup').classList.contains('on')") and p2.evaluate("JARVIS.config.get('setup_v1')") is True)
+        p2.evaluate("JARVIS.openSettings()"); p2.wait_for_timeout(300); p2.click('#jv-setup-again'); p2.wait_for_timeout(300)
+        check('Settings has "Set up permissions, step by step" to come back to it', p2.evaluate("document.getElementById('jv-setup').classList.contains('on')") and not p2.evaluate("document.getElementById('jv-ov').classList.contains('on')"))
+        p2.click('#jv-setup .done'); p2.wait_for_timeout(200)
         p2.evaluate("JARVIS.openSettings()"); p2.wait_for_timeout(200)
         sv = p2.evaluate("""(() => { const b = document.getElementById('jv-brain'), adv = [...document.querySelectorAll('#jv-ov details')].find(d => d.querySelector('summary').textContent === 'Advanced');
           return { brainInputs: b.querySelectorAll('input[type=password]').length, brainText: b.textContent,

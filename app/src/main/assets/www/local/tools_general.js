@@ -185,5 +185,8 @@ export function registerGeneralTools(ctx) {
   T('spotify_previous', 'Go back to the previous track.', {}, [], () => { const r = media('previous'); return r === 'ok' ? 'Previous track.' : r; });
   T('spotify_now_playing', "Say what's playing.", {}, [], () => "Android doesn't let me read what's playing, but I can pause, skip or play something.");
   T('list_voices', 'List the speaking voices available on this phone.', {}, [], () => { const v = ctx.voices ? ctx.voices() : []; return v.length ? 'Available voices: ' + v.slice(0, 8).map(x => x.name).join(', ') + '.' : 'Only the default voice is available.'; });
-  T('set_voice', 'Change the speaking voice.', { voice_name: { type: 'string' } }, ['voice_name'], a => { const r = ctx.setVoice ? ctx.setVoice(a.voice_name) : null; return r ? `Voice switched to ${r}.` : `I don't have a voice called '${a.voice_name}'.`; });
+  T('set_voice', "Change Jarvis's voice and face. voice_name: 'female' or 'male' (the face changes with it), or a voice name from list_voices.", { voice_name: { type: 'string' } }, ['voice_name'], async a => {
+    if (ctx.switchVoice) return ctx.switchVoice(a.voice_name);
+    const r = ctx.setVoice ? ctx.setVoice(a.voice_name) : null; return r ? `Voice switched to ${r}.` : `I don't have a voice called '${a.voice_name}'.`;
+  });
 }

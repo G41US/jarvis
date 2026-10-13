@@ -11,6 +11,7 @@ import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -24,6 +25,7 @@ import android.hardware.camera2.CameraManager;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Environment;
 import android.provider.AlarmClock;
 import android.provider.CalendarContract;
@@ -105,6 +107,14 @@ public class PhoneActions {
     // ================================================================== permissions
     private boolean has(String p) { return a.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED; }
 
+    static List<String> basics() {
+        List<String> l = new ArrayList<>();
+        l.add(Manifest.permission.RECORD_AUDIO); l.add(Manifest.permission.ACCESS_FINE_LOCATION); l.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        if (Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS);
+        l.add(Manifest.permission.CAMERA); l.add(Manifest.permission.READ_CONTACTS); l.add(Manifest.permission.CALL_PHONE); l.add(Manifest.permission.SEND_SMS);
+        l.add(Manifest.permission.READ_CALENDAR); l.add(Manifest.permission.WRITE_CALENDAR);
+        return l;
+    }
     private static String permFor(String name) {
         switch (name) {
             case "camera": return Manifest.permission.CAMERA;
@@ -114,6 +124,7 @@ public class PhoneActions {
             case "notifications": return Build.VERSION.SDK_INT >= 33 ? Manifest.permission.POST_NOTIFICATIONS : null;
             case "sms": return Manifest.permission.SEND_SMS;
             case "location": return Manifest.permission.ACCESS_FINE_LOCATION;
+            case "mic": return Manifest.permission.RECORD_AUDIO;
             default: return null;
         }
     }
@@ -138,6 +149,9 @@ public class PhoneActions {
             o.put("screenshots", Build.VERSION.SDK_INT >= 30);
             o.put("sms", has(Manifest.permission.SEND_SMS));
             o.put("location", has(Manifest.permission.ACCESS_FINE_LOCATION));
+            o.put("mic", has(Manifest.permission.RECORD_AUDIO));
+            o.put("offer", OfferReaderService.isEnabled(a));
+            o.put("restricted", restricted(a));
         } catch (Exception e) { Log.w(TAG, "status", e); }
         return o.toString();
     }
@@ -146,6 +160,13 @@ public class PhoneActions {
     @JavascriptInterface
     public String request(String name) {
         final String n = name == null ? "" : name;
+        if (n.equals("basics")) {                                  // first run: every ordinary permission in one go (Android shows them one after another)
+            final List<String> ps = new ArrayList<>();
+            for (String x : basics()) if (!has(x)) ps.add(x);
+            if (ps.isEmpty()) return "granted";
+            a.runOnUiThread(new Runnable() { @Override public void run() { a.requestPermissions(ps.toArray(new String[0]), REQ); } });
+            return "asked";
+        }
         String p = permFor(n);
         if (p != null || n.equals("calendar")) {
             final List<String> ps = new ArrayList<>();
@@ -162,8 +183,15 @@ public class PhoneActions {
         switch (n) {
             case "exactAlarms": i = Build.VERSION.SDK_INT >= 31 ? new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, me) : null; break;
             case "overlay": i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, me); break;
-            case "control": i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS); break;
-            case "notifAccess": i = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS); break;
+            case "control": return openAccessibility(PhoneControlService.class);
+            case "offer": return openAccessibility(OfferReaderService.class);
+            case "notifAccess": {
+                ComponentName me2 = new ComponentName(a, NotifListener.class);
+                Intent fb = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).putExtra(":settings:fragment_args_key", me2.flattenToString());
+                if (Build.VERSION.SDK_INT >= 30) return startFirst(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, me2.flattenToString()), fb);
+                i = fb; break;
+            }
+            case "appInfo": i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, me); break;
             case "dnd": i = new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS); break;
             case "brightness": i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, me); break;
             default: return "unknown";
@@ -171,6 +199,34 @@ public class PhoneActions {
         if (i == null) return "granted";
         start(i, "settings");
         return "opened";
+    }
+
+    /** Opens the page for one of Jarvis's accessibility switches directly (not the long list where it's hard to find). */
+    String openAccessibility(Class<?> svc) {
+        String cn = new ComponentName(a, svc).flattenToString();
+        Bundle args = new Bundle(); args.putString(":settings:fragment_args_key", cn);
+        Intent list = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).putExtra(":settings:fragment_args_key", cn).putExtra(":settings:show_fragment_args", args);
+        if (Build.VERSION.SDK_INT >= 30) return startFirst(new Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").putExtra(Intent.EXTRA_COMPONENT_NAME, cn), list);
+        start(list, "settings"); return "opened";
+    }
+    /** Tries the exact page first; if this phone doesn't have it, the general one. */
+    String startFirst(final Intent first, final Intent fallback) {
+        first.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (!canOpenNow()) { start(first.resolveActivity(a.getPackageManager()) != null ? first : fallback, "settings"); return "opened"; }
+        a.runOnUiThread(new Runnable() { @Override public void run() {
+            try { a.startActivity(first); } catch (Exception e) { Log.w(TAG, "exact page missing, using the list", e); try { a.startActivity(fallback); } catch (Exception e2) { Log.w(TAG, "settings", e2); } }
+        } });
+        return "opened";
+    }
+    /** Android 13+ blocks accessibility and notification access for apps installed from a file until the user allows
+     *  "restricted settings" in Jarvis's App info. True while that block is on (best effort; false if unknown). */
+    static boolean restricted(Context c) {
+        if (Build.VERSION.SDK_INT < 33) return false;
+        try {
+            android.app.AppOpsManager ops = (android.app.AppOpsManager) c.getSystemService(Context.APP_OPS_SERVICE);
+            int mode = ops.unsafeCheckOpNoThrow("android:access_restricted_settings", c.getApplicationInfo().uid, c.getPackageName());
+            return mode == android.app.AppOpsManager.MODE_ERRORED || mode == android.app.AppOpsManager.MODE_IGNORED;
+        } catch (Exception e) { return false; }
     }
 
     // ================================================================== reminders, timers, alarms
@@ -198,21 +254,58 @@ public class PhoneActions {
     @JavascriptInterface public String showClockAlarms() { return start(new Intent(AlarmClock.ACTION_SHOW_ALARMS), "your alarms"); }
 
     // ================================================================== device
+    private String torchId = null;
+    private boolean torchWatching = false;
+    /** The real torch state: also changes when the user flips the torch in quick settings. */
+    private void watchTorch(CameraManager cm) {
+        if (torchWatching) return; torchWatching = true;
+        try {
+            cm.registerTorchCallback(new CameraManager.TorchCallback() {
+                @Override public void onTorchModeChanged(String id, boolean enabled) { if (id.equals(torchId)) torchOn = enabled; }
+                @Override public void onTorchModeUnavailable(String id) { }
+            }, new android.os.Handler(android.os.Looper.getMainLooper()));
+        } catch (Exception e) { Log.w(TAG, "torch callback", e); }
+    }
+    /** Cameras with a flash, back-facing first. */
+    private List<String> torchCandidates(CameraManager cm) throws Exception {
+        List<String> back = new ArrayList<>(), other = new ArrayList<>();
+        for (String c : cm.getCameraIdList()) {
+            CameraCharacteristics ch = cm.getCameraCharacteristics(c);
+            Boolean f = ch.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+            if (f == null || !f) continue;
+            Integer facing = ch.get(CameraCharacteristics.LENS_FACING);
+            if (facing != null && facing == CameraCharacteristics.LENS_FACING_BACK) back.add(c); else other.add(c);
+        }
+        back.addAll(other);
+        return back;
+    }
     @JavascriptInterface
     public String flashlight(String what) {
-        try {
-            CameraManager cm = (CameraManager) a.getSystemService(Context.CAMERA_SERVICE);
-            String id = null;
-            for (String c : cm.getCameraIdList()) {
-                Boolean f = cm.getCameraCharacteristics(c).get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
-                if (f != null && f) { id = c; break; }
+        CameraManager cm = (CameraManager) a.getSystemService(Context.CAMERA_SERVICE);
+        if (cm == null) return "This phone has no flashlight I can reach.";
+        List<String> ids;
+        try { ids = torchCandidates(cm); } catch (Exception e) { Log.w(TAG, "torch list", e); return "I couldn't reach the flashlight."; }
+        if (ids.isEmpty()) return "This phone has no flashlight I can reach.";
+        if (torchId == null || !ids.contains(torchId)) torchId = ids.get(0);
+        watchTorch(cm);
+        String w = what == null ? "toggle" : what.toLowerCase(Locale.ROOT).trim();
+        boolean on = "toggle".equals(w) ? !torchOn : !"off".equals(w);
+        Exception last = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            List<String> order = new ArrayList<>(); order.add(torchId); for (String id : ids) if (!id.equals(torchId)) order.add(id);
+            for (String id : order) {
+                try { cm.setTorchMode(id, on); torchId = id; torchOn = on; return on ? "Flashlight on." : "Flashlight off."; }
+                catch (Exception e) { last = e; Log.w(TAG, "torch " + id, e); }
             }
-            if (id == null) return "This phone has no flashlight I can reach.";
-            boolean on = "toggle".equals(what) ? !torchOn : !"off".equals(what);
-            cm.setTorchMode(id, on);
-            torchOn = on;
-            return on ? "Flashlight on." : "Flashlight off.";
-        } catch (Exception e) { return "The flashlight is busy (the camera may be in use)."; }
+            try { Thread.sleep(350); } catch (InterruptedException ignored) { }
+        }
+        if (last instanceof android.hardware.camera2.CameraAccessException) {
+            int r = ((android.hardware.camera2.CameraAccessException) last).getReason();
+            if (r == android.hardware.camera2.CameraAccessException.CAMERA_DISABLED) return "The flashlight is switched off by this phone's settings or a work profile.";
+            if (r == android.hardware.camera2.CameraAccessException.CAMERA_IN_USE || r == android.hardware.camera2.CameraAccessException.MAX_CAMERAS_IN_USE)
+                return "The camera is in use by another app, so the flashlight can't come on. Close the camera app and ask again.";
+        }
+        return "The flashlight didn't respond. Try the torch in your quick settings; if that works, tell me and I'll try again.";
     }
 
     private static int stream(String s) {

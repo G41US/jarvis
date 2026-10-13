@@ -14,6 +14,8 @@ import { registerDrivingTools } from './tools_driving.js';
 import { registerHomeTools } from './tools_home.js';
 import { createProactive, registerProactiveTools } from './proactive.js';
 import { createBrain } from './brain.js';
+import { createLearner } from './learn.js';
+import { forSpeech } from './speech.js';
 import { SttPipeline } from './stt.js';
 import { createApi } from './api.js';
 import { createRouter } from './router.js';
@@ -32,6 +34,7 @@ const cfgStore = { get(k, d = null) { const c = kv.get('config', {}) || {}; cons
   all() { return kv.get('config', {}) || {}; }, merge(o) { kv.set('config', { ...this.all(), ...o }); } };
 export const config = cfgStore;
 const api = createApi(cfgStore);
+if (!cfgStore.get('reasoning_auto_v1')) { if (cfgStore.get('reasoning', 'low') === 'low') cfgStore.set('reasoning', 'auto'); cfgStore.set('reasoning_auto_v1', true); }   // older copies saved "low" as the default
 
 const openUrl = url => { try { if (has('openUrl')) bridge().openUrl(url); else W.open(url, '_blank'); } catch (e) { log('openUrl', e); } };
 
@@ -117,6 +120,17 @@ function setVoice(q) {
   cfgStore.merge(up); if (hit.pc) ensurePcVoice(true); return announceVoice().name;
 }
 
+/** "Switch to the female voice": the face fades out, the new one materialises, and the answer is spoken in the new voice
+ *  once the new face is on screen (like the PC). Resolves with what Jarvis says. */
+async function switchVoice(q) {
+  const before = gender(), name = setVoice(q);
+  if (!name) return `I don't have a voice called '${q}'. I have a male and a female voice.`;
+  const g = gender(), word = g === 'f' ? 'female' : 'male';
+  if (g === before && /^(fe)?male$/i.test(String(q).trim())) return `I'm already using my ${word} voice.`;
+  if (g !== before) await new Promise(res => { const done = () => { W.removeEventListener('jv-avatar-ready', done); clearTimeout(t); setTimeout(res, 350); }; const t = setTimeout(done, 4000); W.addEventListener('jv-avatar-ready', done); });
+  return g !== before ? (g === 'f' ? 'Done. This is my female voice.' : 'Done. This is my male voice.') : `Voice switched to ${name.replace(/ ·.*$/, '')}.`;
+}
+
 // ---------------------------------------------------------------- text to speech (Android's engine)
 if (has('ttsSpeak')) {
   W.SpeechSynthesisUtterance = class { constructor(text) { this.text = String(text || ''); this.rate = 1; this.pitch = 1; this.volume = 1; this.lang = ''; this.voice = null; this.onend = null; this.onerror = null; this.onstart = null; } };
@@ -132,6 +146,7 @@ if (has('ttsSpeak')) {
       const timer = setTimeout(() => { log('tts watchdog released', id); finish(id, 'done'); }, 2500 + u.text.length * 95 / Math.max(0.5, rate));
       tts.active.set(id, { u, timer });
       const lang = langFor.get(u.text.trim()); if (lang) langFor.delete(u.text.trim());
+      u.text = forSpeech(u.text) || ' ';                                  // never "asterisk", never emoji names
       try {
         u.onstart && u.onstart({});
         if (lang && interpObj && lang !== interpObj.state.mine && has('ttsSpeakLang')) bridge().ttsSpeakLang(id, u.text, rate, 1, lang);   // their language, their voice
@@ -162,7 +177,7 @@ const delivery = new Copilot(kv, deliveryConfig(), { broadcast, http: httpJson }
 const navsvc = createNavService({ reg, config: cfgStore, delivery, broadcast, openUrl, navigator: navigator_ });
 const dtools = registerDeliveryTools({ reg, delivery, navsvc, openUrl });
 let brain = null;
-const gctx = { reg, kv, nav: navigator_, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
+const gctx = { reg, kv, nav: navigator_, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, switchVoice, onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
 registerGeneralTools(gctx);
 Object.assign(gctx, { api, parseWhen });
 const phone = registerPhoneTools(gctx);                 // also gives gctx reminderItems / calendarToday for the briefing
@@ -182,7 +197,9 @@ const instant = async text => {                                   // instant com
 brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log,
   pickTools: text => { const r = router.pick(reg.schemas, text); stats.lastTools = r.tools.length; return r.tools; },
   instant, onTiming: t => { stats.lat = { ...(stats.lat || {}), ...t, at: Date.now() }; },
-  onTool: name => W.dispatchEvent(new CustomEvent('jv-activity', { detail: name })) });
+  onTool: name => W.dispatchEvent(new CustomEvent('jv-activity', { detail: name })),
+  onTurn: (user, said) => learner && learner.observe(user, said) });
+const learner = createLearner({ groqJson: b => brain.groqJson(b), kv, log, enabled: () => cfgStore.get('learn', true) !== false && brain.usable(), onChange: () => brain.refreshPrompt() });
 const interp = createInterpreter({ api, broadcast, langFor, log, bridge }); interpObj = interp;
 reg.add('start_interpreter', "Live interpreter between the user and someone who speaks another language: from now on everything either of them says is translated into the other language and spoken aloud, with face-to-face captions. language: the other person's language. my_language: the user's (default English).",
   { language: { type: 'string' }, my_language: { type: 'string' } }, ['language'], async a => (await interp.start(a.language, a.my_language || 'en')).message);
@@ -291,8 +308,8 @@ proactive.start();
 setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady('amy') }; ensurePcVoice(); }, 1500);   // PC voice for this face (Wi-Fi only)
 
 W.JARVIS = {
-  wake: () => W.__jvWake(1), say: t => deliverTranscript(t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
-  phone, interp, proactive, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
+  wake: () => W.__jvWake(1), say: t => deliverTranscript(t), announce: t => broadcast('proactive:' + t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
+  phone, interp, proactive, learner, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };
 

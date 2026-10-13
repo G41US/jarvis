@@ -12,19 +12,31 @@ export function normalise(text) {
   return String(text || '').toLowerCase().replace(/[’']/g, "'").replace(/[.,!?;:]+/g, ' ')
     .replace(/^\s*(hey|ok|okay|yo)?\s*jarvis\s*/, '').replace(/\bplease\b/g, '')
     .replace(/^\s*(can|could|would|will) you\s+/, '').replace(/^\s*(i want you to|i need you to|go ahead and|just)\s+/, '')
-    .replace(/\s+/g, ' ').trim();
+    .replace(/\s+/g, ' ').trim()
+    .replace(/\s+(for me|right now|now|jarvis|thanks|thank you)$/, '').replace(/\s+(for me|now|jarvis)$/, '').trim();
 }
+
+const LIGHT = "(flash ?light|flash|torch ?light|torch|light on (the|my) phone|phone light|camera light)";
+const ON = "(on|off)";
+const FEMALE = /\b(female|woman|lady|girl|her|she|amy|feminine)\b/, MALE = /\b(male|man|guy|him|he|alan|adam|masculine|default)\b/;
+const voiceWant = t => (FEMALE.test(t) ? 'female' : MALE.test(t) ? 'male' : null);
 
 /** [pattern, (match) => [tool, args] | string]. First match wins. */
 export const INTENTS = [
   // ---- time
   [/^(what'?s|what is|tell me) the time( now)?$|^what time is it( now)?$|^time$/, () => ['get_time', {}]],
   [/^(what'?s|what is) (the )?(date|day)( today)?$|^what day is (it|today)$|^what'?s today'?s date$/, () => ['get_time', {}]],
-  // ---- flashlight
-  [/^(turn|switch|put) (on|off) (the |my )?(flash ?light|torch|light on (the|my) phone)$/, m => ['flashlight', { state: m[2] }]],
-  [/^(turn|switch|put) (the |my )?(flash ?light|torch) (on|off)$/, m => ['flashlight', { state: m[4] }]],
-  [/^(flash ?light|torch) (on|off)$/, m => ['flashlight', { state: m[2] }]],
-  [/^(toggle )?(the )?(flash ?light|torch)$/, () => ['flashlight', { state: 'toggle' }]],
+  // ---- flashlight ("turn on my flashlight", "on my torch", "torchlight off", "flashlight please")
+  [new RegExp(`^(turn|switch|put|put on|switch on|turn on|on|off) ?${ON}? (the |my )?${LIGHT}( on| off)?$`), m => {
+    const words = m[0].split(' '), st = words.includes('off') ? 'off' : words.includes('on') ? 'on' : 'toggle'; return ['flashlight', { state: st }]; }],
+  [new RegExp(`^${LIGHT} ${ON}$`), m => ['flashlight', { state: m[m.length - 1] }]],
+  [new RegExp(`^(toggle )?(the |my )?${LIGHT}$`), () => ['flashlight', { state: 'toggle' }]],
+  [new RegExp(`^(i need|give me) (some )?light$|^(it'?s|it is) (too )?dark( in here)?$`), () => ['flashlight', { state: 'on' }]],
+  // ---- voice and face ("switch to the female voice", "change your voice to male", "use the woman", "be a lady")
+  [/^(switch|change|swap|turn|set|go|move|put)( (your|the|my))?( voice| face| avatar| model| look)?( back)? (to|into)( (a|the|your))? ([a-z ]+?)( voice| face| avatar| model| one| version| mode)?$/, m => { const g = voiceWant(m[9]); return g ? ['set_voice', { voice_name: g }] : null; }],
+  [/^(use|try|give me|i want|let me (hear|see)|bring (out|back))( (a|the|your))? ([a-z ]+?) (voice|face|avatar|model|version|one)$/, m => { const g = voiceWant(m[6]); return g ? ['set_voice', { voice_name: g }] : null; }],
+  [/^(be|become|turn into) (a|the) (woman|lady|girl|female|man|guy|male)$/, m => ['set_voice', { voice_name: voiceWant(m[3]) }]],
+  [/^(female|male|woman|man) (voice|face|mode)( please)?$/, m => ['set_voice', { voice_name: voiceWant(m[1]) }]],
   // ---- volume, ringer, do not disturb
   [/^(turn (it|the volume|the sound|the music) up|volume up|(make it )?(a (bit|little) )?louder|increase (the )?volume|raise (the )?volume)$/, () => ['set_volume', { action: 'up' }]],
   [/^(turn (it|the volume|the sound|the music) down|volume down|(make it )?(a (bit|little) )?(quieter|softer)|lower (the )?volume|decrease (the )?volume|reduce (the )?volume)$/, () => ['set_volume', { action: 'down' }]],

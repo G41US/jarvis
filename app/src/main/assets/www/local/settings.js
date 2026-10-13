@@ -166,7 +166,7 @@ export function initSettings() {
   const offerLast = el('p', { class: 'hint', style: 'overflow-wrap:anywhere' });
   offerBtn.onclick = () => J().openOfferSettings();
   sOffer.append(offerState, el('div', { class: 'row' }, offerBtn), offerLast);
-  sOffer.append(el('p', { class: 'hint' }, 'In the list that opens, tap "Jarvis offer reader" and switch it on. If Android says the setting is restricted: open Android Settings, Apps, Jarvis, the three-dot menu, "Allow restricted settings", then try again.'));
+  sOffer.append(el('p', { class: 'hint' }, 'On the page that opens, switch on "Jarvis offer reader". If the switch is greyed out or Android says "Restricted setting": open Android Settings, Apps, Jarvis, the ⋮ menu at the top right, "Allow restricted settings", then try again. (On Samsung phones it is also listed under Accessibility, Installed apps.)'));
   const paintOffer = () => {
     const st = J().offerStatus ? J().offerStatus() : null; if (!st) { sOffer.style.display = 'none'; return; }
     offerState.textContent = st.enabled ? 'On. Offers in the Dasher and Uber Driver apps are read automatically.' : 'Off.';
@@ -182,8 +182,9 @@ export function initSettings() {
     ['notifications', 'Notifications', 'Reminders and timers pop up and ring, even when Jarvis is closed.'],
     ['exactAlarms', 'Reminders on the minute', 'Without this, Android may ring reminders a few minutes late.'],
     ['overlay', 'Open apps from the background', 'Lets Jarvis open apps, websites and calls while he isn\'t on screen (Android calls it "display over other apps").'],
-    ['control', 'Phone control', 'Jarvis reads the screen and taps, types, scrolls, goes back or home, and takes screenshots when you ask ("open WhatsApp and message John", "what\'s on my screen"). In the list that opens, tap "Jarvis phone control" and switch it on. He asks before sending anything and never operates the Dasher or Uber Driver apps.'],
-    ['notifAccess', 'Read and reply to messages', '"Read my messages", "reply to John: on my way". Switch on "Jarvis notifications" in the list that opens.'],
+    ['control', 'Phone control', 'Jarvis reads the screen and taps, types, scrolls, goes back or home, and takes screenshots when you ask ("open WhatsApp and message John", "what\'s on my screen"). On the page that opens, switch on "Jarvis phone control". He asks before sending anything and never operates the Dasher or Uber Driver apps.'],
+    ['offer', 'Offer reader', 'Reads DoorDash and Uber Driver offers and says take it or pass. Switch on "Jarvis offer reader" on the page that opens.'],
+    ['notifAccess', 'Read and reply to messages', '"Read my messages", "reply to John: on my way", and short announcements of new messages. Switch on "Jarvis notifications" on the page that opens.'],
     ['camera', 'Camera', 'Jarvis\'s eyes: "what is this?", "read this sign", "take a photo".'],
     ['contacts', 'Contacts', 'Call and text people by name.'],
     ['calls', 'Phone calls', 'Place calls straight away, without you tapping the call button.'],
@@ -198,6 +199,7 @@ export function initSettings() {
     const r = el('div', { class: 'pw' }, el('div', { class: 'pw-t' }, el('b', {}, title), st), el('p', { class: 'hint' }, hint), btn);
     powRows[k] = { st, btn }; powList.append(r);
   }
+  sPow.append(el('div', { class: 'row' }, el('button', { type: 'button', id: 'jv-setup-again', onclick: () => { close(); setTimeout(() => { if (J().setup && !J().setup.open(true)) { /* everything already on */ } }, 50); } }, 'Set up permissions, step by step')));
   sPow.append(powList);
   const ann = el('select', { 'aria-label': 'Read new messages out loud' });
   for (const [v, t] of [['false', 'No'], ['true', 'Yes, read new messages out loud']]) ann.append(el('option', { value: v }, t));
@@ -270,7 +272,8 @@ export function initSettings() {
   add(nd, 'password', 'apple_token', 'Apple MapKit JS token (optional)', { ph: 'eyJ…' });
 
   const adv = el('details'); adv.append(el('summary', {}, 'Advanced')); box.append(adv);
-  add(adv, 'select', 'reasoning', 'Thinking effort', { def: 'low', options: [['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High']] });
+  add(adv, 'select', 'reasoning', 'Thinking effort', { def: 'auto', options: [['auto', 'Automatic: quick for simple things, deeper for hard questions'], ['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High (slowest, most careful)']] });
+  add(adv, 'select', 'learn', 'Learn about me from our conversations', { def: 'true', options: [['true', 'Yes: remember lasting things I mention (name, people, places, likes)'], ['false', 'No: only when I say "remember"']] });
   add(adv, 'text', 'groq_model', 'Model', { ph: 'openai/gpt-oss-120b' });
   add(adv, 'text', 'stt_language', 'Speech language code', { ph: 'en', hint: 'Leave blank for English.' });
   if (proxy) keyIn = add(adv, 'password', 'groq_key', 'Your own Groq key (optional)', { ph: 'gsk_…', hint: 'Not needed. Only if you want Jarvis to use your own Groq account instead of the Jarvis service.' });
@@ -279,7 +282,7 @@ export function initSettings() {
   const close = () => { ov.classList.remove('on'); document.body.classList.remove('jv-settings'); window.__jvPaused = false; clearInterval(diagTimer); };
   const save = () => {
     const out = {};
-    for (const i of inputs) { let v = i.value.trim(); if (i._key === 'use_gps' || (/^pa_/.test(i._key) && i._key !== 'pa_briefing')) v = v !== 'false'; else if (i._num) v = v === '' ? '' : Number(v); out[i._key] = v; }
+    for (const i of inputs) { let v = i.value.trim(); if (i._key === 'use_gps' || i._key === 'learn' || (/^pa_/.test(i._key) && i._key !== 'pa_briefing')) v = v !== 'false'; else if (i._num) v = v === '' ? '' : Number(v); out[i._key] = v; }
     out.wake_sensitivity = Number(sens.value); out.avatar_gender = gender; out.voice = vsel.value;
     J().config.merge(out); J().applySettings({ voiceChanged: true });
     saveMsg.className = 'msg ok'; saveMsg.textContent = 'Saved.'; setTimeout(close, 300);
