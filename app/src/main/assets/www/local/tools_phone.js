@@ -121,6 +121,7 @@ export function registerPhoneTools(ctx) {
     if (!has('clockAlarm')) return "I can only set Clock alarms on the phone. I can set a reminder instead.";
     const r = call('clockAlarm', h, mi, String(a.label || ''), String(a.days || ''));
     if (r === 'no-clock') return "I can't find a Clock app. I'll set a reminder instead if you like.";
+    if (r === 'notification') { const d = new Date(); d.setHours(h, mi, 0, 0); return `Alarm set for ${clock(d.getTime())}${a.days ? ' on ' + a.days : ''}. On iPhone it rings as a Jarvis notification, so keep my notifications and sound on, and the ring switch off silent.`; }
     const o = opened(r, 'the alarm'); if (o) return o;
     const d = new Date(); d.setHours(h, mi, 0, 0);
     return `Alarm set for ${clock(d.getTime())}${a.days ? ' on ' + a.days : ''} in your Clock app.`;
@@ -193,7 +194,7 @@ export function registerPhoneTools(ctx) {
     if (!shot.ok && shot.error === 'denied') call('request', 'camera');
     return shot;
   }
-  const camFail = e => e === 'background' ? "Open me first: Android only lets me use the camera while I'm on screen." : e === 'denied' ? NEED.camera[1] : e === 'nocamera' ? "I can't find a camera on this phone." : e === 'cancelled' ? 'Cancelled.' : e === 'busy' ? "I'm already using the camera." : "The camera didn't work just now.";
+  const camFail = e => e === 'background' ? "Open me first: your phone only lets me use the camera while I'm on screen." : e === 'denied' ? NEED.camera[1] : e === 'nocamera' ? "I can't find a camera on this phone." : e === 'cancelled' ? 'Cancelled.' : e === 'busy' ? "I'm already using the camera." : "The camera didn't work just now.";
   T('look_with_camera', "Jarvis's eyes: take a picture with the phone camera and answer a question about it (what is this, read this sign or label, what colour, how many, describe the scene, who is this). camera: back (default) or front (selfie / 'look at me').",
     { question: { type: 'string' }, camera: { type: 'string', enum: ['back', 'front'] } }, [], async a => {
       const shot = await shoot(a.camera === 'front' ? 'user' : 'environment', 'Looking…'); if (!shot.ok) return camFail(shot.error);
@@ -336,7 +337,7 @@ export function registerPhoneTools(ctx) {
   // ================================================================== clipboard and documents
   T('get_clipboard', "Read what's on the phone's clipboard (what the user copied).", {}, [], () => {
     if (!has('clipboardGet')) return "I can only read the clipboard on the phone.";
-    const t = call('clipboardGet'); return t ? `Clipboard: ${String(t).slice(0, 1500)}` : "The clipboard is empty, or Android hid it because I'm not on screen.";
+    const t = call('clipboardGet'); return t ? `Clipboard: ${String(t).slice(0, 1500)}` : "The clipboard is empty, or your phone hid it because I'm not on screen.";
   });
   T('copy_to_clipboard', 'Copy text to the clipboard so the user can paste it.', { text: { type: 'string' } }, ['text'], a => { if (!has('clipboardSet')) return "I can only use the clipboard on the phone."; call('clipboardSet', String(a.text || '')); return 'Copied.'; });
   T('create_document', "Write a document and save it in the phone's Documents/Jarvis folder. kind: pdf, docx (Word) or txt. Write the full content yourself; plain paragraphs separated by new lines.",

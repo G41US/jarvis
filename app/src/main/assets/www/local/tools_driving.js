@@ -169,7 +169,7 @@ export function registerDrivingTools(ctx) {
         H.call('request', 'sms');
         const place = has('placeText') ? P().placeText() : '';
         const o = H.openUrl(`smsto:${list.map(c => c.number).join(';')}?body=${encodeURIComponent('EMERGENCY: I need help. ' + (a.message ? a.message + ' ' : '') + 'Location: ' + place)}`, 'the SOS message');
-        return `I can't send texts by myself yet, so the SOS message is open with your location: tap send.${o === 'ok' ? '' : ' ' + o} Say "call 911" if you need emergency services.`;
+        return (window.JARVIS_IOS ? `iPhone makes you tap Send yourself: the SOS message is open with your location, to ${list.map(c => c.name).join(' and ')}.` : `I can't send texts by myself yet, so the SOS message is open with your location: tap send.`) + `${o === 'ok' ? '' : ' ' + o} Say "call 911" if you need emergency services.`;
       }
       if (r.error) return "The SOS didn't go out. Call 911 if you're in danger.";
       refresh();

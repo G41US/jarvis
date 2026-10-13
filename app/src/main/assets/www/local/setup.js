@@ -8,7 +8,7 @@ const P = () => W.AndroidPhone || null;
 const status = () => { try { return JSON.parse(P().status() || '{}'); } catch { return {}; } };
 
 export const STEPS = [
-  { k: 'basics', title: 'Hear, see and help', why: 'Microphone, location, notifications, camera, contacts, calls, texts and calendar. Android asks for each one in turn: tap Allow (or "While using the app").',
+  { k: 'basics', title: 'Hear, see and help', why: W.JARVIS_IOS ? 'Microphone, location, notifications, camera, contacts and calendar. Your iPhone asks for each one in turn: tap Allow (or "Allow While Using App").' : 'Microphone, location, notifications, camera, contacts, calls, texts and calendar. Android asks for each one in turn: tap Allow (or "While using the app").',
     done: s => !!(s.mic !== false && s.location && s.notifications && s.camera && s.contacts && s.calls && s.sms && s.calendar), btn: 'Allow' },
   { k: 'notifAccess', title: 'Read and announce your messages', why: 'So Jarvis can tell you who messaged you ("Ada sent you a voice note") and reply for you. On the page that opens, switch on Jarvis notifications.', done: s => !!s.notifAccess, gated: true },
   { k: 'control', title: 'Phone control', why: 'So Jarvis can open apps, read your screen, tap, type, scroll and go back when you ask. On the page that opens, switch on Jarvis phone control and confirm. (If you see a list instead: on Samsung look under Installed apps; elsewhere under Downloaded apps.)', done: s => !!s.control, gated: true },
@@ -47,7 +47,7 @@ const CSS = `
 
 export function createSetup({ config, say = () => {} }) {
   let ov = null, i = 0, tries = 0, failed = 0, opened = false;
-  const steps = () => STEPS;
+  const steps = () => (W.JARVIS_IOS ? STEPS.filter(s => s.k === 'basics') : STEPS);   // the rest are Android switches
   const pending = s => steps().filter(st => !st.done(s) && !(config.get('setup_skip', []) || []).includes(st.k));
   function build() {
     if (ov) return;
@@ -91,7 +91,7 @@ export function createSetup({ config, say = () => {} }) {
     const step = cur(); tries++; opened = true;
     let r = ''; try { r = P().request(step.k); } catch {}
     if (r === 'granted') { opened = false; next('Already on.'); return; }
-    paint(step.k === 'basics' ? 'Answer Android\'s questions…' : 'Switch it on, then come back here.');
+    paint(step.k === 'basics' ? (W.JARVIS_IOS ? 'Answer your iPhone\'s questions…' : 'Answer Android\'s questions…') : 'Switch it on, then come back here.');
   }
   function recheck() {
     if (!opened) return; const s = status(), step = cur(); opened = false;

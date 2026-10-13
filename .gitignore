@@ -10,3 +10,8 @@ __pycache__/
 app/libs/
 app/src/main/jniLibs/
 app/src/main/assets/face/sface.onnx
+ios/Resources/
+ios/*.xcodeproj/
+ios/build/
+ios/JarvisCore/.build/
+ios/Jarvis/Info.plist
