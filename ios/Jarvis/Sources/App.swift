@@ -22,7 +22,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         w.overrideUserInterfaceStyle = .dark
         w.makeKeyAndVisible()
         window = w
-        if !options.shortcutItems.isEmpty || UserDefaults.standard.bool(forKey: "jarvis.wakeOnOpen") {
+        if options.shortcutItem != nil || UserDefaults.standard.bool(forKey: "jarvis.wakeOnOpen") {
             UserDefaults.standard.set(false, forKey: "jarvis.wakeOnOpen")
             NotificationCenter.default.post(name: .jarvisWake, object: nil)
         }
