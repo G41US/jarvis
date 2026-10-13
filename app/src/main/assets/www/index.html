@@ -441,6 +441,8 @@ function doSwap(url) {
       mats.forEach(m => { delete m.userData._baseOpacity; delete m.userData._baseTransparent; });
     });
     gidPlane.visible = false; faceGroup.add(avatarModel);
+    window.__jvSwapFx = window.__jvSwapFx === undefined ? 0 : 1;   // no flare for the very first face
+    try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: url })); } catch (e) {}
     avatarAlpha = 0; applyAvatarAlpha(0);
   }, undefined, (err) => {
     if (myToken !== avatarLoadToken) return;
@@ -528,7 +530,8 @@ function applyColors() {
   sharedUniforms.uAccent.value.copy(currentCool).lerp(new THREE.Color(0xffffff), 0.45);
   headHalo.material.color.copy(currentCool);
   particleMat.color.copy(currentCool).lerp(new THREE.Color(0xffffff), 0.25);
-  bloomPass.strength = 0.10 + speakingAmount * 0.05;
+  bloomPass.strength = 0.10 + speakingAmount * 0.05 + (window.__jvSwapFx || 0) * 0.85;
+  if (window.__jvSwapFx > 0) window.__jvSwapFx = Math.max(0, window.__jvSwapFx - 0.025);
 }
 const _tmpQ = new THREE.Quaternion(), _tmpE = new THREE.Euler();
 function driveLipSync(t, amt) {

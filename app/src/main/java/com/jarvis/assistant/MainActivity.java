@@ -180,6 +180,13 @@ public class MainActivity extends Activity {
     private boolean has(String p) { return checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED; }
 
     private void askPermissions() {
+        android.content.SharedPreferences sp = getSharedPreferences(Reminders.PREFS, MODE_PRIVATE);
+        if (!sp.getBoolean("asked_basics_v1", false)) {            // first run: everything Jarvis can use, asked once, up front
+            sp.edit().putBoolean("asked_basics_v1", true).apply();
+            List<String> all = new ArrayList<>();
+            for (String p : PhoneActions.basics()) if (!has(p)) all.add(p);
+            if (!all.isEmpty()) { requestPermissions(all.toArray(new String[0]), REQ_PERMS); return; }
+        }
         List<String> need = new ArrayList<>();
         if (!has(Manifest.permission.RECORD_AUDIO)) need.add(Manifest.permission.RECORD_AUDIO);
         if (!has(Manifest.permission.ACCESS_FINE_LOCATION)) { need.add(Manifest.permission.ACCESS_FINE_LOCATION); need.add(Manifest.permission.ACCESS_COARSE_LOCATION); }

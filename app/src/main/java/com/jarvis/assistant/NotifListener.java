@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
@@ -37,9 +38,14 @@ public class NotifListener extends NotificationListenerService {
     static volatile Listener listener;
 
     static final class Item {
-        String key, pkg, app, title, text, category; long when; boolean message; Notification.Action reply; RemoteInput input;
+        String key, pkg, app, title, text, category, spoken; long when; boolean message; Notification.Action reply; RemoteInput input;
     }
     private static final LinkedList<Item> recent = new LinkedList<>();
+    /** key -> last text seen, so a notification that is only being updated ("2 messages", "typing...") isn't announced again. */
+    private static final java.util.HashMap<String, String> lastText = new java.util.HashMap<>();
+    /** sender -> when Jarvis last announced them: a burst of five messages is one announcement, not five. */
+    private static final java.util.HashMap<String, Long> lastSaid = new java.util.HashMap<>();
+    static final long BURST_MS = 25000;
     private static final String[] MESSAGING = {"com.whatsapp", "com.whatsapp.w4b", "com.google.android.apps.messaging", "com.samsung.android.messaging",
             "org.telegram.messenger", "com.facebook.orca", "com.instagram.android", "com.snapchat.android", "com.discord", "com.Slack",
             "com.microsoft.teams", "org.thoughtcrime.securesms", "com.viber.voip", "com.android.mms", "com.google.android.apps.googlevoice", "com.textra"};
@@ -81,8 +87,30 @@ public class NotifListener extends NotificationListenerService {
             it.text = str(big != null ? big : x.getCharSequence(Notification.EXTRA_TEXT));
             CharSequence[] lines = x.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
             if (lines != null && lines.length > 0) it.text = str(lines[lines.length - 1]);
+            String msgSender = "";
+            try {                                                    // chat apps: the newest message and who sent it (MessagingStyle)
+                android.os.Parcelable[] ms = x.getParcelableArray(Notification.EXTRA_MESSAGES);
+                if (ms != null && ms.length > 0 && ms[ms.length - 1] instanceof Bundle) {
+                    Bundle b = (Bundle) ms[ms.length - 1];
+                    CharSequence t = b.getCharSequence("text"); if (t != null && t.length() > 0) it.text = str(t);
+                    CharSequence who = b.getCharSequence("sender");
+                    if (who == null && Build.VERSION.SDK_INT >= 28) { Object pp = b.getParcelable("sender_person"); if (pp instanceof android.app.Person) who = ((android.app.Person) pp).getName(); }
+                    if (who != null) msgSender = str(who);
+                }
+            } catch (Exception ignored) { }
             if (it.title.isEmpty() && it.text.isEmpty()) return;
             it.message = isMessaging(it.pkg, it.category);
+            it.spoken = it.message ? MessageWords.spoken(it.app, it.pkg, msgSender.isEmpty() ? it.title : msgSender, it.text) : null;
+            boolean announce = fresh && it.message && it.spoken != null;
+            synchronized (lastText) {
+                String prev = lastText.put(it.key, it.title + "\n" + it.text);
+                if (prev != null && (prev.equals(it.title + "\n" + it.text) || (n.flags & Notification.FLAG_ONLY_ALERT_ONCE) != 0)) announce = false;   // an update, not a new message
+                if (lastText.size() > 200) lastText.clear();
+                String who = it.pkg + "|" + MessageWords.sender(msgSender.isEmpty() ? it.title : msgSender, it.app);
+                Long was = lastSaid.get(who); long now = System.currentTimeMillis();
+                if (announce && was != null && now - was < BURST_MS) announce = false;
+                if (announce) lastSaid.put(who, now);
+            }
             if (n.actions != null) for (Notification.Action a : n.actions) {
                 RemoteInput[] ri = a.getRemoteInputs();
                 if (ri != null && ri.length > 0) { it.reply = a; it.input = ri[0]; break; }
@@ -94,7 +122,7 @@ public class NotifListener extends NotificationListenerService {
                 while (recent.size() > 40) recent.removeLast();
             }
             Listener l = listener;
-            if (fresh && it.message && l != null) l.onMessage(toJson(it, 1));
+            if (announce && l != null) l.onMessage(toJson(it, 1));
         } catch (Exception e) { Log.w(TAG, "add", e); }
     }
 
@@ -104,7 +132,7 @@ public class NotifListener extends NotificationListenerService {
         JSONObject o = new JSONObject();
         try {
             o.put("n", n); o.put("app", it.app); o.put("title", it.title); o.put("text", it.text.length() > 400 ? it.text.substring(0, 400) + "…" : it.text);
-            o.put("message", it.message); o.put("canReply", it.reply != null); o.put("ago", Math.max(0, (System.currentTimeMillis() - it.when) / 60000));
+            o.put("message", it.message); if (it.spoken != null) o.put("spoken", it.spoken); o.put("canReply", it.reply != null); o.put("ago", Math.max(0, (System.currentTimeMillis() - it.when) / 60000));
         } catch (Exception ignored) { }
         return o;
     }

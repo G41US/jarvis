@@ -21,7 +21,9 @@ X=/opt/gradle-8.14.3/lib; LIBS=app/libs/sherpa-onnx.jar:$X/kotlin-stdlib-2.0.21.
 AJ=${ANDROID_JAR:-/home/claude/androidjar/android-36.jar}
 if [ -f "$AJ" ]; then
   R=$(mktemp -d); python3 tests/android_stubs/gen_stubs.py "$R/src" --non-android >/dev/null; mkdir "$R/out"
-  javac -nowarn -Xlint:-options -cp "$AJ:$LIBS" -d "$R/out" $(find "$R/src" -name '*.java') $(find app/src/main/java -name '*.java') 2>&1 | grep -v "^Note:\|JAVA_TOOL_OPTIONS" || true
+  OUT=$(javac -nowarn -Xlint:-options -cp "$AJ:$LIBS" -d "$R/out" $(find "$R/src" -name '*.java') $(find app/src/main/java -name '*.java') 2>&1 | grep -v "^Note:\|JAVA_TOOL_OPTIONS" || true)
+  [ -n "$OUT" ] && echo "$OUT"
+  if echo "$OUT" | grep -q "error"; then echo "FAILURES: java does not compile against Android 16"; exit 1; fi
   [ -f "$R/out/com/jarvis/assistant/MainActivity.class" ] && echo "java check against real Android 16 OK" || { echo "FAILURES: java does not compile against Android 16"; exit 1; }
 else echo "(no android.jar: stand-in check only)"; fi
 # The engines the tests run, with lightweight stand-ins (real android.jar classes only throw "Stub!" when run).
@@ -33,4 +35,5 @@ import glob, xml.dom.minidom as m
 for f in glob.glob('app/src/main/**/*.xml', recursive=True): m.parse(f)
 print('xml OK')
 PY
+javac -d "$S/out" app/src/main/java/com/jarvis/assistant/MessageWords.java tests/messages/MessageWordsTest.java && java -cp "$S/out" MessageWordsTest | tail -1   # what Jarvis says for new messages
 javac -d "$S/out" app/src/main/java/com/jarvis/assistant/OfferParser.java tests/offers/OfferParserTest.java && java -cp "$S/out" OfferParserTest | tail -1   # offer reader on sample screens

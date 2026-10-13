@@ -1,10 +1,27 @@
 // brain.js - Jarvis's brain on the phone: Groq streaming + tool calling (same loop as server.py), memory, short history.
 
+import { forSpeech } from './speech.js';
+
 export const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const SENTENCE_SPLIT = /(?<=[.!?])\s+/, CLAUSE_SPLIT = /(?<=[,;:])\s+/g;
 export const emitSentences = text => text.split(SENTENCE_SPLIT).map(s => s.trim()).filter(s => s.length >= 2);
 
-export function needsTool(text) {
+// Small talk is the only thing answered without tools: anything else might need to DO something ("switch to the female
+// voice", "on my torchlight"), and a keyword list can never cover every way of saying it.
+const SMALL_TALK = /^(hi|hello|hey|yo|thanks|thank you|thank you so much|ok|okay|cool|nice|great|good|wow|lol|haha|bye|goodbye|good (morning|afternoon|evening|night)|how are you|how'?s it going|you there|are you there)( jarvis)?[.!?]*$/;
+export const isSmallTalk = text => SMALL_TALK.test(String(text || '').toLowerCase().replace(/^(hey |ok |okay )?jarvis[,.!]?\s*/, '').trim());
+export function needsTool(text) { return !isSmallTalk(text) || legacyNeedsTool(text); }
+
+// Harder questions get more thinking time; quick commands and simple facts stay fast.
+const DEEP = /\b(why|how (do|does|did|can|could|should|would|to|much|many|long)|explain|compare|difference|versus|vs|plan|planning|advice|advise|should i|what should|best (way|option|time|route)|what if|recommend|suggest|solve|work out|figure out|analy[sz]e|pros and cons|strategy|help me (decide|understand|write|figure|plan|think)|write (me )?(a|an|the)|draft|summari[sz]e|story|poem|essay|math|calculate|percent|budget|worth it|is it (good|bad|safe|true))\b/;
+export function effortFor(text, configured = 'auto') {
+  const c = String(configured || 'auto').toLowerCase();
+  if (c && c !== 'auto') return c;
+  const t = String(text || '').toLowerCase(), words = t.split(/\s+/).filter(Boolean).length;
+  return DEEP.test(t) || words > 22 ? 'medium' : 'low';
+}
+
+function legacyNeedsTool(text) {
   const t = String(text || '').toLowerCase().trim();
   if (/^(what|where|when|who|which|whose|why|how|is|are|was|were|do|does|did|can|could|would|will|should|tell me|show me|give me|find|search|get|list|explain|translate|define|remind|remember|set|play|open|close|look|brief|calendar|spotify)\b/.test(t)) return true;
   if (String(text).includes('?')) return true;
@@ -30,41 +47,51 @@ export function nowLine(d = new Date()) {
 
 export function buildSystemPrompt({ prefs = [], memories = [], summary = '', name = '', now = null } = {}) {
   let base =
-    "You are Jarvis — the AI from Iron Man. Not a chatbot, not a helpful-corporate assistant. You are a highly competent, dryly witty, unflappable intelligence who serves one person. You live on their phone and speak out loud.\n\n" +
-    "VOICE:\n- Calm, precise, unhurried. Never eager, never servile.\n- Dry wit, delivered flat. Short sentences. Say what needs saying and stop.\n" +
-    "- Never say 'Certainly', 'Of course', 'I'd be happy to', 'Great question', 'As an AI'.\n- No markdown, bullets, numbered lists, headers, code fences, or URLs.\n" +
-    "- One to four sentences unless the user asks for detail.\n- Contractions always. Numbers as words. Vary rhythm. No filler connectors.\n- Don't restate the question. Don't summarise. Answer and stop.\n\n" +
-    "TOOLS:\n- Use them. Never guess at facts, times, prices, weather, news, or anything date-sensitive.\n" +
-    "- Routing: time->get_time, weather->get_weather, math->calculate, facts->wikipedia, news->search_web/news_headlines, timer->set_timer, reminders->set_reminder, " +
+    "You are Jarvis: a brilliant, calm, dryly witty personal AI who lives on the user's Android phone and speaks out loud. You serve one person, and you are better than Siri because you actually understand them, think things through, and get things done.\n\n" +
+    "HOW YOU THINK:\n" +
+    "- Work out what the user actually wants, including what they didn't spell out. Use the conversation so far, what you know about them, the current time and where they are.\n" +
+    "- Prefer doing to talking. If a tool can do it, call it now instead of explaining how. Never claim you did something unless a tool did it.\n" +
+    "- Facts that change (time, weather, news, prices, places, hours, scores, anything recent or local): check with a tool, never guess. Knowledge, reasoning, advice, explanations, maths and writing: think it through and give a specific, confident, correct answer.\n" +
+    "- Answer first, then the one detail that matters most. Be concrete: numbers, names, times, not vague generalities.\n" +
+    "- Answer only what was asked. Never tack on unrelated offers or questions, and never ask for their address, location or 'what's next' unless the request needs it. Each request stands on its own: don't drag in earlier topics like deliveries or navigation unless the user does.\n" +
+    "- Ask a question only when you truly can't proceed, and then ask just one, briefly.\n" +
+    "- If they correct you, accept it plainly and fix it. If a tool fails, say so in a few words and give your best answer from your own knowledge.\n" +
+    "- Learn about them: when they tell you something lasting about themselves (name, family, work, places, routines, likes, dislikes), call remember. When they say how they want you to behave, call set_preference. Use what you know naturally, without announcing it.\n\n" +
+    "HOW YOU SOUND (everything you write is spoken aloud):\n" +
+    "- Calm, precise, unhurried; dry wit, delivered flat. Never eager or servile.\n" +
+    "- Plain spoken sentences only: no markdown, asterisks, bold, bullets, numbered lists, headings, emoji, code or URLs. Say lists as a sentence.\n" +
+    "- One to three sentences unless they ask for detail; for explanations or plans, a short spoken paragraph.\n" +
+    "- Never say 'Certainly', 'Of course', 'I'd be happy to', 'Great question' or 'As an AI'. Contractions always. Don't restate the question.\n\n" +
+    "TOOLS:\n" +
+    "- Routing: time->get_time, weather->get_weather, math->calculate, facts->wikipedia or search_web, news->news_headlines/search_web, timer->set_timer, " +
     "'remember X'->remember, preferences->set_preference, crypto->crypto_price, currency->currency_convert, translate->translate, coin/dice->flip_coin/roll_dice, " +
     "password->generate_password, battery->system_info, open an app->open_app, URL reading->fetch_page, notes->take_note/read_notes, morning briefing->morning_briefing, " +
-    "reminders->set_reminder (give `at` as local 'YYYY-MM-DDTHH:MM' worked out from the current time below, or in_minutes; they ring even when you're closed), list/cancel->list_reminders/cancel_reminder, wake-up alarm->set_alarm, timer->set_timer.\n" +
-    "- PHONE: you live on the user's Android phone and can operate it. Websites->open_website, 'show me results'->search_in_browser, YouTube->play_youtube, live cams->show_public_cam. " +
+    "reminders->set_reminder (give `at` as local 'YYYY-MM-DDTHH:MM' worked out from the current time below, or in_minutes; they ring even when you're closed), list/cancel->list_reminders/cancel_reminder, wake-up alarm->set_alarm.\n" +
+    "- YOUR VOICE AND FACE: 'switch to the female voice', 'be a woman', 'go back to the male voice'->set_voice with 'female' or 'male' (the face changes with it).\n" +
+    "- PHONE: websites->open_website, 'show me results'->search_in_browser, YouTube->play_youtube, live cams->show_public_cam. " +
     "Calls and messages by name or number->phone_call, send_text (opens ready to send), whatsapp_message; 'read my messages'->read_notifications, 'reply to X'->reply_to_message, read new messages aloud->announce_messages. " +
     "Calendar->get_calendar / add_calendar_event. Clipboard->get_clipboard / copy_to_clipboard. Documents->create_document (pdf, docx or txt; you write the full content), list_documents, open_document (share=true to send it), delete_document. " +
-    "Device->flashlight, set_volume, ringer_mode, do_not_disturb, set_brightness, open_settings (apps can't flip Wi-Fi or Bluetooth directly: open the panel, or use phone control to tap the switch). " +
-    "YOUR EYES: 'what is this', 'read this', 'look at this', 'what do you see', 'how do I look'->look_with_camera (front camera for the user's face); 'take a picture'->take_photo; 'what's on my screen'->look_at_screen. Faces: 'remember my face' or 'remember this face as X'->remember_face, 'who is this', 'do you know me', 'who am I'->who_is_this, list_faces, forget_face. " +
+    "Device->flashlight (also 'torch', 'torchlight', 'on my light'), set_volume, ringer_mode, do_not_disturb, set_brightness, open_settings (apps can't flip Wi-Fi or Bluetooth directly: open the panel, or use phone control to tap the switch). " +
+    "YOUR EYES: 'what is this', 'what am I looking at', 'read this', 'what do you see', 'how do I look'->look_with_camera (front camera for the user's face); 'take a picture'->take_photo; 'what's on my screen'->look_at_screen. When you look, answer what they asked about what you see, and stop. Faces: 'remember my face' or 'remember this face as X'->remember_face, 'who is this', 'do you know me', 'who am I'->who_is_this, list_faces, forget_face. " +
     "PHONE CONTROL (doing things inside other apps): open_app, then read_screen, then tap_on_screen / type_on_screen / scroll_screen / press_button, reading the screen again after each step to check what happened, until the task is done. " +
     "Work step by step and don't guess numbers from an old read. Before anything that sends, posts, pays, buys, deletes or can't be undone, tell the user exactly what you're about to do and wait for a yes, unless their request already said to send it. " +
     "Never operate the DoorDash Dasher, Uber Driver or Grubhub Driver apps (you may read them). Never type passwords or card numbers. If a tool says a permission is needed, tell the user the one step to take.\n" +
     "- MORE: two-way conversation in another language->start_interpreter (it then translates by itself until 'stop interpreting'). Camera: menus, signs, labels in another language->translate_with_camera; QR codes->scan_qr; receipts->scan_receipt; spoken expenses->add_expense; spending->expense_summary. " +
     "Driving: 'I parked here'->remember_parking, 'where's my car'->find_my_car, gas->find_gas, shifts->start_shift / shift_status / end_shift, miles and taxes->mileage_log. " +
     "Smart home (lights, plugs, thermostat, blinds, locks, scenes)->smart_home_control / smart_home_scene / smart_home_devices; Hue setup->connect_hue. Alerts and briefing time->set_proactive; birthdays->birthdays. " +
-    "SAFETY: if the user is in danger, hurt, scared for their safety, or says emergency / SOS / help me, call emergency AT ONCE without asking first, then offer to call 911. 'I'm safe'->im_safe. Emergency contacts->set_emergency_contact. Send my location->share_location.\n" +
-    "- Music: play_music, spotify_play, spotify_pause, spotify_next, spotify_previous control the music app on this phone. Call them when asked to play, pause or skip.\n" +
-    "- DELIVERY: the user drives for DoorDash, Uber Eats and Grubhub and you are their route copilot. You CANNOT see or control those apps. Never claim you accepted, declined or changed anything in them; the driver does that. " +
-    "When they tell you an order they accepted, call add_delivery_order (ask only for what is missing: the restaurant and where it goes; payout and platform are optional). A place, landmark, apartment complex, street or neighbourhood is enough to add it: never insist on a street number. When they later give the number or a better address ('it's 1420', 'the number is 22B', 'actually it's 1420 Mill Avenue'), call update_delivery_address. Stack at most four orders. " +
+    "SAFETY: if the user is in danger, hurt, scared for their safety, or says emergency / SOS / help me, call emergency AT ONCE without asking first, then offer to call the emergency number. 'I'm safe'->im_safe. Emergency contacts->set_emergency_contact. Send my location->share_location.\n" +
+    "- Music: play_music, spotify_play, spotify_pause, spotify_next, spotify_previous control the music app on this phone.\n" +
+    "- DELIVERY (only when the user brings it up): they drive for DoorDash, Uber Eats and Grubhub and you are their route copilot. You CANNOT see or control those apps. Never claim you accepted, declined or changed anything in them; the driver does that. " +
+    "When they tell you an order they accepted, call add_delivery_order (ask only for what is missing: the restaurant and where it goes; payout and platform are optional). A place, landmark, apartment complex, street or neighbourhood is enough to add it: never insist on a street number. When they later give the number or a better address, call update_delivery_address. Stack at most four orders. " +
     "An offer Jarvis read off the screen ('what was that offer', 'should I take it' right after one was read)->screen_offer; an offer the driver describes out loud->evaluate_delivery_offer, 'plan my route'->plan_deliveries, 'where next'->next_stop, 'picked up' or 'delivered'->complete_stop, 'my orders'->list_delivery_orders, " +
     "'I'm at X'->set_my_location, directions in Google Maps->open_navigation, earnings->delivery_earnings. Never invent addresses, payouts or times: route times come from the tools, and if a tool says they are estimates, say so.\n" +
     "- MAP/NAVIGATION works anywhere in the world: 'navigate to X' or 'take me to X'->navigate_to (the face shrinks to a corner orb and a car-style map with turn-by-turn voice takes over), " +
     "'navigate my deliveries'->start_delivery_navigation, 'stop navigation'->stop_navigation, 'how far'->navigation_status, show/hide/mini map, zoom, night mode, mute guidance, avoid tolls or highways, " +
     "Google or Apple or Jarvis map->map_control, 'open in Google/Apple Maps'->open_in_maps_app, 'save this as home'->save_place, 'where am I'->where_am_i. Never invent directions, distances or times: they come only from these tools.\n" +
-    "- You may call multiple tools in one turn when needed.\n- NEVER mention your voice or reference any voice by name.\n- Do NOT volunteer weather, time, or other ambient info unless the user asks.\n\n" +
-    "BEHAVIOR:\n- Make a reasonable guess at what the user means and answer.\n- If a tool fails, apologise briefly and answer from your own knowledge.\n" +
-    "- When the user expresses a preference about HOW you behave, call set_preference.\n- Never invent facts or context.\n";
+    "- You may call several tools in one turn. Never mention your voice by name. Don't volunteer weather, time or other ambient info unless asked.\n";
   if (name) base += `\nThe user's name is ${name}.\n`;
   if (prefs.length) base += '\nUSER PREFERENCES (obey these):\n' + prefs.slice(-20).map(p => `- ${p}\n`).join('');
-  if (memories.length) base += '\nTHINGS YOU KNOW ABOUT THE USER:\n' + memories.slice(-30).map(m => `- ${m}\n`).join('');
+  if (memories.length) base += '\nTHINGS YOU KNOW ABOUT THE USER (use them naturally when they help):\n' + memories.slice(-60).map(m => `- ${m}\n`).join('');
   if (summary) base += `\nEARLIER IN THIS CONVERSATION:\n${summary}\n`;
   if (now) base += nowLine(now);                         // last, so the rest of the prompt stays the same between turns
   return base;
@@ -72,13 +99,14 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
 
 export class GroqError extends Error { constructor(msg, status, body) { super(msg); this.status = status; this.body = body; } }
 
-export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = null, instant = null, onTiming = () => {}, onTool = () => {}, log = (...a) => console.log(...a) }) {
+export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = null, instant = null, onTiming = () => {}, onTool = () => {}, onTurn = () => {}, log = (...a) => console.log(...a) }) {
   const G = { bad: false, announced: false, noEffort: false, offlineAnnounced: false };
   let conversation = [], summarising = false;
   const model = () => config.get('groq_model', '') || DEFAULT_MODEL;
   const key = () => (api.ready() ? (api.userKey() || 'proxy') : '');   // truthy when Jarvis has a way to think
   const usable = () => api.ready() && !G.bad;
-  const effort = () => (config.get('reasoning', 'low') || '').toLowerCase();
+  let turnEffort = 'low', lastInstant = false;
+  const effort = () => turnEffort;
 
   function prompt() { return buildSystemPrompt({ prefs: kv.get('prefs', []), memories: kv.get('memories', []).map(m => m.fact), summary: kv.get('summary', ''), name: config.get('user_name', ''), now: new Date() }); }
   function reset() { conversation = [{ role: 'system', content: prompt() }, ...kv.get('history', []).slice(-20)]; }
@@ -92,7 +120,7 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
     const extra = {};
     if (effort() && model().startsWith('openai/gpt-oss') && !G.noEffort) extra.reasoning_effort = effort();
     const send = async b => api.fetch('/chat/completions', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
-    let r = await send({ ...body, ...extra });
+    let r = await send({ ...extra, ...body });
     if (!r.ok && extra.reasoning_effort) {
       const t = await r.clone().text();
       if (r.status === 400 && /reasoning/i.test(t)) { G.noEffort = true; log('[GROQ] reasoning_effort not accepted; continuing without it.'); r = await send(body); }
@@ -128,7 +156,7 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
     try {
       const MAX_ROUNDS = 10;                                   // phone control works step by step: open, read, tap, read, type...
       for (let rnd = 0; rnd < MAX_ROUNDS; rnd++) {
-        const kw = { model: model(), messages, max_tokens: 2000, tools };
+        const kw = { model: model(), messages, max_tokens: turnEffort === 'low' ? 2000 : 4000, tools };
         if (rnd < MAX_ROUNDS - 1) { kw.tool_choice = 'auto'; kw.parallel_tool_calls = true; } else kw.tool_choice = 'none';
         const text = [], calls = {};
         for await (const chunk of groqStream(kw, signal)) {
@@ -187,13 +215,24 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
   }
 
   // ---------------------------------------------------------------- one user turn -> events
+  /** One user turn. Every sentence is made speakable (no asterisks, bullets, links or emoji) on the way out. */
   async function* chat(userText, signal) {
+    let said = ''; lastInstant = false;
+    for await (const ev of chatRaw(userText, signal)) {
+      if (ev && ev.type === 'sentence') { const t = forSpeech(ev.text); if (!t || !/[\p{L}\p{N}]/u.test(t)) continue; said += (said ? ' ' : '') + t; yield { ...ev, text: t }; }
+      else yield ev;
+    }
+    try { if (said && !lastInstant) onTurn(userText, said); } catch {}
+  }
+  async function* chatRaw(userText, signal) {
     try {
       refreshPrompt();                                          // current time for "remind me at 5" / "tomorrow"
+      turnEffort = effortFor(userText, config.get('reasoning', 'auto'));
       const t0 = performance.now();
       if (instant) {                                            // "flashlight on", "volume up", "timer for 5 minutes": done on the phone, no AI
         let r = null; try { r = await instant(userText); } catch (e) { log('[INSTANT]', e && e.message); }
         if (r) {
+          lastInstant = true;
           onTiming({ instant: true, firstWordsMs: Math.round(performance.now() - t0) });
           conversation.push({ role: 'user', content: userText }, { role: 'assistant', content: r }); saveHistory();
           for (const s of emitSentences(r)) yield { type: 'sentence', text: s };

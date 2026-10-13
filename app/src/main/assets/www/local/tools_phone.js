@@ -303,7 +303,7 @@ export function registerPhoneTools(ctx) {
   });
   W.__jvMessage = (json, visible) => {
     const m = parse(json); if (!m || !visible || !config.get('announce_messages', false)) return;
-    broadcast(`proactive:Message from ${m.title || 'someone'}${m.app ? ' on ' + m.app : ''}. ${m.text}`);
+    if (m.spoken) broadcast('proactive:' + m.spoken);                    // short: "Valerie sent you a voice note on Snapchat.
   };
 
   // ================================================================== calendar

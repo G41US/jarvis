@@ -120,7 +120,8 @@ public class Bridge {
             @Override public void onMessage(JSONObject n) {
                 boolean announce = activity.getSharedPreferences(Reminders.PREFS, Context.MODE_PRIVATE).getBoolean("announce_messages", false);
                 js("window.__jvMessage&&window.__jvMessage(" + JSONObject.quote(n.toString()) + "," + visible + ")");
-                if (announce && !visible) sayNow("Message from " + n.optString("title") + " on " + n.optString("app") + ". " + n.optString("text"));
+                String said = n.optString("spoken", "");
+                if (announce && !visible && !said.isEmpty()) sayNow(said);
             }
         };
     }
@@ -637,6 +638,7 @@ public class Bridge {
     }
     @JavascriptInterface
     public void openOfferReaderSettings() {
+        if (phone != null) { phone.openAccessibility(OfferReaderService.class); return; }   // straight to "Jarvis offer reader"
         launch(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS), "accessibility settings");
     }
 
