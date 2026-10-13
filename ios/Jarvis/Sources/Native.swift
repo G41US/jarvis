@@ -6,6 +6,7 @@ import MessageUI
 import MediaPlayer
 import Network
 import UserNotifications
+import JarvisCore
 
 /// Everything the page asks the phone for. The method names, arguments and answers are the Android app's
 /// (AndroidBridge = "B", AndroidPhone = "P"), so the page doesn't need to know which phone it is on.
