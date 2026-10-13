@@ -5,7 +5,10 @@ import OnnxRuntimeBindings
 /// ONNX models on the phone (ONNX Runtime): the wake word, the speech detector and face recognition.
 enum Ort {
     static let env: ORTEnv? = try? ORTEnv(loggingLevel: .warning)
-    static func path(_ name: String) -> String? { Bundle.main.path(forResource: name, ofType: nil, inDirectory: "models") }
+    static func path(_ name: String) -> String? {
+        guard let u = Bundle.main.resourceURL?.appendingPathComponent("models").appendingPathComponent(name) else { return nil }
+        return FileManager.default.fileExists(atPath: u.path) ? u.path : nil
+    }
 }
 
 final class OrtNet: OnnxNet {
