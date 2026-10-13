@@ -180,6 +180,8 @@ jobs:
               if st2 != 200: ok, why = False, f'chat {st2}: {b2[:200]}'
               print('chat:', st2, b2[:160])
               st3, _ = call('/models', token='wrong'); print('wrong token refused:', st3 == 403)
+              sp, _ = call('/ping'); print('ping:', sp)
+              if sp != 204: ok, why = False, f'ping {sp}: the app warms its connection with /ping'
               # Can Groq's Qwen model see images? (Jarvis's camera and screen reading need it.) A picture: red left half, blue right half.
               import zlib, struct, base64
               def png(w, h, px):
