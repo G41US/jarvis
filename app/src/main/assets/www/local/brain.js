@@ -261,6 +261,12 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
         }
       }
       if (buffer.trim()) { if (!sent) { const ms = Math.round(performance.now() - t0); log(`[LAT] first words ${ms} ms (tools=${scratch.length ? 'yes' : 'no'})`); onTiming({ firstWordsMs: ms, tools: tools.length, toolRounds: scratch.filter(m => m.role === 'assistant').length }); } yield { type: 'sentence', text: buffer.trim() }; }
+      if (!full.trim() && !G.bad && !(signal && signal.aborted)) {      // the model came back empty (it happens after tools, or when it over-thinks)
+        const lastTool = scratch.filter(m => m.role === 'tool').pop();
+        if (lastTool && lastTool.content && lastTool.content.length < 400 && !/^[\[{]/.test(lastTool.content.trim())) full = lastTool.content;   // the tool's own words ("Flashlight off.")
+        else { log('[GROQ] empty answer, asking again quickly'); turnEffort = 'low'; try { for await (const tok of streamSync(conversation, signal)) full += tok; } catch {} }
+        for (const s of emitSentences(full.trim())) yield { type: 'sentence', text: s };
+      }
       if (scratch.length) { const set = new Set(scratch), keep = conversation.filter(m => !set.has(m)); conversation.length = 0; conversation.push(...keep); }
       if (!full.trim()) { const m = G.bad ? noBrainMessage() : (navigator.onLine === false ? "I'm offline right now." : "I didn't get an answer back. Say that again?"); yield { type: 'sentence', text: m }; }
       else if (G.bad && !G.announced) { G.announced = true; yield { type: 'sentence', text: noBrainMessage() }; }

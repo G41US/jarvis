@@ -9,7 +9,7 @@
 
 const GROQ = 'https://api.groq.com/openai/v1';
 const DEFAULT_MODELS = 'openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b';   // qwen: Jarvis's eyes (camera / screen), if it sees images
-const MAX_AUDIO = 4 * 1024 * 1024, MAX_TOKENS = 2000;
+const MAX_AUDIO = 4 * 1024 * 1024, MAX_TOKENS = 4096;   // reasoning models count their thinking in this
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-jarvis-token, x-jarvis-device', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json', ...CORS } });

@@ -31,7 +31,7 @@ const CSS = `
 body[data-nav] #hud { z-index: 7; }
 body[data-nav="full"] #nav-frame { opacity: 1; clip-path: circle(160vmax at var(--orb-cx) var(--orb-cy)); }
 body[data-nav="full"] #three { z-index: 5; pointer-events: none;
-  transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% 45%); }
+  transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% var(--orb-fy, 45%)); }
 body[data-nav="full"] #bg-rings, body[data-nav="full"] #bg-halo, body[data-nav="full"] #bg-floor { opacity: 0; transition: opacity .6s; }
 body[data-nav="full"] #log, body[data-nav="full"] #diag, body[data-nav="full"] #voice-panel,
 body[data-nav="full"] #mic-level, body[data-nav="full"] #partial-text { opacity: 0; pointer-events: none; }
@@ -485,11 +485,14 @@ export function createNav(env = {}) {
 
   function layoutOrb() {
     const W = window.innerWidth, H = window.innerHeight;
-    const D = Math.round(clamp(H * 0.18, 110, 170)), R = 0.36 * H, sc = D / (2 * R);
-    const cx = 28 + D / 2, cy = H - 40 - D / 2;
+    const dash = S.view === 'dash';
+    const D = Math.round(dash ? clamp(H * 0.15, 96, 132) : clamp(H * 0.18, 110, 170)), R = Math.min(0.36 * H, 0.44 * W), sc = D / (2 * R);   // portrait: the circle fits the face, not the screen
+    const low = dash ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dash-orb-bottom')) || 120) : 40;
+    const fy = W < H ? 0.5 : 0.45; document.documentElement.style.setProperty('--orb-fy', (fy * 100) + '%');
+    const cx = dash ? W - 16 - D / 2 : 28 + D / 2, cy = H - low - D / 2;
     const r = document.documentElement.style;
     r.setProperty('--orb-d', D + 'px'); r.setProperty('--orb-s', String(sc)); r.setProperty('--orb-r', R + 'px');
-    r.setProperty('--orb-tx', (cx - sc * 0.5 * W) + 'px'); r.setProperty('--orb-ty', (cy - sc * 0.45 * H) + 'px');
+    r.setProperty('--orb-tx', (cx - sc * 0.5 * W) + 'px'); r.setProperty('--orb-ty', (cy - sc * fy * H) + 'px');
     r.setProperty('--orb-cx', cx + 'px'); r.setProperty('--orb-cy', cy + 'px');
   }
   window.addEventListener('resize', () => { layoutOrb(); mv.resize(); });
@@ -518,6 +521,7 @@ export function createNav(env = {}) {
       frame.style.display = 'block';
       void frame.offsetWidth;
       document.body.setAttribute('data-nav', mode);
+      startGps();
       const c = S.st ? S.st.pos : (S.route ? S.route.shape[0] : (S.gps.last ? [S.gps.last.lat, S.gps.last.lon] : [0, 0]));
       mv.start(S.cfg.provider, c, isNight(), S.cfg).then(() => { refollow(); }).catch(e => console.warn('[NAV]', e));
       setTimeout(() => mv.resize(), 120); setTimeout(() => mv.resize(), 1000);
@@ -594,7 +598,7 @@ export function createNav(env = {}) {
     const first = route.shape[0];
     mv.setPosition(first[0], first[1], 0);
     S.st = guide.state;
-    if (meta.view !== 'keep') setView(S.view === 'mini' ? 'mini' : 'full');
+    if (meta.view !== 'keep') setView(meta.view === 'dash' ? 'dash' : S.view === 'mini' ? 'mini' : 'full');
     applyTheme(); onGuide(guide.state); refollow(guide.state); badge();
     startGps();
     if (S.sim || meta.simulate) startSim();
@@ -672,7 +676,7 @@ export function createNav(env = {}) {
     switch (m.cmd) {
       case 'route': startRoute(m.route, m.meta || {}); break;
       case 'stop': stopNav(m.say || ''); break;
-      case 'view': if (m.mode === 'full' || m.mode === 'mini') setView(m.mode, m.center || (S.gps.last ? [S.gps.last.lat, S.gps.last.lon] : null)); else setView('off'); break;
+      case 'view': if (m.mode === 'full' || m.mode === 'mini' || m.mode === 'dash') setView(m.mode, m.center || (S.gps.last ? [S.gps.last.lat, S.gps.last.lon] : null)); else setView('off'); break;
       case 'zoom': S.zoomOff = clamp(S.zoomOff + (m.dir === 'in' ? 1 : -1), -4, 4); S.overview = false; refollow(); break;
       case 'theme': S.cfg.theme = m.value; applyTheme(); break;
       case 'provider': Object.assign(S.cfg, m.cfg || {}, { provider: m.value }); badge(); if (S.view !== 'off') mv.use(m.value); break;

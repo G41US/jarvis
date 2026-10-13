@@ -853,7 +853,7 @@ async function handleServerTranscript(raw) {
     beep(1200, 0.08); cancelAllSpeech();
   } else if (now - lastCommandTime < COMMAND_COOLDOWN_MS) { showDebug(text + ' cooldown', 'rejected'); return; }
   const words = cleanPunct(text).split(' ').filter(Boolean);
-  if (words.length < (window.__jvInterpreting ? 1 : MIN_WORDS)) { showDebug(`"${text}" too short`, 'rejected'); return; }
+  if (words.length < (window.__jvInterpreting || (window.__jvShortOk && window.__jvShortOk(text)) ? 1 : MIN_WORDS)) { showDebug(`"${text}" too short`, 'rejected'); return; }
   const ec = !speaking ? isEcho(text) : { echo: false };
   if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
   if (sessionActive) {
@@ -1462,7 +1462,7 @@ function renderRoute(plan) {
   if (!lastRoute) { routePanel.classList.remove('show'); return; }
   routePanel.classList.add('show');
   routeHead.textContent = '';
-  routeHead.appendChild(mk('span', '', `${plan.orders} order${plan.orders === 1 ? '' : 's'} · ${plan.total_min} min · ${plan.total_miles} ${plan.unit || 'mi'}`));
+  routeHead.appendChild(mk('span', '', `${plan.orders >= 4 ? '4 orders (full)' : plan.orders + ' of 4 orders'} · ${plan.total_min} min · ${plan.total_miles} ${plan.unit || 'mi'}`));
   if (plan.payout) {
     routeHead.appendChild(document.createElement('br'));
     routeHead.appendChild(mk('span', 'money', `${plan.currency || '$'}${plan.payout.toFixed(2)}` + (plan.per_hour ? ` · ${plan.currency || '$'}${Math.round(plan.per_hour)} an hour` : '')));

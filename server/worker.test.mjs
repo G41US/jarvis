@@ -19,7 +19,7 @@ check('wrong app token refused', r.status === 403);
 r = await call('/v1/chat/completions', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'openai/gpt-oss-120b', stream: true, max_tokens: 99999, messages: [] }) });
 const txt = await r.text();
 check('chat streams through', r.status === 200 && txt.includes('[DONE]') && r.headers.get('content-type') === 'text/event-stream');
-check('max_tokens capped', JSON.parse(seen.at(-1).init.body).max_tokens === 2000);
+check('max_tokens capped', JSON.parse(seen.at(-1).init.body).max_tokens === 4096);
 check('key added, app token not forwarded', seen.at(-1).init.headers.Authorization === 'Bearer gsk_secret' && !('x-jarvis-token' in seen.at(-1).init.headers));
 r = await call('/v1/chat/completions', { method: 'POST', headers: H, body: JSON.stringify({ model: 'some-expensive-model', messages: [] }) });
 check('unknown model refused', r.status === 400);

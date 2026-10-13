@@ -39,10 +39,45 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     const acc = parseFloat(p.acc) || 9999;
     S.pos = { lat, lon, acc, ts: Date.now() / 1000, speed: p.speed };
     if (acc <= 200 && config.get('use_gps', true)) syncLocation(lat, lon).catch(() => {});
+    if (S.dashPending && acc <= 500) startDash().catch(() => {});
+    watchStops(lat, lon, acc);
     return { ok: true };
   }
   const progress = p => { p.ts = Date.now() / 1000; S.progress = p; return { ok: true }; };
-  const ended = () => { if (!S.delivery) { S.active = false; S.route = null; S.progress = null; } return { ok: true }; };
+
+  // ---- knowing when a stop is done: you stop near it for a while, then drive away -> picked up / delivered.
+  //      Only for stops with a real address (an area-only drop-off is too vague to tell), and you can say "undo".
+  const ARRIVE_M = 120, LEAVE_M = 300, DWELL_MS = 40000;
+  function watchStops(lat, lon, acc) {
+    if (!(S.active && S.delivery && S.route) || acc > 100 || !S.onStopDone || config.get('auto_stops', true) === false) return;
+    const w = (S.route.waypoints || [])[1]; if (!w || w.approx || !w.kind || w.kind === 'stop') { S.here = null; return; }
+    const d = haversineM(lat, lon, w.lat, w.lon), key = `${w.kind}:${w.label}`, now = Date.now();
+    if (d <= ARRIVE_M) { if (!S.here || S.here.key !== key) S.here = { key, since: now, last: now }; else S.here.last = now; return; }
+    if (S.here && S.here.key === key && d >= LEAVE_M) {
+      const stayed = S.here.last - S.here.since; S.here = null;
+      if (stayed >= (globalThis.__jvDwellMs || DWELL_MS)) { try { S.onStopDone(w.kind, w.label); } catch (e) { console.warn('[NAV] auto stop', e); } }
+    }
+  }
+
+  // ---- "dash" view: while there are orders, the route card sits on top, a small map with directions to the next stop
+  //      under it, and Jarvis's face shrinks to a corner. It starts by itself and goes away after the last drop-off.
+  async function startDash() {
+    if (S.active && !S.delivery) return 'busy';                         // already navigating somewhere else: leave it
+    if (!delivery.hasActive() || S.dashMuted) return 'off';
+    const org = origin();
+    if (!org) { S.dashPending = true; S.view = 'dash'; cmd('view', { mode: 'dash' }); return 'waiting'; }   // the map starts GPS; the first fix routes it
+    S.dashPending = false;
+    const [r, info] = await buildDelivery(org); if (r === null) { cmd('view', { mode: 'dash', center: org }); return info; }
+    const wps = r.waypoints;
+    Object.assign(S, { active: true, route: r, label: info, mode: 'auto', delivery: true, progress: null, view: 'dash', dest: wps.slice(1).map(w => [w.lat, w.lon, w.label]) });
+    cmd('route', { route: r, meta: { label: info, delivery: true, view: 'dash' } });
+    return 'on';
+  }
+  function endDash() { S.dashMuted = false; S.dashPending = false; S.here = null; if (S.view === 'dash' && !S.active) { S.view = 'off'; cmd('view', { mode: 'off' }); } }
+  const ended = () => {
+    if (!S.delivery) { S.active = false; S.route = null; S.progress = null; if (delivery.hasActive()) setTimeout(() => { if (!S.active) startDash().catch(() => {}); }, 13000); }   // back to the delivery map
+    return { ok: true };
+  };
 
   // ---- delivery-stack navigation
   function mergeStops(stops) {
@@ -50,7 +85,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     for (const s of stops) {
       const lab = s.kind === 'pickup' ? s.restaurant : s.short_addr, last = out[out.length - 1];
       if (last && last.kind === s.kind && haversineM(last.lat, last.lon, s.lat, s.lon) < 40) { if (!last.label.includes(lab)) last.label += ' and ' + lab; continue; }
-      out.push({ lat: s.lat, lon: s.lon, label: lab, kind: s.kind });
+      out.push({ lat: s.lat, lon: s.lon, label: lab, kind: s.kind, approx: !!s.approx });
     }
     return out;
   }
@@ -81,11 +116,12 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if (!(S.active && S.delivery)) return;
     try {
       const org = origin();
-      if (!delivery.hasActive()) { Object.assign(S, { active: false, route: null, delivery: false, progress: null, view: 'off' }); cmd('stop', { say: 'That was the last stop. Navigation ended.' }); return; }
+      if (!delivery.hasActive()) { const dash = S.view === 'dash'; Object.assign(S, { active: false, route: null, delivery: false, progress: null, view: 'off', here: null, dashMuted: false }); cmd('stop', { say: dash ? '' : 'That was the last stop. Navigation ended.' }); return; }
       const [r, info] = org ? await buildDelivery(org) : [null, NO_ORIGIN];
       if (r === null) { console.warn('[NAV] delivery refresh:', info); return; }
       const wps = r.waypoints;
       Object.assign(S, { route: r, label: info, dest: wps.slice(1).map(w => [w.lat, w.lon, w.label]), progress: null });
+      S.here = null;
       cmd('route', { route: r, meta: { label: info, delivery: true, reroute: false, view: 'keep' } });
     } catch (e) { console.warn('[NAV] delivery refresh failed', e); }
   }
@@ -124,8 +160,13 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   // ---- map / voice controls
   async function mapControl(a) {
     a = String(a || '').toLowerCase();
+    if (a === 'mini_map' && delivery.hasActive()) {                     // the delivery map under the route card
+      S.dashMuted = false;
+      if (S.active && S.delivery) { S.view = 'dash'; cmd('view', { mode: 'dash' }); return 'Mini map on.'; }
+      const r = await startDash(); return r === 'busy' ? 'Mini map on.' : r === 'on' || r === 'waiting' ? 'Mini map on, with directions to your next stop.' : r;
+    }
     if (a === 'show_map' || a === 'mini_map') { const c = origin(); S.view = a === 'show_map' ? 'full' : 'mini'; cmd('view', { mode: S.view, center: c }); return a === 'show_map' ? "Here's the map." : 'Mini map on.'; }
-    if (a === 'hide_map') { S.view = 'off'; cmd('view', { mode: 'off' }); return 'Map hidden.'; }
+    if (a === 'hide_map') { if (S.delivery || S.view === 'dash') { stop(); return 'Map hidden. Your orders are still on the card.'; } S.view = 'off'; cmd('view', { mode: 'off' }); return 'Map hidden.'; }
     if (a === 'zoom_in' || a === 'zoom_out') { cmd('zoom', { dir: a === 'zoom_in' ? 'in' : 'out' }); return 'Okay.'; }
     if (a === 'overview') { cmd('overview'); return 'Showing the whole route.'; }
     if (a === 'recenter') { cmd('recenter'); return 'Back on you.'; }
@@ -174,7 +215,8 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return `Opened it in ${appName === 'apple' ? 'Apple' : 'Google'} Maps.${extra}`;
   }
   function stop() {
-    const was = S.active; Object.assign(S, { active: false, route: null, delivery: false, progress: null, dest: [], view: 'off' }); cmd('stop');
+    if (S.delivery || S.view === 'dash') S.dashMuted = true;            // "stop navigation" during deliveries: no map again until the stack empties
+    const was = S.active || S.view === 'dash'; Object.assign(S, { active: false, route: null, delivery: false, progress: null, dest: [], view: 'off', dashPending: false }); cmd('stop');
     return was ? 'Navigation ended.' : "I wasn't navigating.";
   }
   function status() {
@@ -272,5 +314,5 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if ((m = R.gps.exec(t))) return mapControl(m[1].toLowerCase() === 'on' ? 'gps_on' : 'gps_off');
     return null;
   }
-  return { state: S, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, stop, status, mapControl, openInMaps, externalUrl };
+  return { state: S, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, stop, status, mapControl, openInMaps, externalUrl };
 }

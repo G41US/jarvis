@@ -151,7 +151,7 @@ def main():
 
     # ---- route card in plain sentence case (the page writes these strings itself)
     html = sub_once(html, "routeHead.appendChild(mk('span', '', `ROUTE · ${plan.orders} ORDER${plan.orders === 1 ? '' : 'S'} · ${plan.total_min} MIN · ${plan.total_miles} ${(plan.unit || 'mi').toUpperCase()}`));",
-                    "routeHead.appendChild(mk('span', '', `${plan.orders} order${plan.orders === 1 ? '' : 's'} · ${plan.total_min} min · ${plan.total_miles} ${plan.unit || 'mi'}`));", 'route head')
+                    "routeHead.appendChild(mk('span', '', `${plan.orders >= 4 ? '4 orders (full)' : plan.orders + ' of 4 orders'} · ${plan.total_min} min · ${plan.total_miles} ${plan.unit || 'mi'}`));", 'route head')
     html = sub_once(html, "` · ${plan.currency || '$'}${Math.round(plan.per_hour)}/HR`", "` · ${plan.currency || '$'}${Math.round(plan.per_hour)} an hour`", 'route per hour')
     html = sub_once(html, "`${plan.total_min_lo}-${plan.total_min_hi} MIN · ON-TIME RISK ${String(plan.risk || 'low').toUpperCase()}`", "`${plan.total_min_lo}–${plan.total_min_hi} min · on-time risk ${String(plan.risk || 'low')}`", 'route risk')
     html = sub_once(html, "mk('span', 'est', 'ESTIMATED TIMES')", "mk('span', 'est', 'Estimated times')", 'route estimate')
@@ -197,7 +197,7 @@ def main():
     # ---- live interpreter: a conversation can pause for minutes, "thank you" must not end it, and one word ("Sí") is a full reply
     html = sub_once(html, "}, SESSION_SILENCE_MS);\n}", "}, (window.__jvSessionMs || SESSION_SILENCE_MS));\n}", 'interpreter session length')
     html = sub_once(html, "function hasEndPhrase(text) { const t = cleanPunct(text);", "function hasEndPhrase(text) { if (window.__jvInterpreting) return false; const t = cleanPunct(text);", 'interpreter end phrases')
-    html = sub_once(html, "if (words.length < MIN_WORDS) {", "if (words.length < (window.__jvInterpreting ? 1 : MIN_WORDS)) {", 'interpreter short replies')
+    html = sub_once(html, "if (words.length < MIN_WORDS) {", "if (words.length < (window.__jvInterpreting || (window.__jvShortOk && window.__jvShortOk(text)) ? 1 : MIN_WORDS)) {", 'interpreter short replies, one-word commands')
 
     # ---- voice change, cinematic: the old face fades out, the new one materialises in a flare of light, and Jarvis
     #      speaks in the new voice once the new face is up (shim.js waits for 'jv-avatar-ready')
@@ -215,6 +215,21 @@ def main():
     # MapLibre ships inside the app too (the build workflow copies it to www/vendor/maplibre)
     nav = sub_once(nav, "'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js'", "'./vendor/maplibre/maplibre-gl.js'", 'maplibre js')
     nav = sub_once(nav, "'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css'", "'./vendor/maplibre/maplibre-gl.css'", 'maplibre css')
+    # ---- phone "dash" view for deliveries: route card on top, a small map with directions under it, the face as an orb
+    #      in the bottom-right corner (ui.js has the layout). Starts by itself while there are orders.
+    nav = sub_once(nav, """    const D = Math.round(clamp(H * 0.18, 110, 170)), R = 0.36 * H, sc = D / (2 * R);
+    const cx = 28 + D / 2, cy = H - 40 - D / 2;""", """    const dash = S.view === 'dash';
+    const D = Math.round(dash ? clamp(H * 0.15, 96, 132) : clamp(H * 0.18, 110, 170)), R = Math.min(0.36 * H, 0.44 * W), sc = D / (2 * R);   // portrait: the circle fits the face, not the screen
+    const low = dash ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dash-orb-bottom')) || 120) : 40;
+    const fy = W < H ? 0.5 : 0.45; document.documentElement.style.setProperty('--orb-fy', (fy * 100) + '%');
+    const cx = dash ? W - 16 - D / 2 : 28 + D / 2, cy = H - low - D / 2;""", 'dash orb corner')
+    nav = sub_once(nav, "    r.setProperty('--orb-tx', (cx - sc * 0.5 * W) + 'px'); r.setProperty('--orb-ty', (cy - sc * 0.45 * H) + 'px');",
+                   "    r.setProperty('--orb-tx', (cx - sc * 0.5 * W) + 'px'); r.setProperty('--orb-ty', (cy - sc * fy * H) + 'px');", 'orb face centre')
+    nav = sub_once(nav, "transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% 45%); }",
+                   "transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% var(--orb-fy, 45%)); }", 'orb clip centre')
+    nav = sub_once(nav, "      document.body.setAttribute('data-nav', mode);\n", "      document.body.setAttribute('data-nav', mode);\n      startGps();\n", 'map view starts gps')
+    nav = sub_once(nav, "case 'view': if (m.mode === 'full' || m.mode === 'mini')", "case 'view': if (m.mode === 'full' || m.mode === 'mini' || m.mode === 'dash')", 'dash view message')
+    nav = sub_once(nav, "    if (meta.view !== 'keep') setView(S.view === 'mini' ? 'mini' : 'full');", "    if (meta.view !== 'keep') setView(meta.view === 'dash' ? 'dash' : S.view === 'mini' ? 'mini' : 'full');", 'dash route view')
     open(os.path.join(WWW, 'nav.js'), 'w', encoding='utf-8').write(nav)
     shutil.copyfile(os.path.join(SRC, 'nav_core.js'), os.path.join(WWW, 'nav_core.js'))
     os.makedirs(os.path.join(WWW, 'models'), exist_ok=True)
