@@ -37,6 +37,43 @@ MOBILE_CSS = r"""
   }
 """
 
+FRAME_BY_HEAD = r"""
+// Finds the head (from the neck to the top) by the model's width, slice by slice from the top down: below the head the
+// width narrows to the neck, then grows at the shoulders (or jumps at outstretched arms). Added by make_www.py.
+const HEAD_UNITS = 1.05, HEAD_CENTER_Y = 4.37;      // where Adam's head has always been
+function frameByHead(model) {
+  try {
+    model.updateMatrixWorld(true);
+    const pts = [], v = new THREE.Vector3();
+    model.traverse(c => {
+      if (!(c.isMesh || c.isSkinnedMesh) || !c.geometry || !c.geometry.attributes.position) return;
+      const p = c.geometry.attributes.position, step = Math.max(1, Math.floor(p.count / 25000));
+      for (let i = 0; i < p.count; i += step) { v.fromBufferAttribute(p, i).applyMatrix4(c.matrixWorld); pts.push(v.x, v.y, v.z); }
+    });
+    if (pts.length < 300) return null;
+    let y0 = Infinity, y1 = -Infinity;
+    for (let i = 1; i < pts.length; i += 3) { y0 = Math.min(y0, pts[i]); y1 = Math.max(y1, pts[i]); }
+    const N = 60, sl = (y1 - y0) / N, lo = new Array(N).fill(Infinity), hi = new Array(N).fill(-Infinity), cnt = new Array(N).fill(0);
+    for (let i = 0; i < pts.length; i += 3) { const k = Math.min(N - 1, Math.floor((y1 - pts[i + 1]) / sl)); lo[k] = Math.min(lo[k], pts[i]); hi[k] = Math.max(hi[k], pts[i]); cnt[k]++; }
+    let hmax = 0, below = false, mn = Infinity, kmin = -1, neck = null;
+    for (let k = 0; k < N; k++) {
+      if (cnt[k] < 3) continue;
+      if (k > N * 0.7) break;
+      const w = hi[k] - lo[k];
+      if (hmax && w > 1.6 * hmax) { neck = y1 - sl * k; break; }                       // shoulders or arms: the neck is just above
+      if (!below) { hmax = Math.max(hmax, w); if (w < 0.85 * hmax && k > 2) { below = true; mn = w; kmin = k; } }
+      else if (w < mn) { mn = w; kmin = k; }
+      else if (w > 1.3 * mn) { neck = y1 - sl * (kmin + 0.5); break; }
+    }
+    if (neck === null && kmin >= 0) neck = y1 - sl * (kmin + 0.5);
+    if (neck === null || y1 - neck < (y1 - y0) * 0.08) return null;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let i = 0; i < pts.length; i += 3) if (pts[i + 1] >= neck) { x0 = Math.min(x0, pts[i]); x1 = Math.max(x1, pts[i]); z0 = Math.min(z0, pts[i + 2]); z1 = Math.max(z1, pts[i + 2]); }
+    return { neck, top: y1, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2 };
+  } catch (e) { console.warn('[AVATAR] framing', e); return null; }
+}
+"""
+
 CAMERA_FIT = r"""
 // phone: pull the camera back on tall, narrow screens so the whole face fits (added by make_www.py)
 let camFit = 1;
@@ -132,6 +169,31 @@ def main():
     html = sub_once(html, "        addMsg(text, 'proactive');\n        if (!muted) enqueueSpeech(text);",
                     "        addMsg(text, 'proactive');\n        if (!muted) { if (!bargeAbort) bargeAbort = new AbortController(); const ch = enqueueSpeech(text); ch.then(() => { if (speakChain === ch && speaking) { speaking = false; if (active && !muted) { if (sessionActive) { setState('session'); armSessionSilenceTimer(); } else setState('standby'); } } }); }",
                     'proactive speech ends')
+    # ---- frame every face by its HEAD, not its total height: Adam is a full body, the female model is a small bust,
+    #      and "fit the whole height" blew the bust up four times (only part of her face showed)
+    html = sub_once(html, """    const box = new THREE.Box3().setFromObject(avatarModel);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const s = 7.0 / size.y;
+    avatarModel.scale.setScalar(s);
+    avatarModel.position.sub(center.clone().multiplyScalar(s));
+    avatarModel.position.y += 1.4;""", """    const head = frameByHead(avatarModel);
+    let s;
+    if (head) {
+      s = HEAD_UNITS / (head.top - head.neck);
+      avatarModel.scale.setScalar(s);
+      avatarModel.position.set(-head.cx * s, HEAD_CENTER_Y - ((head.neck + head.top) / 2) * s, -head.cz * s);
+    } else {
+      const box = new THREE.Box3().setFromObject(avatarModel);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      s = 7.0 / size.y;
+      avatarModel.scale.setScalar(s);
+      avatarModel.position.sub(center.clone().multiplyScalar(s));
+      avatarModel.position.y += 1.4;
+    }""", 'frame by head')
+    html = sub_once(html, "function doSwap(url) {", FRAME_BY_HEAD + "function doSwap(url) {", 'frame by head helper')
+
     # ---- live interpreter: a conversation can pause for minutes, "thank you" must not end it, and one word ("Sí") is a full reply
     html = sub_once(html, "}, SESSION_SILENCE_MS);\n}", "}, (window.__jvSessionMs || SESSION_SILENCE_MS));\n}", 'interpreter session length')
     html = sub_once(html, "function hasEndPhrase(text) { const t = cleanPunct(text);", "function hasEndPhrase(text) { if (window.__jvInterpreting) return false; const t = cleanPunct(text);", 'interpreter end phrases')
