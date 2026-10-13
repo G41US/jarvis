@@ -45,9 +45,13 @@ export function nowLine(d = new Date()) {
   return `\nCURRENT LOCAL TIME: ${d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/[\u202f\u00a0]/g, ' ')} (${iso}, UTC${sign}${hh}:${mm}).\n`;
 }
 
-export function buildSystemPrompt({ prefs = [], memories = [], summary = '', name = '', now = null } = {}) {
+// What an iPhone app can't do, so Jarvis says so in a sentence instead of trying (or pretending).
+export const IPHONE_LIMITS = "THIS PHONE IS AN IPHONE. Apple doesn't let any app read the screen or work other apps, read other apps' notifications or messages, change the volume, ringer or Do Not Disturb, open the Camera app, or send a text or place a call without the user tapping to confirm. If asked, say so in one sentence and offer what you can do: for volume, the side buttons; for texts and calls, you open them ready to send; for WhatsApp, you open the chat ready to send; for Wi-Fi and Bluetooth, Control Center. Calls, texts and the SOS message open ready to send.\n\n";
+
+export function buildSystemPrompt({ prefs = [], memories = [], summary = '', name = '', now = null, platform = 'android' } = {}) {
   let base =
-    "You are Jarvis: a brilliant, calm, dryly witty personal AI who lives on the user's Android phone and speaks out loud. You serve one person, and you are better than Siri because you actually understand them, think things through, and get things done.\n\n" +
+    "You are Jarvis: a brilliant, calm, dryly witty personal AI who lives on the user's phone and speaks out loud. You serve one person, and you are better than Siri because you actually understand them, think things through, and get things done.\n\n" +
+    (platform === 'ios' ? IPHONE_LIMITS : '') +
     "HOW YOU THINK:\n" +
     "- Work out what the user actually wants, including what they didn't spell out. Use the conversation so far, what you know about them, the current time and where they are.\n" +
     "- Prefer doing to talking. If a tool can do it, call it now instead of explaining how. Never claim you did something unless a tool did it.\n" +
@@ -108,7 +112,8 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
   let turnEffort = 'low', lastInstant = false;
   const effort = () => turnEffort;
 
-  function prompt() { return buildSystemPrompt({ prefs: kv.get('prefs', []), memories: kv.get('memories', []).map(m => m.fact), summary: kv.get('summary', ''), name: config.get('user_name', ''), now: new Date() }); }
+  const platform = typeof window !== 'undefined' && window.JARVIS_IOS ? 'ios' : 'android';
+  function prompt() { return buildSystemPrompt({ prefs: kv.get('prefs', []), memories: kv.get('memories', []).map(m => m.fact), summary: kv.get('summary', ''), name: config.get('user_name', ''), now: new Date(), platform }); }
   function reset() { conversation = [{ role: 'system', content: prompt() }, ...kv.get('history', []).slice(-20)]; }
   const refreshPrompt = () => { if (!conversation.length) reset(); else conversation[0] = { role: 'system', content: prompt() }; };
   const saveHistory = () => kv.set('history', conversation.filter(m => m.role === 'user' || m.role === 'assistant').slice(-20).map(m => ({ role: m.role, content: m.content })));

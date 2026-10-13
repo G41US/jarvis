@@ -119,7 +119,7 @@ export function initSettings() {
     vsel.append(el('option', { value: '' }, 'Best match'));
     for (const v of list) vsel.append(el('option', { value: v.id }, v.name));
     const cur = J().config.get('voice', ''); if (cur && list.some(v => v.id === cur)) vsel.value = cur;
-    vnote.textContent = mine.some(v => !v.pc) || mine.some(v => v.pc && !/\(/.test(v.name)) ? '' : `This phone has no ${gender} voice installed, so Jarvis changes the pitch. More voices: Android Settings, Text-to-speech, Speech Services by Google, Install voice data.`;
+    vnote.textContent = mine.some(v => !v.pc) || mine.some(v => v.pc && !/\(/.test(v.name)) ? '' : `This phone has no ${gender} voice installed, so Jarvis changes the pitch. More voices: ${window.JARVIS_IOS ? 'Settings, Accessibility, Spoken Content, Voices, English (pick an Enhanced or Premium voice)' : 'Android Settings, Text-to-speech, Speech Services by Google, Install voice data'}.`;
   };
   const choose = g => { gender = g; paintSeg(); J().config.merge({ avatar_gender: g, voice: '' }); fillVoices(); J().announceVoice(); J().ensurePcVoice(); paintPc(); };
   bMale.onclick = () => choose('male'); bFemale.onclick = () => choose('female');
@@ -144,7 +144,7 @@ export function initSettings() {
     const s = J().stats; if (!s) return;
     meter.firstChild.style.transform = `scaleX(${Math.min(1, Math.sqrt(s.rms || 0) * 0.022).toFixed(3)})`;
     wmeter.firstChild.style.transform = `scaleX(${Math.min(1, s.score || 0).toFixed(3)})`;
-    const micTxt = { listening: 'On', starting: 'Starting…', stopped: 'Stopped', 'no-permission': 'No permission. Allow the microphone in Android settings.', browser: 'Browser microphone' };
+    const micTxt = { listening: 'On', starting: 'Starting…', stopped: 'Stopped', 'no-permission': window.JARVIS_IOS ? 'No permission. Allow the microphone in the Settings app, under Jarvis.' : 'No permission. Allow the microphone in Android settings.', browser: 'Browser microphone' };
     put(dMic, micTxt[s.mic] || (String(s.mic).startsWith('listening-no-wake') ? 'On (wake word model failed to load)' : String(s.mic).replace(/^error:/, 'Error: ')));
     if (s.wakes > wakesSeen) { wakesSeen = s.wakes; dWake.className = 'flash'; put(dWake, `Heard you (score ${Number(s.lastWakeScore || 0).toFixed(2)})`); setTimeout(() => { dWake.className = ''; }, 2500); }
     else if (!dWake.className) put(dWake, s.wake ? `Ready · ${s.wakes} so far` : (s.wakeError ? 'Not loaded' : 'Loading…'));
@@ -176,9 +176,10 @@ export function initSettings() {
   };
 
   // ---- phone powers: what Jarvis may do on this phone, each switched on by the user
-  const sPow = section('Phone powers', 'What Jarvis can do on this phone. Each one is off until you allow it, and you can take it back any time in Android settings.');
+  const sPow = section('Phone powers', 'What Jarvis can do on this phone. Each one is off until you allow it, and you can take it back any time in ' + (window.JARVIS_IOS ? 'the Settings app.' : 'Android settings.'));
   sPow.id = 'jv-powers';
-  const POWERS = [
+  const IOS = !!window.JARVIS_IOS, IOS_POWERS = new Set(['notifications', 'camera', 'contacts', 'calendar']);
+  const POWERS_ALL = [
     ['notifications', 'Notifications', 'Reminders and timers pop up and ring, even when Jarvis is closed.'],
     ['exactAlarms', 'Reminders on the minute', 'Without this, Android may ring reminders a few minutes late.'],
     ['overlay', 'Open apps from the background', 'Lets Jarvis open apps, websites and calls while he isn\'t on screen (Android calls it "display over other apps").'],
@@ -192,6 +193,7 @@ export function initSettings() {
     ['dnd', 'Do Not Disturb and silent', 'Switch Do Not Disturb and silent mode by voice.'],
     ['brightness', 'Brightness', 'Change screen brightness by voice.'],
   ];
+  const POWERS = IOS ? POWERS_ALL.filter(([k]) => IOS_POWERS.has(k)).concat([['mic', 'Microphone', 'Hearing "Hey Jarvis" and what you ask him.'], ['location', 'Location', 'Directions, your delivery route, weather where you are, parking, SOS.']]) : POWERS_ALL;
   const powRows = {};
   const powList = el('div');
   for (const [k, title, hint] of POWERS) {
@@ -205,8 +207,12 @@ export function initSettings() {
   for (const [v, t] of [['false', 'No'], ['true', 'Yes, read new messages out loud']]) ann.append(el('option', { value: v }, t));
   ann.value = String(!!J().config.get('announce_messages', false));
   ann.onchange = () => { const on = ann.value === 'true'; J().config.set('announce_messages', on); try { window.AndroidBridge && window.AndroidBridge.setAnnounceMessages && window.AndroidBridge.setAnnounceMessages(on); } catch {} if (on && J().phone && !J().phone.status().notifAccess) J().phone.request('notifAccess'); };
-  sPow.append(el('label', {}, 'Read new messages out loud as they arrive (good while driving)'), ann);
-  sPow.append(el('p', { class: 'hint' }, 'If Android says a setting is restricted: open Android Settings, Apps, Jarvis, the three-dot menu, "Allow restricted settings", then try again.'));
+  if (!IOS) {
+    sPow.append(el('label', {}, 'Read new messages out loud as they arrive (good while driving)'), ann);
+    sPow.append(el('p', { class: 'hint' }, 'If Android says a setting is restricted: open Android Settings, Apps, Jarvis, the three-dot menu, "Allow restricted settings", then try again.'));
+  } else {
+    sPow.append(el('p', { class: 'hint' }, 'Something you said no to can only be switched back on in the Settings app, under Jarvis. Apple doesn\'t let any app read other apps\' messages, work other apps or change the volume, so Jarvis can\'t do those on iPhone.'));
+  }
   const paintPowers = () => {
     const s = J().phone ? J().phone.status() : {};
     if (!s || !Object.keys(s).length) { sPow.style.display = 'none'; return; }

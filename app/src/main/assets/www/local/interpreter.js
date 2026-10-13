@@ -104,7 +104,7 @@ export function createInterpreter({ api, broadcast, langFor, log = () => {}, bri
     } catch (e) { log('[INTERPRETER] intro', e); }
     paint();
     if (st.intro) { sayIn(t, st.intro); setTimeout(() => { if (st.on) broadcast('proactive:' + st.intro); }, 2600); }
-    const voiceNote = avail === 1 ? '' : avail === 0 ? ` Your phone needs to download its ${langName(t)} voice (Android Settings, Text-to-speech); until then I'll show the words on screen.` : ` Your phone has no ${langName(t)} voice, so the other person reads the top half of the screen.`;
+    const voiceNote = avail === 1 ? '' : avail === 0 ? ` Your phone needs to download its ${langName(t)} voice (${typeof window !== 'undefined' && window.JARVIS_IOS ? 'Settings, Accessibility, Spoken Content, Voices' : 'Android Settings, Text-to-speech'}); until then I'll show the words on screen.` : ` Your phone has no ${langName(t)} voice, so the other person reads the top half of the screen.`;
     return { ok: true, message: `Interpreter on: ${langName(m)} and ${langName(t)}. Speak normally; I'll translate both ways. The top half of the screen faces them. Say "stop interpreting" when you're done.${voiceNote}` };
   }
 

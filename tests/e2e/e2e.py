@@ -917,6 +917,23 @@ def main():
               pc and pc[0]['h'].get('x-jarvis-token') == 'tok123' and len(pc[0]['h'].get('x-jarvis-device', '')) == 24 and 'authorization' not in pc[0]['h'], pc[:1])
         ctx2.close()
 
+        # ---- the same page on iPhone (the iOS app sets window.JARVIS_IOS and gives the same two bridge objects)
+        ctx3 = b.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+        ctx3.add_init_script('window.JARVIS_IOS = true;'); ctx3.add_init_script(BRIDGE)
+        ctx3.route(ORIGIN + '/**', asset_handler); ctx3.route(re.compile(r'https://(?!appassets).*'), other_handler)
+        p3 = ctx3.new_page(); p3.goto(ORIGIN + '/index.html'); p3.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000); p3.wait_for_timeout(600)
+        gone = p3.evaluate("['read_screen','read_notifications','set_volume','do_not_disturb','screen_offer','press_button'].filter(n => JARVIS.reg.has(n))")
+        check('iPhone: tools Apple forbids are not offered to the AI', not gone and p3.evaluate("JARVIS.reg.has('flashlight') && JARVIS.reg.has('navigate_to') && JARVIS.reg.has('create_document')"), gone)
+        check('iPhone: Jarvis is told what an iPhone app cannot do', 'THIS PHONE IS AN IPHONE' in p3.evaluate("JARVIS.brain.conversation[0].content") and "user's Android" not in p3.evaluate("JARVIS.brain.conversation[0].content"))
+        p3.evaluate("JARVIS.openSettings()"); p3.wait_for_timeout(500)
+        rows3 = p3.evaluate("[...document.querySelectorAll('#jv-powers .pw b')].map(b => b.textContent)")
+        check('iPhone: settings list only the permissions an iPhone has', sorted(rows3) == sorted(['Notifications', 'Camera', 'Contacts', 'Calendar', 'Microphone', 'Location']) and 'Android' not in p3.evaluate("document.getElementById('jv-powers').textContent"), rows3)
+        p3.evaluate("document.querySelector('#jv-ov .bar button').click()"); p3.wait_for_timeout(200)
+        p3.evaluate("Object.assign(window.__phone.status, { calls: false }); JARVIS.setup.open(true)"); p3.wait_for_timeout(300)
+        n3 = p3.evaluate("document.querySelectorAll('#jv-setup .dots i').length")
+        check('iPhone: setup walkthrough has just the one step (the ordinary questions)', n3 == 1 and 'iPhone' in p3.evaluate("document.querySelector('#jv-setup .why').textContent"), n3)
+        ctx3.close()
+
         bad = [e for e in errs if 'three' not in e.lower()]
         check('no uncaught page errors', not bad, bad[:3])
         if logs: print('console warnings/errors:', [l[:120] for l in logs[:6]])

@@ -7,6 +7,8 @@ export class Registry {
     this.schemas.push({ type: 'function', function: { name, description, parameters: { type: 'object', properties: properties || {}, required: required || [] } } });
   }
   has(name) { return name in this.fns; }
+  /** Drops tools this phone can't do (on iPhone: reading the screen, other apps' notifications...). */
+  remove(names) { const drop = new Set(names); for (const n of drop) delete this.fns[n]; this.schemas = this.schemas.filter(s => !drop.has(s.function.name)); }
   async exec(name, rawArgs) {
     let args = {};
     try { args = typeof rawArgs === 'string' ? JSON.parse(rawArgs || '{}') : (rawArgs || {}); } catch { args = {}; }

@@ -11,11 +11,27 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.ioswant.outputs.ios }}
     env:
       HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.GROQ_API_KEY != '' }}
       HAS_UPLOAD_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The iPhone app is built on GitHub's Mac machines (they cost more), so only when it changed, when the commit message
+      # says [ios], or when you press "Run workflow".
+      - name: Does the iPhone app need building?
+        id: ioswant
+        run: |
+          want=false
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && want=true
+          git log -1 --pretty=%B | grep -qi '\[ios\]' && want=true
+          before="${{ github.event.before }}"
+          if [ -n "$before" ] && git cat-file -e "$before" 2>/dev/null && git diff --name-only "$before" "${{ github.sha }}" | grep -q '^ios/'; then want=true; fi
+          echo "ios=$want" >> "$GITHUB_OUTPUT"; echo "iPhone build: $want"
 
       - uses: actions/setup-java@v5
         with:
@@ -212,6 +228,21 @@ jobs:
             echo "::warning title=This APK still asks for a Groq key::The Jarvis service isn't set up, so users must enter their own Groq key. Add the CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and GROQ_API_KEY repository secrets (see server/README.md) and run the build again."
           fi
 
+      # The iPhone app uses the very same page and models: hand them to the iPhone job.
+      - name: Package the page and models for the iPhone app
+        if: steps.ioswant.outputs.ios == 'true'
+        run: |
+          mkdir -p ios-web && cp -R app/src/main/assets/www ios-web/www
+          for d in wake vad face; do cp -R app/src/main/assets/$d ios-web/$d; done
+          du -sh ios-web/*
+
+      - uses: actions/upload-artifact@v4
+        if: steps.ioswant.outputs.ios == 'true'
+        with:
+          name: ios-web
+          path: ios-web
+          retention-days: 3
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.14.3'
@@ -289,3 +320,113 @@ jobs:
             If the file on your phone is smaller, the download was cut off: delete it and download again on Wi-Fi.
             Checked with Android's apksigner, zipalign and aapt2. SHA-256 starts ${{ steps.apkcheck.outputs.sha }}.
           files: Jarvis-build-${{ github.run_number }}.apk
+
+  # ---- iPhone: the shared engine first (cheap Linux machine), then the app on a Mac
+  ios-core:
+    needs: build
+    if: needs.build.outputs.ios == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.0"
+      - name: Face, wake word and speech detector match the Android versions (swift test)
+        run: cd ios/JarvisCore && swift test 2>&1 | tail -40
+
+  ios:
+    needs: [build, ios-core]
+    if: needs.build.outputs.ios == 'true'
+    runs-on: macos-26
+    env:
+      JARVIS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.g41us.jarvis' }}
+      HAS_APPLE: ${{ secrets.APPLE_TEAM_ID != '' && secrets.ASC_KEY_ID != '' && secrets.ASC_ISSUER_ID != '' && secrets.ASC_KEY_P8 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-web
+          path: ios-web
+
+      - name: Put the page and models into the iPhone app
+        run: |
+          rm -rf ios/Resources && mkdir -p ios/Resources/models
+          cp -R ios-web/www ios/Resources/www
+          for d in wake vad face; do cp -R ios-web/$d ios/Resources/models/$d; done
+          ls ios/Resources/models/*; du -sh ios/Resources/*
+
+      - name: Make the Xcode project
+        run: |
+          xcodebuild -version
+          brew install xcodegen >/dev/null 2>&1 || brew install xcodegen
+          cd ios && xcodegen generate
+
+      - name: Build for the iPhone simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/Jarvis.xcodeproj -scheme Jarvis -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build > build.log 2>&1 \
+            || { grep -E "error:|warning: .*will be an error" build.log | sort -u | head -60; tail -30 build.log; exit 1; }
+          grep -c "warning:" build.log || true
+          ls ios/build/Build/Products/Debug-iphonesimulator/
+
+      - name: Run it in the simulator (screenshots and the page's log)
+        run: |
+          set +e
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; l=[x for k in sorted(d, reverse=True) if 'iOS' in k for x in d[k] if x['name'].startswith('iPhone')]; print(l[0]['udid'] if l else '')")
+          echo "simulator $UDID"
+          xcrun simctl boot "$UDID"; xcrun simctl bootstatus "$UDID" -b
+          APP=ios/build/Build/Products/Debug-iphonesimulator/Jarvis.app
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl privacy "$UDID" grant all "$JARVIS_BUNDLE_ID"
+          mkdir -p sim
+          xcrun simctl launch --console-pty "$UDID" "$JARVIS_BUNDLE_ID" -JarvisSmokeTest > sim/app.log 2>&1 &
+          sleep 9;  xcrun simctl io "$UDID" screenshot sim/1-start.png
+          sleep 14; xcrun simctl io "$UDID" screenshot sim/2-after-commands.png
+          sleep 6;  xcrun simctl io "$UDID" screenshot sim/3-later.png
+          xcrun simctl terminate "$UDID" "$JARVIS_BUNDLE_ID"
+          grep -E "\[SMOKE\]|\[PAGE\] (error|warn)|\[JARVIS\]" sim/app.log | head -80
+          if grep -q "\[SMOKE\] ready" sim/app.log; then echo "The page started on iPhone."; else echo "::warning title=iPhone smoke test::the page did not report ready (see the sim artifact)"; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Jarvis-iphone-simulator
+          path: |
+            sim
+            build.log
+          retention-days: 7
+
+      # ---- TestFlight (needs an Apple Developer account; see ios/README.md for the four secrets)
+      - name: Sign and send to TestFlight
+        if: env.HAS_APPLE == 'true'
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+          KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -o pipefail
+          mkdir -p ~/.appstoreconnect/private_keys
+          KEY=~/.appstoreconnect/private_keys/AuthKey_$KEY_ID.p8
+          printf '%s\n' "$KEY_P8" > "$KEY"
+          AUTH="-allowProvisioningUpdates -authenticationKeyPath $KEY -authenticationKeyID $KEY_ID -authenticationKeyIssuerID $ISSUER"
+          xcodebuild -project ios/Jarvis.xcodeproj -scheme Jarvis -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/Jarvis.xcarchive DEVELOPMENT_TEAM=$TEAM CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            $AUTH archive > archive.log 2>&1 || { grep -E "error:" archive.log | sort -u | head -40; tail -20 archive.log; exit 1; }
+          cat > ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/Jarvis.xcarchive -exportOptionsPlist ExportOptions.plist -exportPath build/export $AUTH > export.log 2>&1 \
+            || { grep -iE "error|no suitable application records" export.log | head -30; tail -20 export.log;
+                 echo "::error title=TestFlight upload::If it says no app record: create the app in App Store Connect with bundle ID $JARVIS_BUNDLE_ID (see ios/README.md)"; exit 1; }
+          echo "::notice title=Sent to TestFlight::Build ${{ github.run_number }} is processing in App Store Connect (about 10-30 minutes)."

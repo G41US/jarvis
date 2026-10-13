@@ -1,0 +1,92 @@
+# The iPhone app's Xcode project, generated in CI with XcodeGen (`xcodegen generate` in this folder).
+# Resources/www and Resources/models are filled by the build (the same page and models as the Android app).
+name: Jarvis
+options:
+  bundleIdPrefix: com.g41us
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+packages:
+  onnxruntime:
+    url: https://github.com/microsoft/onnxruntime-swift-package-manager
+    exactVersion: 1.24.2
+  JarvisCore:
+    path: JarvisCore
+targets:
+  Jarvis:
+    type: application
+    platform: iOS
+    scheme: {}
+    sources:
+      - path: Jarvis/Sources
+      - path: Jarvis/Assets.xcassets
+      - path: Resources/www
+        type: folder
+        buildPhase: resources
+      - path: Resources/models
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: onnxruntime
+        product: onnxruntime
+      - package: JarvisCore
+      - sdk: AVFoundation.framework
+      - sdk: WebKit.framework
+      - sdk: CoreLocation.framework
+      - sdk: Contacts.framework
+      - sdk: EventKit.framework
+      - sdk: MessageUI.framework
+      - sdk: MediaPlayer.framework
+      - sdk: Photos.framework
+      - sdk: QuickLook.framework
+      - sdk: UserNotifications.framework
+      - sdk: Network.framework
+      - sdk: AppIntents.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ${JARVIS_BUNDLE_ID}
+        PRODUCT_NAME: Jarvis
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: Jarvis/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        OTHER_LDFLAGS: ["-ObjC"]
+    info:
+      path: Jarvis/Info.plist
+      properties:
+        CFBundleDisplayName: Jarvis
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIViewControllerBasedStatusBarAppearance: true
+        UIRequiresFullScreen: true
+        UIBackgroundModes: [location]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSMicrophoneUsageDescription: Jarvis listens for "Hey Jarvis" on your iPhone and hears what you ask him. Nothing leaves the phone until you say his name.
+        NSCameraUsageDescription: Jarvis's eyes - "what is this?", "read this sign", scanning receipts and QR codes, and recognising faces you ask him to remember.
+        NSLocationWhenInUseUsageDescription: For directions, your delivery route, the weather where you are, "where did I park" and sending your location in an emergency.
+        NSLocationAlwaysAndWhenInUseUsageDescription: To keep counting your mileage during a shift while you use other apps.
+        NSContactsUsageDescription: To call and text people by name and to remind you of birthdays.
+        NSCalendarsFullAccessUsageDescription: To tell you what's on today and add events you ask for.
+        NSCalendarsUsageDescription: To tell you what's on today and add events you ask for.
+        NSPhotoLibraryAddUsageDescription: To save photos Jarvis takes for you.
+        NSAppleMusicUsageDescription: To play, pause and skip music when you ask.
+        NSLocalNetworkUsageDescription: To control your Home Assistant or Philips Hue lights on your home network.
+        NSBonjourServices: [_hue._tcp]

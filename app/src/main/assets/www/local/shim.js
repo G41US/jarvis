@@ -218,6 +218,9 @@ const interp = createInterpreter({ api, broadcast, langFor, log, bridge }); inte
 reg.add('start_interpreter', "Live interpreter between the user and someone who speaks another language: from now on everything either of them says is translated into the other language and spoken aloud, with face-to-face captions. language: the other person's language. my_language: the user's (default English).",
   { language: { type: 'string' }, my_language: { type: 'string' } }, ['language'], async a => (await interp.start(a.language, a.my_language || 'en')).message);
 reg.add('stop_interpreter', 'Turn the live interpreter off.', {}, [], () => interp.stop());
+// iPhone: Apple doesn't let apps do these at all, so Jarvis isn't offered them (the prompt tells him why)
+export const IPHONE_CANT = ['read_screen', 'tap_on_screen', 'type_on_screen', 'scroll_screen', 'press_button', 'look_at_screen', 'read_notifications', 'reply_to_message',
+  'announce_messages', 'screen_offer', 'set_volume', 'ringer_mode', 'do_not_disturb', 'open_camera_app', 'show_alarms', 'spotify_now_playing'];
 log(`on-device Jarvis ready: ${reg.schemas.length} tools, native http: ${nativeHttp()}, native mic: ${W.JARVIS_NATIVE_MIC}, brain: ${api.mode() || 'no key'}`);
 
 /** Re-read settings after the settings screen saves. */
@@ -320,6 +323,8 @@ micStart();
 applySettings();
 proactive.start();
 setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady('amy') }; ensurePcVoice(); }, 1500);   // PC voice for this face (Wi-Fi only)
+
+if (W.JARVIS_IOS) reg.remove(IPHONE_CANT);                // after every tool is registered
 
 W.JARVIS = {
   wake: () => W.__jvWake(1), say: t => deliverTranscript(t), announce: t => broadcast('proactive:' + t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
