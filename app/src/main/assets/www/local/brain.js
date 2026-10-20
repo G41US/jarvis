@@ -9,8 +9,24 @@ export const emitSentences = text => text.split(SENTENCE_SPLIT).map(s => s.trim(
 // Small talk is the only thing answered without tools: anything else might need to DO something ("switch to the female
 // voice", "on my torchlight"), and a keyword list can never cover every way of saying it.
 const SMALL_TALK = /^(hi|hello|hey|yo|thanks|thank you|thank you so much|ok|okay|cool|nice|great|good|wow|lol|haha|bye|goodbye|good (morning|afternoon|evening|night)|how are you|how'?s it going|you there|are you there)( jarvis)?[.!?]*$/;
-export const isSmallTalk = text => SMALL_TALK.test(String(text || '').toLowerCase().replace(/^(hey |ok |okay )?jarvis[,.!]?\s*/, '').trim());
-export function needsTool(text) { return !isSmallTalk(text) || legacyNeedsTool(text); }
+// Conversation, not a task: chit-chat, questions about Jarvis himself, feelings, jokes. These go to the AI with no tools at all,
+// so he just talks ("what are you up to?" must never turn into opening a map).
+const CHAT = [
+  /^(so |and |but |well |hey |yo )*(what'?s|what is|what are|whatcha|wat) (you|u|ya) (up to|doing|thinking( about)?)( (right )?now| today| tonight)?$/,
+  /^(what'?s|whats|wassup|sup|what is) up( with you)?$/, /^(sup|wassup|wsup|wagwan|how far)$/,
+  /^how (are|r) (you|u|ya)( doing| today| feeling| holding up)?( today| tonight)?$/, /^how (have|you) (you )?been$/, /^how('s| is| was) (your|ur) (day|night|morning|evening|weekend)( going)?$/,
+  /^(who|what) (are|r) (you|u)$/, /^(what'?s|what is) your name$/, /^what can you do$/, /^tell me (about|more about) (yourself|you)$/, /^introduce yourself$/,
+  /^are (you|u) (real|alive|human|there|awake|okay|ok|single|happy|smart|a robot|an ai)$/, /^do (you|u) (like|love|dream|sleep|eat|have feelings|get tired|ever get)\b.*$/,
+  /^(i'?m|i am|im) (bored|tired|sad|happy|lonely|back|home|fine|good|okay|ok|great|stressed|hungry|sleepy)( now| again)?$/,
+  /^tell me (a joke|another one|something (funny|interesting|cool))$/, /^(make me laugh|say something( funny)?|entertain me)$/,
+  /^(good (job|work|boy|one)|well done|nice one|you'?re (funny|smart|the best|awesome|amazing|annoying|weird|cool)|i (love|like|hate) you|you rock)$/,
+  /^(never ?mind|forget it|nothing|no|nope|not now|maybe later|that'?s (all|it|fine|cool))$/, /^(let'?s|can we|i (want|need) to) (talk|chat)( for a bit)?$/, /^talk to me$/,
+];
+export const isSmallTalk = text => {
+  const t = String(text || '').toLowerCase().replace(/^(hey |ok |okay )?jarvis[,.!]?\s*/, '').replace(/[,.!?]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/ jarvis$/, '');
+  return SMALL_TALK.test(t) || CHAT.some(re => re.test(t));
+};
+export function needsTool(text) { return !isSmallTalk(text); }
 
 // Harder questions get more thinking time; quick commands and simple facts stay fast.
 const DEEP = /\b(why|how (do|does|did|can|could|should|would|to|much|many|long)|explain|compare|difference|versus|vs|plan|planning|advice|advise|should i|what should|best (way|option|time|route)|what if|recommend|suggest|solve|work out|figure out|analy[sz]e|pros and cons|strategy|help me (decide|understand|write|figure|plan|think)|write (me )?(a|an|the)|draft|summari[sz]e|story|poem|essay|math|calculate|percent|budget|worth it|is it (good|bad|safe|true))\b/;
@@ -59,6 +75,8 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
     "- Answer first, then the one detail that matters most. Be concrete: numbers, names, times, not vague generalities.\n" +
     "- Answer only what was asked. Never tack on unrelated offers or questions, and never ask for their address, location or 'what's next' unless the request needs it. Each request stands on its own: don't drag in earlier topics like deliveries or navigation unless the user does.\n" +
     "- Ask a question only when you truly can't proceed, and then ask just one, briefly.\n" +
+    "- Casual conversation is conversation: 'what are you up to', 'how are you', jokes, opinions, how their day went. Answer warmly and naturally, in character, like a friend with a dry sense of humour; never call a tool or bring up maps, deliveries or settings for it.\n" +
+    "- Only call a tool when the user's words clearly ask for what it does. If a tool you didn't need would fail (no location, no permission), don't call it; just answer.\n" +
     "- If they correct you, accept it plainly and fix it. If a tool fails, say so in a few words and give your best answer from your own knowledge.\n" +
     "- Learn about them: when they tell you something lasting about themselves (name, family, work, places, routines, likes, dislikes), call remember. When they say how they want you to behave, call set_preference. Use what you know naturally, without announcing it.\n\n" +
     "HOW YOU SOUND (everything you write is spoken aloud):\n" +

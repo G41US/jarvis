@@ -51,4 +51,8 @@ check('...and they drop off two turns later', !router.pick(all, 'okay').tools.so
 for (const t of ['Emergency!', 'SOS', 'help me', 'lights off', 'start my shift', 'scan this', 'I parked']) check(`"${t}" is sent with tools (so Jarvis can act on it)`, needsTool(t));
 const rr = createRouter().pick(all, 'Emergency!').tools.map(t => t.function.name);
 check('"Emergency!" reaches the SOS tool', rr.includes('emergency'), rr.join(','));
+for (const t of ['What are you up to?', "what's up", 'How are you doing today?', 'Tell me a joke', 'who are you', 'I am bored']) check(`"${t}" is conversation: no tools sent`, !needsTool(t));
+for (const t of ['Do you know where I parked?', 'What are you up to tomorrow on my calendar', 'navigate to the airport']) check(`"${t}" still gets tools`, needsTool(t));
+{ const r = createRouter(); r.pick(all, 'navigate to the airport'); const n = r.pick(all, 'what do you think about football these days').tools.map(t => t.function.name);
+  check('a new, unrelated question does not inherit the map tools from the last request', !n.includes('navigate_to'), n.join(',')); }
 console.log('FAILURES:', fails); process.exit(fails ? 1 : 0);
