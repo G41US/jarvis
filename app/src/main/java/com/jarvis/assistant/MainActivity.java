@@ -122,6 +122,10 @@ public class MainActivity extends Activity {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
                 return loader.shouldInterceptRequest(r.getUrl());
             }
+            @Override public void onPageFinished(WebView v, String url) {
+                pageReady = true;
+                if (pendingJs != null) { final String js = pendingJs; pendingJs = null; v.postDelayed(new Runnable() { @Override public void run() { runJs(js); } }, 1800); }
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
                 if (WebViewAssetLoader.DEFAULT_DOMAIN.equals(u.getHost())) return false;
@@ -173,11 +177,34 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(phone, "AndroidPhone");
 
         askPermissions();
+        handleIntent(getIntent());
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
         else web.loadUrl("https://" + WebViewAssetLoader.DEFAULT_DOMAIN + "/index.html");
     }
 
     private boolean has(String p) { return checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED; }
+
+    private boolean pageReady = false;
+    private String pendingJs = null;
+    /** Runs page code now, or once the page has loaded. */
+    private void runJs(String js) {
+        if (web == null) return;
+        if (pageReady) web.evaluateJavascript(js, null); else pendingJs = js;
+    }
+    public static final String ACTION_TALK = "com.jarvis.assistant.TALK";
+    /** Opened as the phone's assistant (hold the side button or home, swipe up from a corner), from the widget, or a shortcut. */
+    private void handleIntent(Intent i) {
+        if (i == null) return;
+        String a = i.getAction() == null ? "" : i.getAction();
+        String open = i.getStringExtra("open");
+        if (Intent.ACTION_ASSIST.equals(a) || Intent.ACTION_VOICE_COMMAND.equals(a) || "android.intent.action.SEARCH_LONG_PRESS".equals(a) || ACTION_TALK.equals(a)) {
+            runJs("window.JARVIS&&window.JARVIS.wake()");
+        } else if ("earnings".equals(open)) {
+            runJs("window.JARVIS&&window.JARVIS.openEarnings&&window.JARVIS.openEarnings('today')");
+        }
+        if (open != null || ACTION_TALK.equals(a) || Intent.ACTION_ASSIST.equals(a)) setIntent(new Intent(this, MainActivity.class));   // not again after a rotation
+    }
+    @Override protected void onNewIntent(Intent i) { super.onNewIntent(i); handleIntent(i); }
 
     private void askPermissions() {
         android.content.SharedPreferences sp = getSharedPreferences(Reminders.PREFS, MODE_PRIVATE);

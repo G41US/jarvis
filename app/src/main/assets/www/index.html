@@ -565,7 +565,7 @@ const clock = new THREE.Clock();
 let t0 = 0, diagTimer = 0;
 let _lastFrame = 0;
 function animate() {
-  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
+  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || window.__jvHideFace || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
   const dt = clock.getDelta(); t0 += dt; const t = t0;
   lerpColors(STATE_COLORS[appState] || STATE_COLORS.idle, dt);
   applyColors();

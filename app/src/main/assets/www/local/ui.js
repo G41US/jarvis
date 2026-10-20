@@ -157,14 +157,18 @@ body.st-thinking #jv-orb::before { animation-duration: .8s; }
 body.st-muted #jv-orb { background: radial-gradient(circle at 50% 35%, #4a1820, #12070a 72%); }
 
 /* ---- conversation history, as a sheet with bubbles */
-#jv-hist-head { position: fixed; z-index: 11; left: 0; right: 0; top: calc(var(--safe-t) + 70px); display: none; align-items: center; gap: 8px; padding: 14px 16px 10px 22px;
+#jv-hist-head { position: fixed; z-index: 11; left: 0; right: 0; top: calc(var(--safe-t) + 70px); display: none; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 16px 10px 22px;
   border-radius: 26px 26px 0 0; background: rgba(6, 14, 24, .96); border-top: 1px solid var(--glass-hi); }
 #jv-hist-head h2 { flex: 1; margin: 0; font: 600 21px/1 'Saira', sans-serif; font-stretch: 100%; color: var(--ice); }
+#jv-hist-head .links { flex-basis: 100%; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 6px -16px 0 -6px; padding: 0 16px 2px 6px; }
+#jv-hist-head .links::-webkit-scrollbar { display: none; }
+#jv-hist-head .links button { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 38px; color: var(--ice); background: rgba(127, 216, 255, .08); }
+#jv-hist-head .links button svg { width: 17px; height: 17px; color: var(--mist); }
 #jv-hist-head::before { content: ''; position: absolute; top: 6px; left: 50%; width: 38px; height: 4px; margin-left: -19px; border-radius: 2px; background: rgba(255,255,255,.18); }
 #jv-hist-head button { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--glass-hi); background: transparent; color: var(--mist); font-size: 14px; }
 #jv-hist-head button.ic { width: 36px; padding: 0; display: grid; place-items: center; } #jv-hist-head button.ic svg { width: 19px; height: 19px; }
 body.jv-history #jv-hist-head { display: flex; }
-body.jv-history #log { position: fixed !important; z-index: 10; left: 0 !important; right: 0 !important; top: calc(var(--safe-t) + 128px) !important; bottom: 0 !important; width: auto !important; max-height: none !important;
+body.jv-history #log { position: fixed !important; z-index: 10; left: 0 !important; right: 0 !important; top: calc(var(--safe-t) + 176px) !important; bottom: 0 !important; width: auto !important; max-height: none !important;
   display: flex; flex-direction: column; gap: 10px; padding: 6px 14px calc(var(--safe-b) + 120px); background: rgba(6, 14, 24, .96); -webkit-mask-image: none; mask-image: none; font: 15px/1.45 Roboto, system-ui, sans-serif; }
 body.jv-history #log .msg { margin: 0; max-width: 84%; }
 body.jv-history #log .who { display: none; }
@@ -253,6 +257,42 @@ body[data-nav="dash"] .ne-c { padding: 4px 10px !important; min-width: 56px !imp
 body[data-nav="dash"] .ne-c b { font-size: 15px !important; } body[data-nav="dash"] .ne-c span { font-size: 8px !important; letter-spacing: 1.5px !important; }
 body[data-nav="dash"] .nb-then, body[data-nav="dash"] #nav-badge, body[data-nav="dash"] .nav-note, body[data-nav="dash"] #nav-caption, body[data-nav="dash"] .ne-stop { display: none !important; }
 
+/* ---- driving mode: big, glanceable, few things; the face rests (and stops drawing) */
+#jv-drive { position: fixed; z-index: 6; left: 14px; right: 14px; top: calc(var(--safe-t) + 12px); bottom: calc(var(--safe-b) + 110px); display: none; flex-direction: column; gap: 12px; color: var(--ice); overflow: hidden;
+  font: 400 15px/1.35 Roboto, system-ui, sans-serif; }
+body.jv-drive #jv-drive { display: flex; }
+body.jv-drive #three, body.jv-drive #jv-aura, body.jv-drive #jv-hello, body.jv-drive #jv-clock, body.jv-drive #jv-hint, body.jv-drive #jv-shift, body.jv-drive #route-panel { visibility: hidden !important; }
+body.jv-drive.jv-busy #jv-drive .dv-head { visibility: hidden; }
+#jv-drive .dv-head { display: flex; align-items: flex-start; gap: 10px; }
+#jv-drive .dv-clock { flex: 1; font: 300 68px/.95 'Saira', system-ui, sans-serif; font-stretch: 100%; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+#jv-drive .dv-clock em { font-style: normal; font-size: 22px; font-weight: 400; color: var(--mist); margin-left: 6px; letter-spacing: 0; }
+#jv-drive .dv-clock small { display: block; margin-top: 8px; font: 400 15px/1.3 Roboto, sans-serif; color: var(--mist); letter-spacing: 0; }
+#jv-drive .dv-x { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--glass-hi); background: var(--glass); color: var(--mist); display: grid; place-items: center; padding: 0; flex: none;
+  text-transform: none; letter-spacing: normal; text-shadow: none; }
+#jv-drive .dv-x svg { width: 22px; height: 22px; }
+#jv-drive .dv-card { border-radius: 26px; padding: 18px 18px 16px; background: linear-gradient(180deg, rgba(16, 32, 50, .78), rgba(8, 18, 30, .82)); border: 1px solid var(--glass-hi); }
+#jv-drive .dv-kick { display: flex; align-items: center; gap: 8px; font: 500 14px/1 Roboto, sans-serif; color: var(--mist); }
+#jv-drive .dv-kick i { width: 10px; height: 10px; border-radius: 50%; background: var(--live); box-shadow: 0 0 10px var(--live); }
+#jv-drive .dv-kick i.pick { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+#jv-drive .dv-name { margin-top: 10px; font: 600 32px/1.08 'Saira', sans-serif; font-stretch: 92%; overflow-wrap: anywhere; }
+#jv-drive .dv-sub { margin-top: 6px; font-size: 17px; color: var(--mist); }
+#jv-drive .dv-sub b { color: var(--ice); font-weight: 600; }
+#jv-drive .dv-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+#jv-drive .dv-btns button { height: 62px; border-radius: 18px; border: 1px solid var(--glass-hi); background: rgba(127, 216, 255, .08); color: var(--ice); font: 600 18px/1 Roboto, sans-serif;
+  text-transform: none; letter-spacing: normal; text-shadow: none; }
+#jv-drive .dv-btns button.go { background: var(--ice); color: #03121f; border-color: var(--ice); }
+#jv-drive .dv-btns button:active { transform: scale(.97); }
+#jv-drive .dv-today { cursor: pointer; }
+#jv-drive .dv-money { margin-top: 8px; font: 600 54px/1 'Saira', sans-serif; font-variant-numeric: tabular-nums; }
+#jv-drive .dv-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 14px; }
+#jv-drive .dv-stats b { display: block; font: 600 22px/1.1 'Saira', sans-serif; font-stretch: 90%; font-variant-numeric: tabular-nums; }
+#jv-drive .dv-stats span { display: block; font-size: 12px; color: var(--mist); margin-top: 3px; }
+#jv-drive .dv-shift { display: flex; gap: 10px; margin-top: auto; }
+#jv-drive .dv-shift button { flex: 1; height: 54px; border-radius: 18px; border: 1px solid var(--glass-hi); background: var(--glass); color: var(--ice); font: 500 16px/1 Roboto, sans-serif;
+  text-transform: none; letter-spacing: normal; text-shadow: none; }
+body.jv-drive #jv-orb { width: 84px; height: 84px; margin-left: -42px; top: -8px; }
+body.jv-drive.jv-talking #jv-drive .dv-today, body.jv-drive.jv-talking #jv-drive .dv-shift { visibility: hidden; }
+
 @media (prefers-reduced-motion: reduce) {
   #jv-status .sig i, #jv-orb::before, #jv-card .wait b, #jv-card .heard::after, #jv-hint svg, body.jv-busy #jv-status { animation: none !important; }
   body:not([data-nav]) #three, #jv-aura, #jv-card, #jv-hello, #jv-ideas, #jv-toast { transition: none; }
@@ -266,6 +306,9 @@ const ICON = {
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 19V5M4 19h16M8 15v-3M12 15V8M16 15v-5"/></svg>',
+  person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>',
+  car: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16l1.5-5.5A2 2 0 0 1 8.4 9h7.2a2 2 0 0 1 1.9 1.5L19 16M4 16h16v3H4z"/></svg>',
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9M10 20a2.2 2.2 0 0 0 4 0"/></svg>',
 };
 const STATUS = { idle: 'Starting…', standby: 'Say “Hey Jarvis”', session: 'Listening', listening: 'Listening', thinking: 'Thinking…', speaking: 'Speaking', muted: 'Muted · tap to unmute' };
@@ -456,9 +499,12 @@ export function initUi() {
 
   // ---- conversation sheet: Clear, Settings, Done
   const hh = el('div'); hh.id = 'jv-hist-head';
-  const hClear = el('button', '', 'Clear'), hGear = el('button', 'ic'), hClose = el('button', '', 'Done');
-  hGear.id = 'jv-gear'; hGear.setAttribute('aria-label', 'Settings'); hGear.innerHTML = ICON.gear;
-  hh.append(el('h2', '', 'Conversation'), hClear, hGear, hClose);
+  const hClear = el('button', '', 'Clear'), hGear = el('button'), hClose = el('button', '', 'Done');
+  hGear.id = 'jv-gear'; hGear.innerHTML = ICON.gear; hGear.append('Settings');
+  const hEarn = el('button'); hEarn.id = 'jv-go-earn'; hEarn.innerHTML = ICON.chart; hEarn.append('Earnings');
+  const hKnow = el('button'); hKnow.id = 'jv-go-know'; hKnow.innerHTML = ICON.person; hKnow.append('What I know');
+  const links = el('div', 'links'); links.append(hEarn, hKnow, hGear, hClear);
+  hh.append(el('h2', '', 'Conversation'), hClose, links);
 
   document.body.append(sos, top, hello, card, toast, scrim, ideas, hint, dock, hh);
 
@@ -506,6 +552,8 @@ export function initUi() {
   hist.onclick = () => toggleHist(!B.contains('jv-history'));
   hClose.onclick = () => toggleHist(false);
   hGear.onclick = () => { toggleHist(false); J() && J().openSettings && J().openSettings(); };
+  hEarn.onclick = () => { toggleHist(false); J() && J().openEarnings && J().openEarnings(); };
+  hKnow.onclick = () => { toggleHist(false); J() && J().openKnows && J().openKnows(); };
   hClear.onclick = () => { const b = $('clearBtn'); if (b) b.click(); dismissed = Date.now(); paintCard(); };
   let dismissed = 0;
   x.onclick = () => { dismissed = Date.now(); paintCard(); };
@@ -671,7 +719,110 @@ export function initUi() {
     heard.textContent = t; heard.classList.toggle('on', !!t); if (t) lastActive = Date.now(); paintCard();
   }).observe(partial, { attributes: true, childList: true, characterData: true, subtree: true });
 
-  syncState(); syncCaps(); paintNew(); greet();
+  // ---- driving mode: on by itself during a shift or while moving (setting "drive_mode": auto | on | off)
+  const drive = el('div'); drive.id = 'jv-drive'; drive.setAttribute('aria-label', 'Driving mode');
+  const dvClock = el('div', 'dv-clock'), dvTime = el('span'), dvDate = el('small'), dvX = el('button', 'dv-x');
+  dvClock.append(dvTime, dvDate);
+  dvX.innerHTML = ICON.x; dvX.setAttribute('aria-label', 'Leave driving mode');
+  const dvNext = el('div', 'dv-card dv-next'), dvToday = el('div', 'dv-card dv-today'), dvShift = el('div', 'dv-shift');
+  dvToday.setAttribute('role', 'button'); dvToday.tabIndex = 0; dvToday.setAttribute('aria-label', 'Open earnings');
+  drive.append(el('div', 'dv-head'), dvNext, dvToday, dvShift);
+  drive.firstChild.append(dvClock, dvX);
+  document.body.insertBefore(drive, dock);
+  let plan = null, moving = false, fastSince = 0, slowSince = 0, lastPos = null, watchId = null, snoozeUntil = 0;
+  const mode = () => { try { return String(J().config.get('drive_mode', 'auto') || 'auto'); } catch { return 'auto'; } };
+  window.addEventListener('jv-msg', e => {
+    const m = String(e.detail || ''); if (!m.startsWith('route:')) return;
+    try { const p = JSON.parse(m.slice(6)); plan = p && p.ok && (p.stops || []).length ? p : null; } catch { plan = null; }
+    paintDrive();
+  });
+  const hav = (a, b) => { const r = Math.PI / 180, dl = (b.lat - a.lat) * r, dn = (b.lon - a.lon) * r;
+    const x = Math.sin(dl / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dn / 2) ** 2; return 12742000 * Math.asin(Math.sqrt(x)); };
+  function onPos(p) {
+    const c = p.coords, t = p.timestamp || Date.now(), here = { lat: c.latitude, lon: c.longitude, t, acc: c.accuracy || 999 };
+    let v = c.speed != null && Number.isFinite(c.speed) ? c.speed : null;
+    if (v == null && lastPos && here.acc < 80 && lastPos.acc < 80 && t - lastPos.t > 3000) v = hav(lastPos, here) / ((t - lastPos.t) / 1000);
+    lastPos = here; if (v == null) return;
+    if (v > 5) { slowSince = 0; fastSince = fastSince || t; if (t - fastSince > 15000) moving = true; }          // over ~18 km/h for 15 s
+    else if (v < 2) { fastSince = 0; slowSince = slowSince || t; if (t - slowSince > 180000) moving = false; }  // stopped for 3 minutes
+    paintDrive();
+  }
+  function watch() {
+    const want = mode() === 'auto' && !document.hidden && !B.contains('on-shift') && !!navigator.geolocation;
+    if (want && watchId == null) { try { watchId = navigator.geolocation.watchPosition(onPos, () => {}, { enableHighAccuracy: false, maximumAge: 20000, timeout: 60000 }); } catch {} }
+    else if (!want && watchId != null) { try { navigator.geolocation.clearWatch(watchId); } catch {} watchId = null; }
+  }
+  const driving = () => {
+    const m = mode(); if (m === 'off') return false;
+    if (document.body.hasAttribute('data-nav')) return false;                       // the map view has its own driving layout
+    if (m === 'on') return true;
+    return Date.now() > snoozeUntil && (B.contains('on-shift') || moving);
+  };
+  dvX.onclick = () => { if (mode() === 'on') J().config.set('drive_mode', 'auto'); snoozeUntil = Date.now() + 30 * 60000; buzz('tick'); paintDrive(); showToast('Driving mode is off for 30 minutes. Say "driving mode" to bring it back.', true); };
+  dvToday.onclick = () => J().openEarnings && J().openEarnings('today');
+  dvToday.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dvToday.onclick(); } };
+  const btn = (text, cls, fn) => { const b = el('button', cls, text); b.type = 'button'; b.onclick = () => { buzz('tick'); fn(); }; return b; };
+  let dvKey = '';
+  function paintDrive() {
+    const on = driving();
+    if (on !== B.contains('jv-drive')) {
+      B.toggle('jv-drive', on); window.__jvHideFace = on;                           // the 3D face stops drawing: less battery while you drive
+      if (on) { closeIdeas(); B.remove('jv-greet'); }
+    }
+    watch();
+    if (!on) return;
+    const now = new Date();
+    const tt = timeText(now).split(' '); dvTime.textContent = tt[0]; dvTime.append(el('em', '', tt[1] || ''));
+    const sh = J() && J().shiftSummary ? J().shiftSummary() : null;
+    dvDate.textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) + (sh && sh.active ? ` · on shift ${fmtH(Date.now() - sh.start)}` : '');
+    const e = J() && J().earningsNow ? J().earningsNow() : null, t = e ? e.today : null, cur = (J().config.get('currency', '$') || '$');
+    const stop = plan && plan.stops[0];
+    const key = JSON.stringify([stop && [stop.kind, stop.restaurant, stop.short_addr, stop.eta_clock, stop.mins], t && [t.earned, t.orders, Math.round(t.perHour), t.miles.toFixed(1)], sh && sh.active, mode()]);
+    if (key === dvKey) return; dvKey = key;
+    // next stop, when there are orders (the map view, if it's on, shows them instead)
+    dvNext.hidden = !stop; dvNext.replaceChildren();
+    if (stop) {
+      const pick = stop.kind === 'pickup', kick = el('div', 'dv-kick'); const dot = el('i', pick ? 'pick' : ''); kick.append(dot, `Next · ${pick ? 'Pick up' : 'Drop off'}${plan.stops.length > 1 ? ` · ${plan.stops.length - 1} more after` : ''}`);
+      const sub = el('div', 'dv-sub'); sub.append(`${stop.short_addr || ''}${stop.short_addr ? ' · ' : ''}`); const eta = el('b', '', `${stop.mins} min`); sub.append(eta, ` · ${stop.eta_clock}`);
+      const btns = el('div', 'dv-btns');
+      btns.append(btn(pick ? 'Picked up' : 'Delivered', 'go', () => ask(pick ? 'Picked up' : 'Delivered')), btn('Directions', '', () => ask('Start delivery navigation')));
+      dvNext.append(kick, el('div', 'dv-name', pick ? stop.restaurant : (stop.restaurant + ' order')), sub, btns);
+    }
+    // today's money, big
+    dvToday.replaceChildren();
+    const kick2 = el('div', 'dv-kick'); kick2.append('Today');
+    const money = el('div', 'dv-money', `${cur}${(t ? t.earned : 0).toFixed(2)}`);
+    const stats = el('div', 'dv-stats');
+    const stat = (v, l) => { const d = el('div'); d.append(el('b', '', v), el('span', '', l)); return d; };
+    const km = J().delivery && J().delivery.units === 'km';
+    stats.append(stat(String(t ? t.orders : 0), 'orders'), stat(t && t.perHour ? `${cur}${Math.round(t.perHour)}` : '—', 'per hour'),
+      stat(t ? (km ? t.miles * 1.609344 : t.miles).toFixed(1) : '0.0', km ? 'km' : 'miles'));
+    dvToday.append(kick2, money, stats);
+    // shift button
+    dvShift.replaceChildren(sh && sh.active ? btn('End shift', '', () => ask('End my shift')) : btn('Start shift', '', () => ask('Start my shift')), btn('Find gas', '', () => ask('Find gas near me')));
+  }
+  setInterval(paintDrive, 5000);
+
+  // ---- the home-screen widget's two lines: the next stop, or today's pay, or "tap to talk"
+  let wKey = '';
+  function pushWidget() {
+    const b = window.AndroidBridge; if (!b || typeof b.widget !== 'function') return;
+    let e = null, sh = null; try { e = J().earningsNow ? J().earningsNow() : null; sh = J().shiftSummary ? J().shiftSummary() : null; } catch {}
+    const t = e && e.today, cur = (J().config.get('currency', '$') || '$'), stop = plan && plan.stops[0];
+    let o;
+    if (stop) o = { line1: stop.kind === 'pickup' ? `Next: pick up at ${stop.restaurant}` : `Next: drop off ${stop.restaurant}`, line2: `${stop.short_addr || ''}${stop.short_addr ? ' · ' : ''}${stop.eta_clock}`, open: '' };
+    else if (t && (t.orders || (sh && sh.active))) o = { line1: `Today ${cur}${t.earned.toFixed(2)}`, line2: `${t.orders} order${t.orders !== 1 ? 's' : ''}${t.perHour ? ` · ${cur}${Math.round(t.perHour)}/hr` : ''}${sh && sh.active ? ` · on shift ${fmtH(Date.now() - sh.start)}` : ''}`, open: 'earnings' };
+    else o = { line1: 'Tap to talk', line2: 'Or say “Hey Jarvis” any time', open: '' };
+    const k = JSON.stringify(o); if (k === wKey) return; wKey = k;
+    try { b.widget(k); } catch {}
+  }
+  setInterval(pushWidget, 5000); setTimeout(pushWidget, 2500);
+  window.addEventListener('jv-msg', e => { if (String(e.detail || '').startsWith('route:')) setTimeout(pushWidget, 50); });
+  window.addEventListener('jv-refresh', () => { dvKey = ''; paintDrive(); });
+  document.addEventListener('visibilitychange', () => { watch(); });
+  new MutationObserver(() => paintDrive()).observe(document.body, { attributes: true, attributeFilter: ['data-nav'] });
+
+  syncState(); syncCaps(); paintNew(); greet(); setTimeout(paintDrive, 1600);
 
   // mic level drives the orb's glow
   let lvl = 0;

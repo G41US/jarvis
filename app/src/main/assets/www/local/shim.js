@@ -12,6 +12,8 @@ import { registerPhoneTools } from './tools_phone.js';
 import { registerExtraTools } from './tools_extras.js';
 import { registerDrivingTools } from './tools_driving.js';
 import { registerHomeTools } from './tools_home.js';
+import { registerUiTools, earningsInput } from './tools_ui.js';
+import { summary as earningsSummary } from './earnings.js';
 import { createProactive, registerProactiveTools } from './proactive.js';
 import { createBrain } from './brain.js';
 import { createLearner } from './learn.js';
@@ -40,7 +42,7 @@ const openUrl = url => { try { if (has('openUrl')) bridge().openUrl(url); else W
 
 // ---------------------------------------------------------------- sockets (/ws push messages, /audio transcripts)
 const wsSockets = new Set(), audioSockets = new Set();
-const broadcast = msg => { for (const s of wsSockets) s._deliver(msg); };
+const broadcast = msg => { for (const s of wsSockets) s._deliver(msg); try { W.dispatchEvent(new CustomEvent('jv-msg', { detail: msg })); } catch {} };   // the phone layout listens too
 const RealWS = W.WebSocket;
 const isLocalWS = url => { try { const u = new URL(url, location.href); return /\/(ws|audio)$/.test(u.pathname) && (u.host === location.host || /^(127\.0\.0\.1|localhost)/.test(u.host)); } catch { return false; } };
 class FakeWS {
@@ -185,6 +187,7 @@ const phone = registerPhoneTools(gctx);                 // also gives gctx remin
 registerExtraTools(gctx);                                // camera extras, expenses
 registerDrivingTools(gctx);                              // parking, gas, shifts and mileage, SOS
 registerHomeTools(gctx);                                 // Home Assistant, Philips Hue
+registerUiTools(gctx);                                   // Earnings page, what Jarvis knows, driving mode
 const proactive = createProactive({ ...gctx, log });   // briefing, weather, birthdays, time to leave, battery, breaks
 registerProactiveTools(gctx, proactive);
 const briefingFast = async text => (/\b(morning briefing|brief me|briefing|what.?s my day|what.?s on today)\b/i.test(text) ? (await gctx.briefingText())[0] : null);
@@ -282,10 +285,12 @@ function warmUp() {                                                // a tiny req
   const t = performance.now();
   api.fetch(api.mode() === 'proxy' ? '/ping' : '/models', { method: 'GET' }).then(r => { stats.warmMs = Math.round(performance.now() - t); r.text().catch(() => {}); }).catch(() => {});
 }
-W.__jvWake = score => {
+W.__jvWake = (score, tapped = false) => {
   stats.wakes++; stats.lastWakeAt = Date.now(); stats.lastWakeScore = score; warmUp();
   log(`wake word (${Number(score).toFixed(2)})`);
   const st = pageState(); if (st && st.muted) return;
+  // a short buzz when he heard "Hey Jarvis", so you know without looking (not for a tap: you felt that)
+  if (!tapped && cfgStore.get('haptics', true) !== false && has('vibrate')) { try { bridge().vibrate('wake'); } catch {} }
   // Idle: open the mic at once, with the second before the wake word ("Hey Jarvis, what's the time" in one breath).
   // Talking over Jarvis: the page stops his voice; the mic reopens after the echo tail, without that second (it holds his voice).
   if (!(st && st.speaking) && !ttsBusy()) setListening(true, true);
@@ -327,7 +332,8 @@ setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady(
 if (W.JARVIS_IOS) reg.remove(IPHONE_CANT);                // after every tool is registered
 
 W.JARVIS = {
-  wake: () => W.__jvWake(1), say: t => deliverTranscript(t), announce: t => broadcast('proactive:' + t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
+  wake: () => W.__jvWake(1, true), say: t => deliverTranscript(t), announce: t => broadcast('proactive:' + t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
+  kv, refreshMemory: () => brain && brain.refreshPrompt(), earningsNow: () => earningsSummary(earningsInput(delivery)),
   phone, interp, proactive, learner, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };

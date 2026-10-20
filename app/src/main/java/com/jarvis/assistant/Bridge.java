@@ -701,6 +701,12 @@ public class Bridge {
         } catch (Exception e) { Log.w(TAG, "vibrate", e); }
     }
 
+    /** The home-screen widget's two lines: {"line1","line2","open"}. */
+    @JavascriptInterface public void widget(String json) { JarvisWidget.update(activity.getApplicationContext(), json); }
+    /** Asks the launcher to put the widget on the home screen: "asked" or "unsupported". */
+    @JavascriptInterface public String pinWidget() { return JarvisWidget.pin(activity); }
+    @JavascriptInterface public int widgetCount() { return JarvisWidget.count(activity); }
+
     /** Lets the page keep the screen awake while it is on screen. */
     @JavascriptInterface
     public void keepAwake(final boolean on) {

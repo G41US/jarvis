@@ -3,9 +3,11 @@
 import './shim.js';
 import { initSettings } from './settings.js';
 import { initUi } from './ui.js';
+import { initPages } from './pages.js';
 import { createSetup } from './setup.js';
 const go = () => {
   try { initUi(); } catch (e) { console.error('[JARVIS] ui failed', e); }
+  try { initPages(); } catch (e) { console.error('[JARVIS] pages failed', e); }
   try { initSettings(); } catch (e) { console.error('[JARVIS] settings failed', e); }
   try {
     const J = window.JARVIS, setup = createSetup({ config: J.config, say: t => J.announce && J.announce(t) });

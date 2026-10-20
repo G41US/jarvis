@@ -96,7 +96,7 @@ export function registerDeliveryTools(ctx) {
   const NUMBER_ONLY = /^(?:(?:ok(?:ay)?|so|and)[, ]+)?(?:it'?s|it is|the (?:house |street |building )?number(?: is)?|house number|number)\s+#?(\d{1,6}[a-z]?)[.!]?$/i;
   async function fastpath(text) {
     const t = String(text || '').trim(); if (!t) return null;
-    if (EARN.test(t)) return earnings();
+    if (EARN.test(t) && !/^(show|open|see)\b/i.test(t)) return earnings();          // "show my earnings" opens the page instead
     if (UNDO.test(t) && D._undo) return reg.exec('undo_stop', '{}');
     if (!D.hasActive()) return null;
     const nm = NUMBER_ONLY.exec(t);

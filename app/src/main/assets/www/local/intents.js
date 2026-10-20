@@ -65,6 +65,11 @@ export const INTENTS = [
   [/^(resume|continue|unpause) (the )?(music|song|playback)?$|^play music$/, () => ['spotify_play', {}]],
   [/^(next|skip)( (this )?(song|track))?$|^next (song|track)$/, () => ['spotify_next', {}]],
   [/^(previous|last|go back a) (song|track)$|^previous$/, () => ['spotify_previous', {}]],
+  // ---- Jarvis's own screens
+  [/^(show|open|see)( me)? (my )?(earnings|pay|money)( page)?$/, () => ['show_earnings', {}]],
+  [/^what do you know about me$|^(show|open)( me)? (my memories|what you know( about me)?)$/, () => ['show_what_you_know', {}]],
+  [/^(turn |switch )?(on|off) driving mode$|^driving mode( on| off)?$|^(start|enter) driving mode$|^(stop|exit|leave|end) driving mode$/,
+    m => ['set_driving_mode', { mode: /\b(off|stop|exit|leave|end)\b/.test(m[0]) ? 'off' : 'on' }]],
   // ---- apps and quick info
   [/^(open|launch|start) (the )?([a-z0-9][a-z0-9 .&'-]{1,30}?)( app)?$/, m => (/\b(and|then|website|\.com|settings|camera|map|maps|door|garage)\b/.test(m[3]) ? null : ['open_app', { name: m[3] }])],
   [/^(what'?s )?(my |the )?battery( level| status| percentage)?$|^how much battery( do i have| is left)?$/, () => ['system_info', {}]],

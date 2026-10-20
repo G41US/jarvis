@@ -158,7 +158,7 @@ def main():
     html = sub_once(html, "renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));", "renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? ((navigator.deviceMemory || 4) <= 4 ? 1 : 1.25) : 2));", 'pixel ratio')
     html = sub_once(html, "composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));", "composer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? ((navigator.deviceMemory || 4) <= 4 ? 1 : 1.25) : 2));", 'composer pixel ratio')
     html = sub_once(html, "function animate() {\n", "let _lastFrame = 0;\nfunction animate() {\n"
-                    "  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }\n", 'frame cap')
+                    "  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || window.__jvHideFace || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }\n", 'frame cap')
 
     # ---- route card in plain sentence case (the page writes these strings itself)
     html = sub_once(html, "routeHead.appendChild(mk('span', '', `ROUTE · ${plan.orders} ORDER${plan.orders === 1 ? '' : 'S'} · ${plan.total_min} MIN · ${plan.total_miles} ${(plan.unit || 'mi').toUpperCase()}`));",

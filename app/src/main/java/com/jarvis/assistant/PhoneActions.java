@@ -152,6 +152,7 @@ public class PhoneActions {
             o.put("mic", has(Manifest.permission.RECORD_AUDIO));
             o.put("offer", OfferReaderService.isEnabled(a));
             o.put("restricted", restricted(a));
+            o.put("assistant", isAssistant(a));
         } catch (Exception e) { Log.w(TAG, "status", e); }
         return o.toString();
     }
@@ -194,11 +195,24 @@ public class PhoneActions {
             case "appInfo": i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, me); break;
             case "dnd": i = new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS); break;
             case "brightness": i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, me); break;
+            case "assistant": return startFirst(new Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS), new Intent(Settings.ACTION_VOICE_INPUT_SETTINGS));   // "Digital assistant app"
             default: return "unknown";
         }
         if (i == null) return "granted";
         start(i, "settings");
         return "opened";
+    }
+
+    /** Is Jarvis the phone's digital assistant (long-press the side button / home, or swipe up from a bottom corner)? */
+    static boolean isAssistant(Context c) {
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                android.app.role.RoleManager rm = (android.app.role.RoleManager) c.getSystemService(Context.ROLE_SERVICE);
+                return rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT) && rm.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT);
+            }
+            String cur = Settings.Secure.getString(c.getContentResolver(), "assistant");
+            return cur != null && cur.startsWith(c.getPackageName() + "/");
+        } catch (Exception e) { return false; }
     }
 
     /** Opens the page for one of Jarvis's accessibility switches directly (not the long list where it's hard to find). */
