@@ -204,7 +204,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 console.log('[JARVIS] v24 — speech-only, fast speech queue, quiet-voice friendly');
 
 const TTS_RATE = 1.22, TTS_PITCH = 1.0;
-const AVATAR_FEMALE = 'models/female.glb';
+const AVATAR_FEMALE = 'models/faces/amara.glb';
 const AVATAR_MALE = window.__NO_ADAM ? AVATAR_FEMALE : 'models/adam.glb';
 const FADE_OUT_RATE = 5.0, FADE_IN_RATE = 3.0;
 
@@ -352,6 +352,8 @@ function applyAvatarAlpha(a) {
 const HEAD_UNITS = 1.05, HEAD_CENTER_Y = 4.37;      // where Adam's head has always been
 function frameByHead(model) {
   try {
+    const known = model.userData && model.userData.jvHead;                 // our own faces say where their head is (tools/faces)
+    if (known && known.top > known.neck) return { neck: known.neck, top: known.top, cx: known.cx || 0, cz: known.cz || 0 };
     model.updateMatrixWorld(true);
     const pts = [], v = new THREE.Vector3();
     model.traverse(c => {
@@ -384,6 +386,7 @@ function frameByHead(model) {
 function doSwap(url) {
   if (avatarModel) { faceGroup.remove(avatarModel); disposeAvatar(avatarModel); avatarModel = null; }
   for (const k in mouthMorphs) delete mouthMorphs[k];
+  window.__jvBlinkMorphs = [];
   jawBone = null; jawBoneRestQuat = null;
   gidPlane.visible = true;
   document.getElementById('d-model').textContent = 'loading…';
@@ -397,7 +400,8 @@ function doSwap(url) {
       if (child.morphTargetDictionary) {
         for (const n of Object.keys(child.morphTargetDictionary)) {
           morphReport[n] = { mesh: child.name || '', index: child.morphTargetDictionary[n] };
-          if (MOUTH_MORPH_NAMES.includes(n)) mouthMorphs[n] = { mesh: child, index: child.morphTargetDictionary[n] };
+          if (MOUTH_MORPH_NAMES.includes(n)) mouthMorphs[n + '#' + child.uuid] = { mesh: child, index: child.morphTargetDictionary[n], name: n };
+          if (n === 'eyeBlink') (window.__jvBlinkMorphs = window.__jvBlinkMorphs || []).push({ mesh: child, index: child.morphTargetDictionary[n] });
         }
       }
       if ((child.isMesh || child.isSkinnedMesh) && child.material) {
@@ -466,10 +470,12 @@ function isMaleVoice(v) {
   return false;
 }
 function syncAvatarToVoice() {
-  const want = isMaleVoice(currentVoice) ? AVATAR_MALE : AVATAR_FEMALE;
+  const want = window.__jvFaceFor ? window.__jvFaceFor(isMaleVoice(currentVoice)) : (isMaleVoice(currentVoice) ? AVATAR_MALE : AVATAR_FEMALE);
+  if (want === 'orb') { try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: 'orb' })); } catch (e) {} return; }
   if (want !== currentAvatarUrl) loadAvatar(want);
 }
-loadAvatar(AVATAR_FEMALE);
+window.__jvSyncFace = syncAvatarToVoice;
+loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);
 
 const headHalo = new THREE.Sprite(new THREE.SpriteMaterial({
   map: glowTex, color: 0x8899aa, transparent: true, opacity: 0.05,
@@ -544,7 +550,7 @@ function driveLipSync(t, amt) {
       keys.forEach((name, i) => {
         const m = mouthMorphs[name];
         if (!m.mesh.morphTargetInfluences) return;
-        const lower = name.toLowerCase();
+        const lower = (m.name || name).toLowerCase();
         let v = 0;
         if (lower.includes('jawopen') || lower.includes('mouthopen')) {
           v = ((Math.sin(t*13.0)*0.5+0.5)*0.9) + ((Math.sin(t*22.0)*0.5+0.5)*0.1);
@@ -574,7 +580,15 @@ function animate() {
   speakingAmount += (target - speakingAmount) * Math.min(1, dt * 8.0);
   sharedUniforms.uSpeaking.value = speakingAmount; window.__jvSpeak = speakingAmount;
   driveLipSync(t, speakingAmount);
-  if (pendingSwapUrl) {
+
+  { const bl = window.__jvBlinkMorphs; if (bl && bl.length) {
+      const B = window.__jvBlink || (window.__jvBlink = { next: t + 2 + Math.random() * 3, start: -1, twice: false });
+      if (B.start < 0 && t >= B.next) { B.start = t; B.twice = Math.random() < 0.18; }
+      let v = 0;
+      if (B.start >= 0) { const e = t - B.start, d = 0.15; v = e < d ? Math.sin(Math.PI * e / d) : 0;
+        if (e >= d) { if (B.twice) { B.twice = false; B.start = t + 0.08; } else { B.start = -1; B.next = t + 2.5 + Math.random() * 3.5; } } }
+      for (const m of bl) if (m.mesh.morphTargetInfluences) m.mesh.morphTargetInfluences[m.index] = v;
+  } }  if (pendingSwapUrl) {
     if (avatarModel) {
       avatarAlpha -= dt * FADE_OUT_RATE;
       if (avatarAlpha <= 0) { avatarAlpha = 0; applyAvatarAlpha(0); const u = pendingSwapUrl; pendingSwapUrl = null; doSwap(u); }

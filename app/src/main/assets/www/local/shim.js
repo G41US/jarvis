@@ -14,6 +14,7 @@ import { registerDrivingTools } from './tools_driving.js';
 import { registerHomeTools } from './tools_home.js';
 import { registerUiTools, earningsInput } from './tools_ui.js';
 import { summary as earningsSummary } from './earnings.js';
+import { FACES, faceById, faceFor, faceForGender, DEFAULT_FACE } from './faces.js';
 import { createProactive, registerProactiveTools } from './proactive.js';
 import { createBrain } from './brain.js';
 import { createLearner } from './learn.js';
@@ -114,12 +115,33 @@ W.__jvVoices = json => {
 };
 function setVoice(q) {
   const t = String(q || '').toLowerCase().trim();
-  if (/\b(female|woman|girl|lady|her|she|amy)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'female', voice: '' }); ensurePcVoice(); return announceVoice().name; }
-  if (/\b(male|man|guy|him|he|deeper|alan)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'male', voice: '' }); ensurePcVoice(); return announceVoice().name; }
+  if (/\b(female|woman|girl|lady|her|she|amy)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'female', voice: '', face: faceForGender(cfgStore, 'female') }); faceChanged(); ensurePcVoice(); return announceVoice().name; }
+  if (/\b(male|man|guy|him|he|deeper|alan)\b/.test(t)) { cfgStore.merge({ avatar_gender: 'male', voice: '', face: faceForGender(cfgStore, 'male') }); faceChanged(); ensurePcVoice(); return announceVoice().name; }
   const hit = voiceList().find(v => v.id.toLowerCase() === t || v.raw.toLowerCase() === t || v.name.toLowerCase().includes(t));
   if (!hit) return null;
   const up = { voice: hit.id }; if (hit.gender) up.avatar_gender = hit.gender === 'f' ? 'female' : 'male';
   cfgStore.merge(up); if (hit.pc) ensurePcVoice(true); return announceVoice().name;
+}
+
+// ---------------------------------------------------------------- faces (faces.js): which face goes with the voice
+W.__jvFaceFor = wantMale => faceFor(cfgStore, wantMale);
+function faceChanged() { try { W.dispatchEvent(new Event('jv-face')); } catch {} }
+const avatarReady = (ms = 5000) => new Promise(res => { const done = () => { W.removeEventListener('jv-avatar-ready', done); clearTimeout(t); setTimeout(res, 350); }; const t = setTimeout(done, ms); W.addEventListener('jv-avatar-ready', done); });
+/** "Be Amara", "use the orb": the face changes (with the voice that goes with it, if that changes too). */
+async function chooseFace(id) {
+  const f = faceById(id);
+  if (!f) return `I don't have a face called ${id}. I can be ${FACES.filter(x => x.gender).map(x => x.name).join(', ')}, or just an orb of light.`;
+  const cur = cfgStore.get('face', '') || DEFAULT_FACE[cfgStore.get('avatar_gender', 'male') === 'female' ? 'female' : 'male'];
+  if (cur === f.id) return f.id === 'orb' ? "I'm already just the orb." : `I'm already ${f.name}.`;
+  const up = { face: f.id }, before = gender();
+  if (f.gender) up['face_' + f.gender] = f.id;
+  const newGender = f.gender && (f.gender === 'female') !== (before === 'f');
+  if (newGender) Object.assign(up, { avatar_gender: f.gender, voice: '' });
+  cfgStore.merge(up); faceChanged();
+  const ready = avatarReady();
+  if (newGender) { ensurePcVoice(); announceVoice(); } else if (W.__jvSyncFace) W.__jvSyncFace();
+  await ready;
+  return f.id === 'orb' ? 'Done. No face, just me.' : `Done. This is ${f.name}${newGender ? ', with my ' + f.gender + ' voice' : ''}.`;
 }
 
 /** "Switch to the female voice": the face fades out, the new one materialises, and the answer is spoken in the new voice
@@ -180,7 +202,7 @@ const navsvc = createNavService({ reg, config: cfgStore, delivery, broadcast, op
 const dtools = registerDeliveryTools({ reg, delivery, navsvc, openUrl, config: cfgStore, broadcast });
 setTimeout(() => { if (delivery.hasActive()) dtools.refresh().catch(() => {}); }, 2500);   // orders from before a restart: card and map come back
 let brain = null;
-const gctx = { reg, kv, nav: navigator_, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, switchVoice, onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
+const gctx = { reg, kv, nav: navigator_, http: httpJson, broadcast, config: cfgStore, delivery, navsvc, openUrl, voices: voiceList, setVoice, switchVoice, chooseFace: id => chooseFace(id), onMemoryChange: () => brain && brain.refreshPrompt(), llm: t => brain.llm(t), clearConversation: () => brain && brain.clearConversation() };
 registerGeneralTools(gctx);
 Object.assign(gctx, { api, parseWhen });
 const phone = registerPhoneTools(gctx);                 // also gives gctx reminderItems / calendarToday for the briefing
@@ -232,6 +254,7 @@ export function applySettings({ voiceChanged = false } = {}) {
   const u = String(cfgStore.get('units', 'auto')).toLowerCase(); delivery._unitsFixed = ['miles', 'mi', 'km'].includes(u); if (delivery._unitsFixed) delivery.units = u === 'km' ? 'km' : 'miles';
   navigator_.cfg.units = cfgStore.get('units', 'auto'); navigator_.cfg.language = cfgStore.get('nav_language', 'en-US');
   brain.refreshPrompt(); if (voiceChanged) announceVoice(); else applyVoice();
+  faceChanged(); try { W.__jvSyncFace && W.__jvSyncFace(); } catch {}                     // a face picked in settings
   const th = Number(cfgStore.get('wake_sensitivity', 0.3)); if (has('setWakeThreshold') && th) bridge().setWakeThreshold(th);
   if (typeof pushOfferPrefs === 'function') pushOfferPrefs();
   if (typeof proactive !== 'undefined' && proactive) proactive.scheduleBriefing();                // a new briefing time takes effect at once
@@ -333,7 +356,7 @@ if (W.JARVIS_IOS) reg.remove(IPHONE_CANT);                // after every tool is
 
 W.JARVIS = {
   wake: () => W.__jvWake(1, true), say: t => deliverTranscript(t), announce: t => broadcast('proactive:' + t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
-  kv, refreshMemory: () => brain && brain.refreshPrompt(), earningsNow: () => earningsSummary(earningsInput(delivery)),
+  kv, faces: FACES, chooseFace, refreshMemory: () => brain && brain.refreshPrompt(), earningsNow: () => earningsSummary(earningsInput(delivery)),
   phone, interp, proactive, learner, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };
