@@ -387,7 +387,8 @@ def main():
         pg.wait_for_timeout(300)
         ev("window.__native.tts.length=0"); pg.wait_for_timeout(1500)
         ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev("JARVIS.say('navigate to 100 Main Street')")
-        pg.wait_for_function("window.__ws.some(m=>m.startsWith('nav:'))", timeout=15000)
+        try: pg.wait_for_function("window.__ws.some(m=>m.startsWith('nav:'))", timeout=15000)
+        except Exception: print('DEBUG ws', ev('window.__ws')[:6], ev("document.getElementById('log').textContent.slice(-500)"), state['http'][-8:], ev("JSON.stringify(window.__native.tts.slice(-4))")); raise
         navmsgs = [json.loads(m[4:]) for m in ev('window.__ws') if m.startswith('nav:')]
         start = [m for m in navmsgs if m.get('cmd') in ('start', 'route')]
         check('nav start pushed over /ws with a route', bool(start), navmsgs[:2])
@@ -895,14 +896,18 @@ def main():
         check('skipping moves on', q('.card h2') == 'Open apps for you', q('.card h2'))
         p2.click('#jv-setup .done'); p2.wait_for_timeout(200)
         check('"finish later" closes it and it won\'t nag on every start', not p2.evaluate("document.getElementById('jv-setup').classList.contains('on')") and p2.evaluate("JARVIS.config.get('setup_v1')") is True)
-        p2.evaluate("JARVIS.openSettings()"); p2.wait_for_timeout(300); p2.click('#jv-setup-again'); p2.wait_for_timeout(300)
+        p2.evaluate("JARVIS.openSettings()"); p2.wait_for_timeout(300); p2.click('#jv-ov .mi[data-go=powers]'); p2.wait_for_timeout(200); p2.click('#jv-setup-again'); p2.wait_for_timeout(300)
         check('Settings has "Set up permissions, step by step" to come back to it', p2.evaluate("document.getElementById('jv-setup').classList.contains('on')") and not p2.evaluate("document.getElementById('jv-ov').classList.contains('on')"))
         p2.click('#jv-setup .done'); p2.wait_for_timeout(200)
         p2.evaluate("JARVIS.openSettings()"); p2.wait_for_timeout(200)
-        sv = p2.evaluate("""(() => { const b = document.getElementById('jv-brain'), adv = [...document.querySelectorAll('#jv-ov details')].find(d => d.querySelector('summary').textContent === 'Advanced');
+        menu = p2.evaluate("[...document.querySelectorAll('#jv-ov .mi')].map(b => b.textContent)")
+        check('settings opens on a menu of sections, Brain says it is connected', any(m.startswith('BrainConnected to the Jarvis service') for m in menu) and len(menu) >= 9, menu)
+        p2.click('#jv-ov .mi[data-go=brain]'); p2.wait_for_timeout(200)
+        check('a section opens as its own page, with a back button and its title', p2.evaluate("document.querySelector('#jv-ov .bar .t').textContent") == 'Brain' and p2.evaluate("getComputedStyle(document.querySelector('#jv-ov .bar .back')).display") != 'none')
+        sv = p2.evaluate("""(() => { const b = document.getElementById('jv-brain'), adv = document.querySelector('#jv-ov .page[data-id=advanced]');
           return { brainInputs: b.querySelectorAll('input[type=password]').length, brainText: b.textContent,
-                   advKey: [...adv.querySelectorAll('input')].some(i => i._key === 'groq_key'), advOpen: adv.open,
-                   visibleKey: [...document.querySelectorAll('#jv-ov input[type=password]')].filter(i => i._key === 'groq_key' && i.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })).map(i => i.closest('section,details').firstChild.textContent) }; })()""")
+                   advKey: [...adv.querySelectorAll('input')].some(i => i._key === 'groq_key'), advOpen: adv.classList.contains('on'),
+                   visibleKey: [...document.querySelectorAll('#jv-ov input[type=password]')].filter(i => i._key === 'groq_key' && i.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })).map(i => i.closest('section').firstChild.textContent) }; })()""")
         check('proxy build: settings shows "no key needed" and no key field', sv['brainInputs'] == 0 and 'No key' in sv['brainText'] and not sv['visibleKey'], sv)
         check('proxy build: optional own key lives under Advanced (closed)', sv['advKey'] and not sv['advOpen'], sv)
         p2.click('#jv-test'); p2.wait_for_function("document.querySelector('#jv-ov .msg.ok')", timeout=5000)
@@ -940,4 +945,5 @@ def main():
         b.close()
     print('FAILURES:', fails); sys.exit(1 if fails else 0)
 
-main()
+if __name__ == '__main__':
+    main()
