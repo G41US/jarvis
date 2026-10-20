@@ -10,47 +10,91 @@ const el = (tag, attrs = {}, ...kids) => {
 
 const CSS = `
 /* while settings are open nothing else is drawn: the 3D face stops, so the phone has its graphics memory for this screen */
-body.jv-settings #three, body.jv-settings #hud, body.jv-settings #jv-top, body.jv-settings #jv-cap, body.jv-settings #jv-dock,
+body.jv-settings #three, body.jv-settings #hud, body.jv-settings #jv-top, body.jv-settings #jv-cap, body.jv-settings #jv-card, body.jv-settings #jv-dock, body.jv-settings #jv-aura,
+body.jv-settings #jv-hello, body.jv-settings #jv-chips, body.jv-settings #jv-toast,
 body.jv-settings #bg-base, body.jv-settings #bg-rings, body.jv-settings #bg-halo, body.jv-settings #bg-floor, body.jv-settings #nav-frame, body.jv-settings #nav-orb { visibility: hidden !important; }
-#jv-ov { position: fixed; inset: 0; z-index: 80; background: #03070d; overflow-y: auto; -webkit-overflow-scrolling: touch; display: none; color: #e8f4ff;
-  font: 15px/1.45 Roboto, system-ui, sans-serif; }
+#jv-ov { position: fixed; inset: 0; z-index: 80; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; display: none; color: #eaf6ff;
+  background: radial-gradient(90% 40% at 50% 0%, #0d2136 0%, #050b14 60%, #03070c 100%) fixed; font: 15px/1.45 Roboto, system-ui, sans-serif; }
 #jv-ov.on { display: block; }
-#jv-ov .box { max-width: 560px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 18px) 18px 120px; }
-#jv-ov h1 { margin: 4px 0 4px; font: 600 28px/1.1 'Saira', system-ui, sans-serif; font-stretch: 90%; color: #7fd6ff; }
-#jv-ov .lead { margin: 0 0 8px; color: #6f8aa3; }
-#jv-ov section { margin-top: 26px; }
-#jv-ov h2 { margin: 0 0 4px; font: 600 18px/1.2 'Saira', system-ui, sans-serif; color: #e8f4ff; }
-#jv-ov p.hint { margin: 2px 0 10px; font-size: 13px; color: #6f8aa3; }
-#jv-ov label { display: block; margin: 12px 0 4px; font-size: 14px; color: #b9cfe3; }
-#jv-ov input, #jv-ov select { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid #1d3347; background: #081321; color: #e8f4ff; font-size: 16px; }
-#jv-ov input:focus, #jv-ov select:focus, #jv-ov button:focus-visible { outline: 2px solid #7fd6ff; outline-offset: 1px; }
-#jv-ov input[type=range] { padding: 0; border: 0; background: none; accent-color: #7fd6ff; height: 32px; }
-#jv-ov .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; } #jv-ov .row > * { flex: 1; }
-#jv-ov button { text-transform: none; letter-spacing: normal; text-shadow: none; font-family: Roboto, system-ui, sans-serif; padding: 12px 14px; border-radius: 10px; border: 1px solid #2a4a66; background: #0c1c2e; color: #cfe9ff; font-size: 15px; font-weight: 500; }
-#jv-ov button.pri { background: #7fd6ff; color: #03121f; border-color: #7fd6ff; font-weight: 600; }
-#jv-ov .seg { display: flex; border: 1px solid #1d3347; border-radius: 12px; overflow: hidden; }
-#jv-ov .seg button { flex: 1; border: 0; border-radius: 0; background: transparent; color: #9fb7cc; padding: 13px; }
-#jv-ov .seg button[aria-pressed=true] { background: #12324c; color: #e8f4ff; box-shadow: inset 0 -2px 0 #7fd6ff; }
-#jv-ov .msg { min-height: 20px; margin-top: 8px; font-size: 14px; } #jv-ov .ok { color: #5ef0a0; } #jv-ov .bad { color: #ff7a7a; }
-#jv-ov .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 18px calc(env(safe-area-inset-bottom, 0px) + 14px); background: linear-gradient(transparent, #03070d 30%); }
-#jv-ov .bar .row { max-width: 560px; margin: 0 auto; }
-#jv-ov details { margin-top: 26px; border-top: 1px solid #12253a; padding-top: 14px; }
-#jv-ov summary { font: 600 18px/1.2 'Saira', system-ui, sans-serif; color: #e8f4ff; cursor: pointer; }
+#jv-ov .box { max-width: 560px; margin: 0 auto; padding: 8px 16px calc(env(safe-area-inset-bottom, 0px) + 40px); }
+/* header: close or back on the left, the title, Done on the right */
+#jv-ov .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px; padding: calc(env(safe-area-inset-top, 0px) + 10px) 10px 10px;
+  background: rgba(4, 10, 18, .82); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-bottom: 1px solid rgba(160, 215, 255, .08); }
+#jv-ov .bar .t { flex: 1; min-width: 0; font: 600 19px/1.2 'Saira', system-ui, sans-serif; font-stretch: 96%; color: #eaf6ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+#jv-ov .bar .ic { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #9db3c6; display: grid; place-items: center; flex: none; }
+#jv-ov .bar .ic svg { width: 22px; height: 22px; }
+#jv-ov .bar .pri { padding: 10px 18px; border-radius: 999px; flex: none; }
+#jv-ov[data-page] .bar .x, #jv-ov:not([data-page]) .bar .back { display: none; }
+#jv-ov .bar .msg { display: none; }
+/* the menu */
+#jv-ov .hero { display: flex; align-items: center; gap: 14px; margin: 14px 4px 22px; }
+#jv-ov .hero .mark { width: 52px; height: 52px; border-radius: 50%; flex: none; background: radial-gradient(circle, #b6ecff 0 20%, rgba(127, 216, 255, .25) 24%, transparent 46%);
+  border: 2px solid #7fd8ff; box-shadow: inset 0 0 0 6px #050b14, inset 0 0 0 7.5px rgba(127, 216, 255, .55), 0 0 22px rgba(127, 216, 255, .35); }
+#jv-ov .hero h1 { margin: 0; font: 600 26px/1.1 'Saira', system-ui, sans-serif; font-stretch: 105%; color: #eaf6ff; }
+#jv-ov .hero p { margin: 3px 0 0; font-size: 14px; color: #8aa1b5; }
+#jv-ov .grp { margin: 0 4px 8px; font: 500 13px/1 Roboto, sans-serif; color: #8aa1b5; }
+#jv-ov .menu { margin: 0 0 20px; border-radius: 20px; overflow: hidden; background: rgba(14, 28, 44, .62); border: 1px solid rgba(160, 215, 255, .08); }
+#jv-ov .mi { width: 100%; display: flex; align-items: center; gap: 14px; padding: 13px 14px; border: 0; border-radius: 0; background: transparent; text-align: left; color: #eaf6ff; }
+#jv-ov .mi + .mi { border-top: 1px solid rgba(160, 215, 255, .07); }
+#jv-ov .mi:active { background: rgba(127, 216, 255, .06); }
+#jv-ov .mi .ico { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; flex: none; background: color-mix(in srgb, var(--c) 18%, transparent); color: var(--c); }
+#jv-ov .mi .ico svg { width: 21px; height: 21px; }
+#jv-ov .mi .tx { flex: 1; min-width: 0; }
+#jv-ov .mi .tx b { display: block; font-weight: 500; font-size: 16px; line-height: 1.25; }
+#jv-ov .mi .tx span { display: block; font-size: 13px; color: #8aa1b5; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#jv-ov .mi .tx span.ok { color: #52f2b6; } #jv-ov .mi .tx span.warn { color: #ffb24c; }
+#jv-ov .mi::after { content: ''; width: 8px; height: 8px; flex: none; border-right: 2px solid #61798d; border-top: 2px solid #61798d; transform: rotate(45deg); margin-right: 4px; }
+#jv-ov[data-page] .hero, #jv-ov[data-page] .grp, #jv-ov[data-page] .menu { display: none; }
+/* a page */
+#jv-ov .page { display: none; padding-top: 6px; }
+#jv-ov .page.on { display: block; }
+#jv-ov .page > h2 { display: none; }
+#jv-ov .page > p.hint:first-of-type { font-size: 14px; color: #9db3c6; margin: 6px 4px 14px; }
+#jv-ov p.hint { margin: 4px 2px 10px; font-size: 13px; color: #7f97ab; }
+#jv-ov label { display: block; margin: 16px 2px 6px; font-size: 14px; color: #c3d7e8; }
+#jv-ov input, #jv-ov select { width: 100%; box-sizing: border-box; padding: 13px 14px; border-radius: 14px; border: 1px solid rgba(160, 215, 255, .14); background: rgba(10, 22, 38, .9); color: #eaf6ff; font-size: 16px; }
+#jv-ov select { -webkit-appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, #9db3c6 50%), linear-gradient(135deg, #9db3c6 50%, transparent 50%); background-position: calc(100% - 20px) 55%, calc(100% - 15px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 36px; }
+#jv-ov input:focus, #jv-ov select:focus, #jv-ov button:focus-visible { outline: 2px solid #7fd8ff; outline-offset: 1px; }
+#jv-ov input[type=range] { padding: 0; border: 0; background: none; accent-color: #7fd8ff; height: 32px; }
+#jv-ov .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; } #jv-ov .row > * { flex: 1; }
+#jv-ov button { text-transform: none; letter-spacing: normal; text-shadow: none; font-family: Roboto, system-ui, sans-serif; padding: 13px 16px; border-radius: 14px; border: 1px solid rgba(160, 215, 255, .16); background: rgba(16, 32, 50, .9); color: #d6ecff; font-size: 15px; font-weight: 500; }
+#jv-ov button:active { transform: scale(.98); }
+#jv-ov button.pri { background: #7fd8ff; color: #03121f; border-color: #7fd8ff; font-weight: 600; }
+#jv-ov .seg { display: flex; padding: 4px; gap: 4px; border-radius: 16px; background: rgba(10, 22, 38, .9); border: 1px solid rgba(160, 215, 255, .12); }
+#jv-ov .seg button { flex: 1; border: 0; border-radius: 12px; background: transparent; color: #9db3c6; padding: 12px; }
+#jv-ov .seg button[aria-pressed=true] { background: #16324c; color: #eaf6ff; box-shadow: 0 0 0 1px rgba(127, 216, 255, .35); }
+#jv-ov .msg { min-height: 20px; margin-top: 8px; font-size: 14px; } #jv-ov .ok { color: #52f2b6; } #jv-ov .bad { color: #ff7a85; }
 /* hearing check */
-#jv-diag { margin-top: 10px; padding: 14px; border-radius: 14px; background: #081321; border: 1px solid #12253a; }
-#jv-diag .meter { position: relative; height: 10px; border-radius: 5px; background: #102235; overflow: hidden; margin: 8px 0 4px; }
-#jv-diag .meter b { position: absolute; inset: 0; background: #5ef0a0; transform-origin: 0 50%; transform: scaleX(0); will-change: transform; }
-#jv-diag .meter.wake b { background: #7fd6ff; }
-#jv-diag dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; font-size: 14px; }
-#jv-diag dt { color: #6f8aa3; } #jv-diag dd { margin: 0; color: #e8f4ff; overflow-wrap: anywhere; } #jv-diag dd.bad { color: #ff7a7a; }
-#jv-diag .flash { color: #5ef0a0; font-weight: 600; }
+#jv-diag { margin-top: 14px; padding: 16px; border-radius: 18px; background: rgba(10, 22, 38, .9); border: 1px solid rgba(160, 215, 255, .1); }
+#jv-diag .meter { position: relative; height: 10px; border-radius: 5px; background: #102235; overflow: hidden; margin: 8px 0 10px; }
+#jv-diag .meter b { position: absolute; inset: 0; background: #52f2b6; transform-origin: 0 50%; transform: scaleX(0); will-change: transform; border-radius: 5px; }
+#jv-diag .meter.wake b { background: #7fd8ff; }
+#jv-diag dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 12px 0 0; font-size: 14px; }
+#jv-diag dt { color: #7f97ab; } #jv-diag dd { margin: 0; color: #eaf6ff; overflow-wrap: anywhere; } #jv-diag dd.bad { color: #ff7a85; }
+#jv-diag .flash { color: #52f2b6; font-weight: 600; }
 /* phone powers */
-#jv-ov .pw { padding: 12px 0; border-top: 1px solid #12253a; }
-#jv-ov .pw-t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 15px; color: #e8f4ff; }
-#jv-ov .pw-st { font-size: 13px; color: #6f8aa3; white-space: nowrap; } #jv-ov .pw-st.ok { color: #5ef0a0; }
-#jv-ov .pw p.hint { margin: 4px 0 8px; }
-#jv-ov .pw button { padding: 9px 16px; }
+#jv-ov .pw { padding: 14px 2px; border-top: 1px solid rgba(160, 215, 255, .08); }
+#jv-ov .pw-t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 15px; color: #eaf6ff; }
+#jv-ov .pw-st { font-size: 13px; color: #7f97ab; white-space: nowrap; } #jv-ov .pw-st.ok { color: #52f2b6; }
+#jv-ov .pw p.hint { margin: 4px 0 10px; }
+#jv-ov .pw button { padding: 9px 18px; border-radius: 999px; }
+@media (prefers-reduced-motion: reduce) { #jv-ov button:active { transform: none; } }
 `;
+
+const SVG = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+/** The menu: each section's page, its icon and colour, and the group it sits in. */
+const PAGES = {
+  'Brain': { id: 'brain', grp: 'Jarvis', c: '#7fd8ff', ic: SVG('<path d="M9 4.5a3 3 0 0 0-3 3v.3A3 3 0 0 0 4.5 13a3 3 0 0 0 2 4.8A3 3 0 0 0 12 19V6a2.5 2.5 0 0 0-3-1.5zM15 4.5a3 3 0 0 1 3 3v.3a3 3 0 0 1 1.5 5.2 3 3 0 0 1-2 4.8A3 3 0 0 1 12 19"/>') },
+  'Voice and face': { id: 'voice', grp: 'Jarvis', c: '#b59bff', ic: SVG('<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/>') },
+  'Hearing': { id: 'hearing', grp: 'Jarvis', c: '#52f2b6', ic: SVG('<path d="M7 9a5 5 0 0 1 10 0c0 3-3 3.5-3 6.5a3 3 0 0 1-5.5 1.6M10 9.5a2 2 0 0 1 4 0"/>') },
+  'Offer reader': { id: 'offer', grp: 'On the road', c: '#ffb24c', ic: SVG('<rect x="4" y="5" width="16" height="14" rx="3"/><path d="M8 10h8M8 14h5"/>') },
+  'Navigation and deliveries': { id: 'nav', grp: 'On the road', c: '#ffb24c', ic: SVG('<path d="M12 21s-6-5.3-6-10.5a6 6 0 0 1 12 0C18 15.7 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/>') },
+  'Alerts': { id: 'alerts', grp: 'On the road', c: '#ffb24c', ic: SVG('<path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9M10 20a2.2 2.2 0 0 0 4 0"/>') },
+  'Phone powers': { id: 'powers', grp: 'This phone', c: '#7fd8ff', ic: SVG('<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M12 7.5l-2 4h4l-2 4"/>') },
+  'Safety': { id: 'safety', grp: 'This phone', c: '#ff5a67', ic: SVG('<path d="M12 3l7 3v5c0 5-3.2 8.3-7 10-3.8-1.7-7-5-7-10V6z"/><path d="M12 9v4M12 16h.01"/>') },
+  'Smart home': { id: 'home', grp: 'This phone', c: '#52f2b6', ic: SVG('<path d="M4 11l8-6.5 8 6.5M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/>') },
+  'Advanced': { id: 'advanced', grp: 'More', c: '#9db3c6', ic: SVG('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>') },
+};
 
 function field(kind, key, label, opts = {}) {
   const c = J().config, cur = c.get(key, opts.def ?? '');
@@ -68,9 +112,26 @@ export function initSettings() {
   const ov = el('div', { id: 'jv-ov', role: 'dialog', 'aria-label': 'Settings' }), box = el('div', { class: 'box' }); ov.append(box);
   const inputs = [];
   const add = (parent, kind, key, label, opts) => { const [w, i] = field(kind, key, label, opts); inputs.push(i); parent.append(w); return i; };
-  const section = (title, hint) => { const s = el('section'); s.append(el('h2', {}, title)); if (hint) s.append(el('p', { class: 'hint' }, hint)); box.append(s); return s; };
-
-  box.append(el('h1', {}, 'Jarvis'), el('p', { class: 'lead' }, 'Settings stay on this phone.'));
+  const pages = [];
+  const section = (title, hint) => {
+    const meta = PAGES[title] || { id: title.toLowerCase().replace(/\W+/g, '-'), grp: 'More', c: '#9db3c6', ic: '' };
+    const s = el('section', { class: 'page', 'data-id': meta.id }); s.append(el('h2', {}, title)); if (hint) s.append(el('p', { class: 'hint' }, hint));
+    box.append(s); pages.push({ title, s, ...meta }); return s;
+  };
+  // header: close (menu) or back (a page), the title, Done (saves). The first button is always "close without saving".
+  const bClose = el('button', { type: 'button', class: 'ic x', 'aria-label': 'Close without saving' }), bBack = el('button', { type: 'button', class: 'ic back', 'aria-label': 'Back to settings' });
+  bClose.innerHTML = SVG('<path d="M6 6l12 12M18 6L6 18"/>'); bBack.innerHTML = SVG('<path d="M15 5l-7 7 7 7"/>');
+  const barTitle = el('span', { class: 't' }, 'Settings'), bDone = el('button', { type: 'button', class: 'pri' }, 'Done');
+  const hero = el('div', { class: 'hero' }, el('div', { class: 'mark', 'aria-hidden': 'true' }), el('div', {}, el('h1', {}, 'Jarvis'), el('p', {}, 'Settings stay on this phone.')));
+  const menuWrap = el('div');
+  box.append(hero, menuWrap);
+  const go = id => {
+    if (id) ov.setAttribute('data-page', id); else ov.removeAttribute('data-page');
+    for (const p of pages) p.s.classList.toggle('on', p.id === id);
+    const pg = pages.find(p => p.id === id); barTitle.textContent = pg ? pg.title : 'Settings';
+    ov.scrollTop = 0;
+  };
+  bBack.onclick = () => go(null);
 
   // ---- brain
   // A build linked to the Jarvis service needs no key: the key field only exists under Advanced, as an optional override.
@@ -265,7 +326,7 @@ export function initSettings() {
   add(sAl, 'select', 'pa_breaks', 'Break reminders on long shifts', { def: 'true', options: yesNo });
 
   // ---- navigation & delivery
-  const nd = el('details'); nd.append(el('summary', {}, 'Navigation and deliveries')); box.append(nd);
+  const nd = section('Navigation and deliveries', 'Maps, distances and the pay you accept.');
   add(nd, 'select', 'units', 'Distance', { def: 'auto', options: [['auto', 'Automatic'], ['miles', 'Miles'], ['km', 'Kilometres']] });
   add(nd, 'text', 'currency', 'Currency symbol', { def: '$', ph: '$' });
   add(nd, 'text', 'areas', 'Busy areas (comma-separated)', { ph: 'Downtown, Airport', hint: 'Used to suggest where to wait between orders.' });
@@ -277,7 +338,7 @@ export function initSettings() {
   add(nd, 'password', 'google_key', 'Google Maps JavaScript API key (optional)', { ph: 'AIza…' });
   add(nd, 'password', 'apple_token', 'Apple MapKit JS token (optional)', { ph: 'eyJ…' });
 
-  const adv = el('details'); adv.append(el('summary', {}, 'Advanced')); box.append(adv);
+  const adv = section('Advanced', 'How hard Jarvis thinks, what he learns, and the model he uses.');
   add(adv, 'select', 'reasoning', 'Thinking effort', { def: 'auto', options: [['auto', 'Automatic: quick for simple things, deeper for hard questions'], ['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High (slowest, most careful)']] });
   add(adv, 'select', 'learn', 'Learn about me from our conversations', { def: 'true', options: [['true', 'Yes: remember lasting things I mention (name, people, places, likes)'], ['false', 'No: only when I say "remember"']] });
   add(adv, 'text', 'groq_model', 'Model', { ph: 'openai/gpt-oss-120b' });
@@ -293,7 +354,8 @@ export function initSettings() {
     J().config.merge(out); J().applySettings({ voiceChanged: true });
     saveMsg.className = 'msg ok'; saveMsg.textContent = 'Saved.'; setTimeout(close, 300);
   };
-  ov.append(el('div', { class: 'bar' }, el('div', { class: 'row' }, el('button', { type: 'button', onclick: close }, 'Close'), el('button', { type: 'button', class: 'pri', onclick: save }, 'Save')), saveMsg));
+  bClose.onclick = close; bDone.onclick = save;
+  ov.prepend(el('div', { class: 'bar' }, bClose, bBack, barTitle, bDone)); saveMsg.hidden = true; box.append(saveMsg);
   document.body.append(ov);
 
   let powTick = 0;
@@ -304,7 +366,32 @@ export function initSettings() {
       if (i.tagName === 'SELECT' && i.value !== String(v ?? '')) i.value = i.options[0].value;
     }
   };
-  const open = () => { reload(); J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); paintEc(); };
+  const menuSub = {
+    brain: () => J().api.ready() ? [J().api.mode() === 'proxy' ? 'Connected to the Jarvis service' : 'Using your Groq key', 'ok'] : ['Needs a key', 'warn'],
+    voice: () => [(gender === 'female' ? 'Female' : 'Male') + ' voice and face'],
+    hearing: () => { const s = J().stats || {}; return [s.wake ? `Wake word ready, ${s.wakes || 0} wakes so far` : 'Wake word loading']; },
+    offer: () => { const st = J().offerStatus ? J().offerStatus() : null; return st && st.enabled ? ['On', 'ok'] : ['Off']; },
+    nav: () => [`${{ jarvis: 'Jarvis map', google: 'Google Maps', apple: 'Apple Maps' }[J().config.get('map_provider', 'jarvis')] || 'Jarvis map'}, ${{ auto: 'automatic units', miles: 'miles', km: 'kilometres' }[J().config.get('units', 'auto')] || 'automatic units'}`],
+    alerts: () => { const b = J().config.get('pa_briefing', ''); return [b ? `Morning briefing at ${b}` : 'No morning briefing']; },
+    powers: () => { const st = J().phone ? J().phone.status() : {}; const ks = POWERS.map(([k]) => k); const on = ks.filter(k => st && st[k]).length; return [`${on} of ${ks.length} on`, on === ks.length ? 'ok' : '']; },
+    safety: () => { const n = (J().config.get('emergency_contacts', []) || []).length; return [n ? `${n} emergency contact${n > 1 ? 's' : ''}` : 'No emergency contacts yet', n ? 'ok' : 'warn']; },
+    home: () => [J().config.get('ha_url', '') ? 'Home Assistant' : J().config.get('hue_user', '') ? 'Philips Hue' : 'Not connected'],
+    advanced: () => [{ auto: 'Automatic thinking', low: 'Fast thinking', medium: 'Medium thinking', high: 'Careful thinking' }[J().config.get('reasoning', 'auto')] || 'Automatic thinking'],
+  };
+  const paintMenu = () => {
+    menuWrap.replaceChildren();
+    let grp = null, list = null;
+    const ORDER = ['Jarvis', 'On the road', 'This phone', 'More'];
+    for (const p of [...pages].sort((a, b) => ORDER.indexOf(a.grp) - ORDER.indexOf(b.grp))) {
+      if (p.s.style.display === 'none') continue;                     // a section this phone doesn't have
+      if (p.grp !== grp) { grp = p.grp; menuWrap.append(el('div', { class: 'grp' }, grp)); list = el('div', { class: 'menu' }); menuWrap.append(list); }
+      let sub = ['', '']; try { sub = (menuSub[p.id] || (() => ['']))(); } catch {}
+      const ico = el('span', { class: 'ico', 'aria-hidden': 'true', style: `--c:${p.c}` }); ico.innerHTML = p.ic;
+      const b = el('button', { type: 'button', class: 'mi', 'data-go': p.id }, ico, el('span', { class: 'tx' }, el('b', {}, p.title), el('span', { class: sub[1] || '' }, sub[0] || '')));
+      b.onclick = () => go(p.id); list.append(b);
+    }
+  };
+  const open = page => { reload(); J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); paintEc(); paintMenu(); go(typeof page === 'string' ? page : (!J().api.ready() ? 'brain' : null)); };
   J().openSettings = open;
-  if (!J().api.ready()) open();
+  if (!J().api.ready()) open('brain');
 }

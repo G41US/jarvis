@@ -572,7 +572,7 @@ function animate() {
   sharedUniforms.uTime.value = t;
   const target = (appState === 'speaking') ? 1 : 0;
   speakingAmount += (target - speakingAmount) * Math.min(1, dt * 8.0);
-  sharedUniforms.uSpeaking.value = speakingAmount;
+  sharedUniforms.uSpeaking.value = speakingAmount; window.__jvSpeak = speakingAmount;
   driveLipSync(t, speakingAmount);
   if (pendingSwapUrl) {
     if (avatarModel) {
@@ -588,6 +588,13 @@ function animate() {
   camera.position.x = CAM_BASE.x + Math.sin(t*0.1)*0.08;
   camera.position.y = CAM_BASE.y + Math.cos(t*0.08)*0.06;
   camera.position.z = CAM_BASE.z * camFit;
+  { const want = window.__jvStage || { ty: 0, s: 1 }, cur = window.__jvStageCur || (window.__jvStageCur = { ty: 0, s: 1 });
+    const k = window.__jvStageInstant ? 1 : Math.min(1, dt * 7);
+    cur.ty += (want.ty - cur.ty) * k; cur.s += (want.s - cur.s) * k;
+    if (Math.abs(want.ty - cur.ty) < 0.3) cur.ty = want.ty; if (Math.abs(want.s - cur.s) < 0.001) cur.s = want.s;
+    const w = window.innerWidth, h = window.innerHeight;
+    if (cur.ty !== 0 || cur.s !== 1) { camera.zoom = cur.s; camera.setViewOffset(w, h, 0, -cur.ty, w, h); camera.updateProjectionMatrix(); cur.on = true; }
+    else if (cur.on) { camera.zoom = 1; camera.clearViewOffset(); camera.updateProjectionMatrix(); cur.on = false; } }
   camera.lookAt(CAM_LOOK);
   const yaw = mouseNormX * 0.05, pitch = -mouseNormY * 0.03;
   faceGroup.rotation.y += (yaw - faceGroup.rotation.y) * 0.04;

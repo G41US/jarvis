@@ -24,7 +24,7 @@ const CSS = `
   font: 15px/1.5 Roboto, system-ui, sans-serif; overflow-y: auto; }
 #jv-setup.on { display: block; }
 #jv-setup .wrap { max-width: 520px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 28px) 20px calc(env(safe-area-inset-bottom, 0px) + 28px); min-height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
-#jv-setup .kicker { font: 600 13px/1 'Saira', system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #7fd6ff; }
+#jv-setup .kicker { font: 500 14px/1 'Saira', system-ui, sans-serif; color: #7fd6ff; }
 #jv-setup h1 { margin: 10px 0 6px; font: 600 30px/1.1 'Saira', system-ui, sans-serif; color: #fff; }
 #jv-setup .lead { color: #8ea9c1; margin: 0 0 18px; }
 #jv-setup .dots { display: flex; gap: 6px; margin: 4px 0 22px; }

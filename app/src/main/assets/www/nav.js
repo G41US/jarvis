@@ -26,7 +26,7 @@ const CSS = `
 #nav-map .nav-layer { position: absolute; inset: 0; opacity: 0; transition: opacity .6s; }
 #nav-map .nav-layer.ready { opacity: 1; }
 #nav-map canvas { width: 100%; height: 100%; display: block; }
-.nav-box { position: absolute; inset: 0; }
+#nav-map .nav-box { position: absolute; inset: 0; }
 .nav-note { position: absolute; right: 24px; bottom: 68px; text-align: right; font-size: 10px; letter-spacing: 2px; color: #ddbb88; text-transform: uppercase; opacity: .8; }
 body[data-nav] #hud { z-index: 7; }
 body[data-nav="full"] #nav-frame { opacity: 1; clip-path: circle(160vmax at var(--orb-cx) var(--orb-cy)); }

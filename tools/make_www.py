@@ -74,6 +74,17 @@ function frameByHead(model) {
 }
 """
 
+# The phone layout (ui.js) asks for the face to lift and shrink while the answer card is up: window.__jvStage = {ty, s}.
+# Done with the camera (zoom + view offset) rather than by moving the canvas, so there is never a visible canvas edge.
+STAGE_JS = r"""
+  { const want = window.__jvStage || { ty: 0, s: 1 }, cur = window.__jvStageCur || (window.__jvStageCur = { ty: 0, s: 1 });
+    const k = window.__jvStageInstant ? 1 : Math.min(1, dt * 7);
+    cur.ty += (want.ty - cur.ty) * k; cur.s += (want.s - cur.s) * k;
+    if (Math.abs(want.ty - cur.ty) < 0.3) cur.ty = want.ty; if (Math.abs(want.s - cur.s) < 0.001) cur.s = want.s;
+    const w = window.innerWidth, h = window.innerHeight;
+    if (cur.ty !== 0 || cur.s !== 1) { camera.zoom = cur.s; camera.setViewOffset(w, h, 0, -cur.ty, w, h); camera.updateProjectionMatrix(); cur.on = true; }
+    else if (cur.on) { camera.zoom = 1; camera.clearViewOffset(); camera.updateProjectionMatrix(); cur.on = false; } }"""
+
 CAMERA_FIT = r"""
 // phone: pull the camera back on tall, narrow screens so the whole face fits (added by make_www.py)
 let camFit = 1;
@@ -116,7 +127,7 @@ def main():
 
     html = sub_once(html, "camera.lookAt(CAM_LOOK);\n\nwindow.addEventListener('resize', () => {\n",
                     "camera.lookAt(CAM_LOOK);\n" + CAMERA_FIT + "\nwindow.addEventListener('resize', () => {\n  fitCamera();\n", 'camera fit')
-    html = sub_once(html, 'camera.position.z = CAM_BASE.z;', 'camera.position.z = CAM_BASE.z * camFit;', 'camera z')
+    html = sub_once(html, 'camera.position.z = CAM_BASE.z;', 'camera.position.z = CAM_BASE.z * camFit;' + STAGE_JS, 'camera z')
 
 
     # ---- the app records the microphone natively (VoiceEngine.java); the page only receives transcripts
@@ -199,6 +210,8 @@ def main():
     html = sub_once(html, "function hasEndPhrase(text) { const t = cleanPunct(text);", "function hasEndPhrase(text) { if (window.__jvInterpreting) return false; const t = cleanPunct(text);", 'interpreter end phrases')
     html = sub_once(html, "if (words.length < MIN_WORDS) {", "if (words.length < (window.__jvInterpreting || (window.__jvShortOk && window.__jvShortOk(text)) ? 1 : MIN_WORDS)) {", 'interpreter short replies, one-word commands')
 
+    # ---- how loud Jarvis is speaking right now, for the ring of light around his face (ui.js)
+    html = sub_once(html, "  sharedUniforms.uSpeaking.value = speakingAmount;", "  sharedUniforms.uSpeaking.value = speakingAmount; window.__jvSpeak = speakingAmount;", 'speaking level for the aura')
     # ---- voice change, cinematic: the old face fades out, the new one materialises in a flare of light, and Jarvis
     #      speaks in the new voice once the new face is up (shim.js waits for 'jv-avatar-ready')
     html = sub_once(html, "    gidPlane.visible = false; faceGroup.add(avatarModel);\n",
@@ -230,6 +243,9 @@ def main():
     nav = sub_once(nav, "      document.body.setAttribute('data-nav', mode);\n", "      document.body.setAttribute('data-nav', mode);\n      startGps();\n", 'map view starts gps')
     nav = sub_once(nav, "case 'view': if (m.mode === 'full' || m.mode === 'mini')", "case 'view': if (m.mode === 'full' || m.mode === 'mini' || m.mode === 'dash')", 'dash view message')
     nav = sub_once(nav, "    if (meta.view !== 'keep') setView(S.view === 'mini' ? 'mini' : 'full');", "    if (meta.view !== 'keep') setView(meta.view === 'dash' ? 'dash' : S.view === 'mini' ? 'mini' : 'full');", 'dash route view')
+    # MapLibre's stylesheet (loaded later) sets .maplibregl-map { position: relative }, which collapsed the map box to zero
+    # height: the map drew, but invisibly. A more specific rule keeps the box filling its frame.
+    nav = sub_once(nav, ".nav-box { position: absolute; inset: 0; }", "#nav-map .nav-box { position: absolute; inset: 0; }", 'map box stays full size')
     open(os.path.join(WWW, 'nav.js'), 'w', encoding='utf-8').write(nav)
     shutil.copyfile(os.path.join(SRC, 'nav_core.js'), os.path.join(WWW, 'nav_core.js'))
     os.makedirs(os.path.join(WWW, 'models'), exist_ok=True)
