@@ -210,6 +210,7 @@ BRIDGE = r"""
     setMuted(on) {}, setWakeThreshold(t) { window.__native.threshold = t; },
     tone(f, ms, v) { window.__native.tones++; },
     vibrate(k) { (window.__native.vib = window.__native.vib || []).push(k); },
+    widget(j) { (window.__native.widget = window.__native.widget || []).push(JSON.parse(j)); }, pinWidget() { window.__native.pinned = 1; return 'asked'; }, widgetCount() { return 0; },
     pcVoices() { return JSON.stringify(window.__pc); },
     pcVoiceDownload(n) { window.__native.pcDownloads.push(n); window.__pc[n] = 'downloading:40'; window.__jvVoices(JSON.stringify(window.__pc));
       setTimeout(() => { window.__pc[n] = 'ready'; window.__jvVoices(JSON.stringify(window.__pc)); }, 300); },
@@ -542,6 +543,47 @@ def main():
         pg.wait_for_function("!document.body.classList.contains('jv-talking')", timeout=20000)
         check('...and clears itself shortly after he is done', not ev("document.body.classList.contains('jv-talking')"))
         ev("JARVIS.uiTiming.answerMs = 10000")
+
+        # ---- earnings page, what Jarvis knows, driving mode
+        ev("""(() => { const d = JARVIS.delivery._db(), now = Date.now() / 1000;
+              for (const [ago, pay, area, r] of [[0.5, 9.5, 'Tempe, AZ', 'Chipotle'], [1.2, 12, 'Tempe, AZ', 'Wingstop'], [26, 7, 'Mesa, AZ', 'Chipotle'], [50, 11, 'Tempe, AZ', 'Chipotle']])
+                d.log.push({ platform: 'DoorDash', restaurant: r, payout: pay, accepted_at: now - ago * 3600 - 1200, delivered_at: now - ago * 3600, area });
+              JARVIS.delivery._save(d); })()""")
+        r = ev("JARVIS.reg.exec('show_earnings', JSON.stringify({ focus: 'week' }))"); pg.wait_for_timeout(300)
+        check('"show my earnings" opens the Earnings page and says the headline', ev("document.getElementById('jv-pane').classList.contains('on')") and 'This week' in r and 'order' in r, r)
+        txt = ev("document.getElementById('jv-pane').innerText")
+        check('the page has the week total, 7 bars, best areas', ev("document.querySelectorAll('#jv-pane .bars button').length") == 7 and 'Best-paying areas' in txt and 'Tempe, AZ' in txt, txt[:300])
+        ev("document.querySelector('#jv-pane .seg button').click()"); pg.wait_for_timeout(100)
+        today = ev("'$' + JARVIS.earningsNow().today.earned.toFixed(2)")
+        check('Today shows today only (incl. the two just now)', today == ev("document.querySelector('#jv-pane .hero').textContent") and ev("JARVIS.earningsNow().today.orders") >= 2 and ev("JARVIS.earningsNow().week.earned") > ev("JARVIS.earningsNow().today.earned"), [today, ev("document.querySelector('#jv-pane .hero').textContent")])
+        check('the face stops while it is open', ev("window.__jvPaused") is True)
+        ev("document.querySelector('#jv-pane .back').click()"); pg.wait_for_timeout(100)
+        check('closing it brings the face back', ev("window.__jvPaused") is False and not ev("document.body.classList.contains('jv-pane')"))
+        ev("JARVIS.kv.set('memories', [{ fact: 'Drives for DoorDash in Tempe', ts: Date.now() }, { fact: 'Likes jollof rice', ts: Date.now() }]); JARVIS.kv.set('prefs', ['Keep answers short'])")
+        r = ev("JARVIS.reg.exec('show_what_you_know', '{}')"); pg.wait_for_timeout(200)
+        txt = ev("document.getElementById('jv-pane').innerText")
+        check('"what do you know about me" lists facts and preferences', 'Likes jollof rice' in txt and 'Keep answers short' in txt and '2 things about you' in r, r)
+        ev("document.querySelector('#jv-pane .del[aria-label=\"Forget Likes jollof rice\"]').click()"); pg.wait_for_timeout(100)
+        check('tapping x forgets it', [m['fact'] for m in ev("JARVIS.kv.get('memories', [])")] == ['Drives for DoorDash in Tempe'] and 'Likes jollof rice' not in ev("document.getElementById('jv-pane').innerText"))
+        ev("document.querySelector('#jv-pane .back').click()")
+        r = ev("JARVIS.reg.exec('set_driving_mode', JSON.stringify({ mode: 'on' }))"); pg.wait_for_timeout(400)
+        check('driving mode on: big glanceable screen, the face rests', ev("document.body.classList.contains('jv-drive')") and ev("window.__jvHideFace") is True
+              and ev("getComputedStyle(document.getElementById('jv-drive')).display") == 'flex' and today in ev("document.querySelector('#jv-drive .dv-money').textContent"), ev("document.getElementById('jv-drive').innerText")[:200])
+        ev("document.querySelector('#jv-drive .dv-today').click()"); pg.wait_for_timeout(100)
+        check('tapping today\'s pay opens the Earnings page', ev("document.getElementById('jv-pane').classList.contains('on')")); ev("document.querySelector('#jv-pane .back').click()")
+        ev("document.querySelector('#jv-drive .dv-x').click()"); pg.wait_for_timeout(200)
+        check('the x leaves driving mode (and the face comes back)', not ev("document.body.classList.contains('jv-drive')") and ev("window.__jvHideFace") is False and ev("JARVIS.config.get('drive_mode')") == 'auto')
+        ev("JARVIS.reg.exec('set_driving_mode', JSON.stringify({ mode: 'auto' }))")
+        pg.wait_for_timeout(5300)
+        w = (ev("window.__native.widget") or [{}])[-1]
+        check('the home-screen widget shows today\'s pay and opens Earnings', w.get('line1', '').startswith('Today $') and w.get('open') == 'earnings', w)
+        ev("window.__fakeWake = true; window.__native.vib = []; window.__jvWake(0.8)"); pg.wait_for_timeout(200)
+        check('"Hey Jarvis" buzzes', 'wake' in (ev("window.__native.vib") or []))
+        ev("window.__native.vib = []; JARVIS.wake()"); pg.wait_for_timeout(200)
+        check('...a tap on the button does not buzz', 'wake' not in (ev("window.__native.vib") or []))
+        ev("document.getElementById('jv-hist').click()"); pg.wait_for_timeout(100)
+        check('the conversation sheet links to Earnings, What I know and Settings', [b.strip() for b in ev("[...document.querySelectorAll('#jv-hist-head .links button')].map(b => b.textContent)")] == ['Earnings', 'What I know', 'Settings', 'Clear'])
+        ev("document.getElementById('jv-hist').click()")
         ev("JARVIS.openSettings()"); pg.wait_for_timeout(400); pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/settings.png'))
         check('settings open pauses the 3D face', ev("window.__jvPaused === true && getComputedStyle(document.getElementById('three')).visibility === 'hidden'"))
         check('settings: hearing panel shows mic on', 'On' in ev("document.getElementById('jv-diag').textContent"), ev("document.getElementById('jv-diag').textContent")[:200])
@@ -871,10 +913,12 @@ def main():
 
         # settings: phone powers
         ev("JARVIS.openSettings()"); pg.wait_for_timeout(700)
-        rows = ev("[...document.querySelectorAll('#jv-powers .pw')].map(r => [r.querySelector('b').textContent, r.querySelector('.pw-st').textContent, getComputedStyle(r.querySelector('button')).display !== 'none'])")
-        check('settings lists the phone powers with on/off', len(rows) == 12 and ['Offer reader', 'Off', True] in rows and ['Camera', 'On', False] in rows and ['Phone control', 'On', False] in rows and ['Brightness', 'Off', True] in rows, rows)
+        rows = ev("[...document.querySelectorAll('#jv-powers .pw:not([data-extra])')].map(r => [r.querySelector('b').textContent, r.querySelector('.pw-st').textContent, getComputedStyle(r.querySelector('button')).display !== 'none'])")
+        check('settings lists the phone powers with on/off (incl. talk from anywhere)', len(rows) == 13 and ['Talk from anywhere', 'Off', True] in rows and ['Offer reader', 'Off', True] in rows and ['Camera', 'On', False] in rows and ['Phone control', 'On', False] in rows and ['Brightness', 'Off', True] in rows, rows)
         reset(); ev("document.querySelector('#jv-powers button[data-power=overlay]').click()")
         check('"Allow" asks Android for it', calls('request') == [['request', 'overlay']], calls('request'))
+        ev("document.getElementById('jv-widget').click()")
+        check('"Add the Jarvis widget" asks the home screen to place it', ev("window.__native.pinned") == 1 and 'tap Add' in ev("document.querySelector('[data-extra=widget]').textContent"))
         ev("document.getElementById('jv-powers').scrollIntoView()"); pg.wait_for_timeout(200)
         pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/powers.png'))
         ev("document.querySelector('#jv-ov .bar button').click()"); pg.wait_for_timeout(200)

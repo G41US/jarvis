@@ -11,4 +11,5 @@
     <string name="phone_control_summary">Lets Jarvis read your screen and tap, type and scroll when you ask him to</string>
     <string name="phone_control_description">When you ask Jarvis to do something on your phone (\"open WhatsApp and message John\", \"what\'s on my screen\", \"go back\", \"lock the phone\"), this lets him read what is on the screen and tap, type, scroll or press Back and Home for you. He only acts when you ask, never types passwords, and never operates the DoorDash Dasher or Uber Driver apps. He asks you before sending a message or anything that can\'t be undone. What he reads is used only to answer your request: a screenshot or the screen\'s text is sent to Jarvis\'s AI service only when you ask about your screen, and nothing is kept.</string>
     <string name="notif_reader_label">Jarvis notifications</string>
+    <string name="widget_description">Tap to talk to Jarvis. Shows your next stop, or what you made today.</string>
 </resources>

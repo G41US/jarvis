@@ -289,7 +289,7 @@ export class Copilot {
     const db = this._db(), id = db.nextId++;
     db.orders.push({ id, platform: normalizePlatform(platform), restaurant, pickup_addr: Copilot.pickupLabel(pickup, p, restaurant), pickup_lat: p.lat, pickup_lon: p.lon,
       drop_addr: tidyAddr(dropoff), drop_lat: d.lat, drop_lon: d.lon, payout, ready_at: now + Math.max(0, Number(readyInMin || 0)) * 60,
-      deadline_at: (withinMin && Number(withinMin) > 0) ? now + Number(withinMin) * 60 : null, status: 'active', picked_at: null, created_at: now });
+      deadline_at: (withinMin && Number(withinMin) > 0) ? now + Number(withinMin) * 60 : null, status: 'active', picked_at: null, created_at: now, area: d.area || '' });
     if (precision !== 'exact') Object.assign(db.orders[db.orders.length - 1], { drop_precision: precision, drop_road: d.road || '', drop_area: d.area || '' });
     this._save(db); this._lastPlan = null;
     const out = { ok: true, id, restaurant, pickup: Copilot.pickupLabel(pickup, p, restaurant), dropoff: tidyAddr(dropoff), count: this.activeOrders().length };
@@ -355,7 +355,7 @@ export class Copilot {
     const db = this._db(); let msg;
     if (stopKind === 'pickup') { const o = db.orders.find(x => x.id === order.id); o.status = 'picked'; o.picked_at = now; msg = { kind: 'pickup', restaurant: order.restaurant }; }
     else {
-      db.log.push({ platform: order.platform, restaurant: order.restaurant, payout: order.payout, accepted_at: order.created_at, delivered_at: now });
+      db.log.push({ platform: order.platform, restaurant: order.restaurant, payout: order.payout, accepted_at: order.created_at, delivered_at: now, area: order.area || order.drop_area || '' });   // the town only, for the Earnings page
       db.orders = db.orders.filter(x => x.id !== order.id);                 // the customer's address is gone
       msg = { kind: 'drop', restaurant: order.restaurant, payout: order.payout };
     }

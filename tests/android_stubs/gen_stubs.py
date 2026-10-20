@@ -151,6 +151,8 @@ for d in glob.glob(os.path.join(_root, '*')):
     kind = os.path.basename(d).split('-')[0]
     if kind in ('drawable', 'mipmap', 'xml', 'raw', 'layout'):
         for f in glob.glob(os.path.join(d, '*')): _kinds.setdefault(kind, set()).add(os.path.splitext(os.path.basename(f))[0])
+for f in glob.glob(os.path.join(_root, 'layout*', '*.xml')):                  # android:id="@+id/..." in layouts
+    for m in re.finditer(r'@\+id/(\w+)', open(f, encoding='utf-8').read()): _kinds.setdefault('id', set()).add(m.group(1))
 _n = iter(range(0x7f000001, 0x7fffffff))
 S['com.jarvis.assistant.R'] = 'public final class R { ' + ' '.join(
     f'public static final class {k} {{ ' + ' '.join(f'public static final int {n}={next(_n)};' for n in sorted(v)) + ' }' for k, v in sorted(_kinds.items())) + ' }'

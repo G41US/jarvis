@@ -15,6 +15,7 @@ export const STEPS = [
   { k: 'offer', title: 'Offer reader (for drivers)', why: 'Reads DoorDash and Uber Driver offers off the screen and tells you take it or pass. On the page that opens, switch on Jarvis offer reader (in a list, look under Installed apps or Downloaded apps). Skip this if you don\'t drive.', done: s => !!s.offer, gated: true, optional: true },
   { k: 'overlay', title: 'Open apps for you', why: 'Lets Jarvis open apps, maps and calls while he isn\'t on screen. Find Jarvis in the list and switch it on.', done: s => !!s.overlay },
   { k: 'exactAlarms', title: 'Reminders on the minute', why: 'Without this, Android may ring reminders a few minutes late. Switch it on for Jarvis.', done: s => !!s.exactAlarms },
+  { k: 'assistant', title: 'Talk from anywhere', why: 'Hold the side button (or swipe up from a bottom corner) and Jarvis is listening, from any app. On the page that opens, tap "Digital assistant app" and choose Jarvis. On Samsung, also set Side button, Press and hold, to "Digital assistant".', done: s => !!s.assistant, optional: true },
   { k: 'dnd', title: 'Do Not Disturb', why: 'So you can say "silent mode" or "do not disturb on". Switch it on for Jarvis.', done: s => !!s.dnd, optional: true },
   { k: 'brightness', title: 'Brightness', why: 'So you can say "brighter" or "dim the screen". Switch on "Allow modifying system settings".', done: s => !!s.brightness, optional: true },
 ];

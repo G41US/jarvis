@@ -11,7 +11,7 @@ const el = (tag, attrs = {}, ...kids) => {
 const CSS = `
 /* while settings are open nothing else is drawn: the 3D face stops, so the phone has its graphics memory for this screen */
 body.jv-settings #three, body.jv-settings #hud, body.jv-settings #jv-top, body.jv-settings #jv-cap, body.jv-settings #jv-card, body.jv-settings #jv-dock, body.jv-settings #jv-aura,
-body.jv-settings #jv-hello, body.jv-settings #jv-chips, body.jv-settings #jv-toast,
+body.jv-settings #jv-hello, body.jv-settings #jv-ideas, body.jv-settings #jv-hint, body.jv-settings #jv-toast, body.jv-settings #jv-drive, body.jv-settings #jv-hist-head, body.jv-settings #log,
 body.jv-settings #bg-base, body.jv-settings #bg-rings, body.jv-settings #bg-halo, body.jv-settings #bg-floor, body.jv-settings #nav-frame, body.jv-settings #nav-orb { visibility: hidden !important; }
 #jv-ov { position: fixed; inset: 0; z-index: 80; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; display: none; color: #eaf6ff;
   background: radial-gradient(90% 40% at 50% 0%, #0d2136 0%, #050b14 60%, #03070c 100%) fixed; font: 15px/1.45 Roboto, system-ui, sans-serif; }
@@ -192,6 +192,7 @@ export function initSettings() {
   const sens = el('input', { type: 'range', min: '0.15', max: '0.6', step: '0.05', 'aria-label': 'Wake word sensitivity' });
   sens.value = String(J().config.get('wake_sensitivity', 0.3));
   sEar.append(el('label', {}, 'Wake word: more sensitive ⟷ fewer false wakes'), sens);
+  add(sEar, 'select', 'haptics', 'Buzz when he hears "Hey Jarvis"', { def: 'true', options: [['true', 'Yes: a short buzz, so you know without looking'], ['false', 'No']] });
   const diag = el('div', { id: 'jv-diag' });
   const meter = el('div', { class: 'meter' }, el('b')), wmeter = el('div', { class: 'meter wake' }, el('b'));
   const dl = el('dl');
@@ -241,6 +242,7 @@ export function initSettings() {
   sPow.id = 'jv-powers';
   const IOS = !!window.JARVIS_IOS, IOS_POWERS = new Set(['notifications', 'camera', 'contacts', 'calendar']);
   const POWERS_ALL = [
+    ['assistant', 'Talk from anywhere', 'Make Jarvis your digital assistant: hold the side button (or swipe up from a bottom corner) and he\'s listening, from any app. On the page that opens, choose Jarvis under "Digital assistant app". On Samsung, also set Side button, Press and hold, to "Digital assistant".'],
     ['notifications', 'Notifications', 'Reminders and timers pop up and ring, even when Jarvis is closed.'],
     ['exactAlarms', 'Reminders on the minute', 'Without this, Android may ring reminders a few minutes late.'],
     ['overlay', 'Open apps from the background', 'Lets Jarvis open apps, websites and calls while he isn\'t on screen (Android calls it "display over other apps").'],
@@ -264,6 +266,15 @@ export function initSettings() {
   }
   sPow.append(el('div', { class: 'row' }, el('button', { type: 'button', id: 'jv-setup-again', onclick: () => { close(); setTimeout(() => { if (J().setup && !J().setup.open(true)) { /* everything already on */ } }, 50); } }, 'Set up permissions, step by step')));
   sPow.append(powList);
+  if (!window.JARVIS_IOS && window.AndroidBridge && typeof window.AndroidBridge.pinWidget === 'function') {     // the home-screen widget
+    const wMsg = el('p', { class: 'hint' });
+    const wBtn = el('button', { type: 'button', id: 'jv-widget', onclick: () => {
+      const r = window.AndroidBridge.pinWidget();
+      wMsg.textContent = r === 'asked' ? 'Your home screen is asking where to put it: tap Add.' : 'Your launcher can\'t add it from here: long-press an empty spot on your home screen, tap Widgets, find Jarvis and drag it in.';
+    } }, 'Add the Jarvis widget to your home screen');
+    sPow.append(el('div', { class: 'pw', 'data-extra': 'widget' }, el('div', { class: 'pw-t' }, el('b', {}, 'Home-screen widget'), el('span', { class: 'pw-st' }, '')),
+      el('p', { class: 'hint' }, 'Tap to talk from your home screen. It shows your next stop, or what you\'ve made today.'), wBtn, wMsg));
+  }
   const ann = el('select', { 'aria-label': 'Read new messages out loud' });
   for (const [v, t] of [['false', 'No'], ['true', 'Yes, read new messages out loud']]) ann.append(el('option', { value: v }, t));
   ann.value = String(!!J().config.get('announce_messages', false));
@@ -327,6 +338,8 @@ export function initSettings() {
 
   // ---- navigation & delivery
   const nd = section('Navigation and deliveries', 'Maps, distances and the pay you accept.');
+  add(nd, 'select', 'drive_mode', 'Driving mode', { def: 'auto', options: [['auto', "Automatic: during a shift or while you're driving"], ['on', 'Always on'], ['off', 'Off']],
+    hint: "A simple screen with big text and buttons: the time, your next stop and today's pay. The face rests to save battery." });
   add(nd, 'select', 'units', 'Distance', { def: 'auto', options: [['auto', 'Automatic'], ['miles', 'Miles'], ['km', 'Kilometres']] });
   add(nd, 'text', 'currency', 'Currency symbol', { def: '$', ph: '$' });
   add(nd, 'text', 'areas', 'Busy areas (comma-separated)', { ph: 'Downtown, Airport', hint: 'Used to suggest where to wait between orders.' });
@@ -349,7 +362,7 @@ export function initSettings() {
   const close = () => { ov.classList.remove('on'); document.body.classList.remove('jv-settings'); window.__jvPaused = false; clearInterval(diagTimer); };
   const save = () => {
     const out = {};
-    for (const i of inputs) { let v = i.value.trim(); if (i._key === 'use_gps' || i._key === 'learn' || (/^pa_/.test(i._key) && i._key !== 'pa_briefing')) v = v !== 'false'; else if (i._num) v = v === '' ? '' : Number(v); out[i._key] = v; }
+    for (const i of inputs) { let v = i.value.trim(); if (i._key === 'use_gps' || i._key === 'learn' || i._key === 'haptics' || (/^pa_/.test(i._key) && i._key !== 'pa_briefing')) v = v !== 'false'; else if (i._num) v = v === '' ? '' : Number(v); out[i._key] = v; }
     out.wake_sensitivity = Number(sens.value); out.avatar_gender = gender; out.voice = vsel.value;
     J().config.merge(out); J().applySettings({ voiceChanged: true });
     saveMsg.className = 'msg ok'; saveMsg.textContent = 'Saved.'; setTimeout(close, 300);
@@ -389,6 +402,14 @@ export function initSettings() {
       const ico = el('span', { class: 'ico', 'aria-hidden': 'true', style: `--c:${p.c}` }); ico.innerHTML = p.ic;
       const b = el('button', { type: 'button', class: 'mi', 'data-go': p.id }, ico, el('span', { class: 'tx' }, el('b', {}, p.title), el('span', { class: sub[1] || '' }, sub[0] || '')));
       b.onclick = () => go(p.id); list.append(b);
+    }
+    // your own data: the Earnings page and what Jarvis knows (they open over the face, so settings close first)
+    const links = [['earnings', 'Earnings', 'Today, this week, best hours and areas', '#ffb24c', SVG('<path d="M4 19V5M4 19h16M8 15v-3M12 15V8M16 15v-5"/>'), () => J().openEarnings && J().openEarnings()],
+                   ['knows', 'What I know about you', `${(J().kv.get('memories', []) || []).length} facts, ${(J().kv.get('prefs', []) || []).length} preferences`, '#b59bff', SVG('<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>'), () => J().openKnows && J().openKnows()]];
+    menuWrap.append(el('div', { class: 'grp' }, 'Your data')); const ul = el('div', { class: 'menu' }); menuWrap.append(ul);
+    for (const [id, t, sub, c, icon, fn] of links) {
+      const ico = el('span', { class: 'ico', 'aria-hidden': 'true', style: `--c:${c}` }); ico.innerHTML = icon;
+      ul.append(el('button', { type: 'button', class: 'mi', 'data-go': id, onclick: () => { close(); fn(); } }, ico, el('span', { class: 'tx' }, el('b', {}, t), el('span', {}, sub))));
     }
   };
   const open = page => { reload(); J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); paintEc(); paintMenu(); go(typeof page === 'string' ? page : (!J().api.ready() ? 'brain' : null)); };

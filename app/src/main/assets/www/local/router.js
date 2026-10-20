@@ -7,7 +7,7 @@ export const CORE = ['get_time', 'get_weather', 'search_web', 'wikipedia', 'calc
   'list_reminders', 'open_app', 'open_website', 'system_info', 'morning_briefing', 'translate', 'flashlight', 'set_voice'];
 
 export const GROUPS = {
-  memory: [/\b(remember|forget|memor|prefer|preference|notes?|what do you know|about me|wipe|erase)/, ['list_memories', 'forget_memory', 'set_preference', 'list_preferences', 'forget_preference', 'forget_all', 'read_notes']],
+  memory: [/\b(remember|forget|memor|prefer|preference|notes?|what do you know|about me|wipe|erase)/, ['list_memories', 'forget_memory', 'set_preference', 'list_preferences', 'forget_preference', 'forget_all', 'read_notes', 'show_what_you_know']],
   info: [/\b(news|headline|bitcoin|btc|ethereum|crypto|coin|price of|exchange rate|currency|convert|dollars?|naira|euros?|pounds?|yen|translat|how do you say|in (spanish|french|german|yoruba|igbo|hausa|chinese|arabic)|page|url|link|article|website says|countdown|until|days (until|to|left)|flip|dice|roll|password)/,
     ['news_headlines', 'crypto_price', 'currency_convert', 'translate', 'fetch_page', 'time_until', 'flip_coin', 'roll_dice', 'generate_password']],
   music: [/\b(music|song|songs|play|playing|pause|resume|skip|next (song|track)|previous|spotify|album|playlist|artist|podcast|youtube|video|listen)/,
@@ -27,14 +27,14 @@ export const GROUPS = {
     ['get_clipboard', 'copy_to_clipboard', 'create_document', 'list_documents', 'open_document', 'delete_document']],
   delivery: [/\b(undo|not yet|doordash|door dash|dasher|uber|eats|grubhub|instacart|deliver\w*|order|orders|pick ?up|picked|drop ?off|dropped|stack|restaurant|customer|tip|payout|pay|offer|earn\w*|made|dash|route|next stop|stops|accepted|accept|decline)/,
     ['add_delivery_order', 'update_delivery_address', 'plan_deliveries', 'next_stop', 'complete_stop', 'list_delivery_orders', 'remove_delivery_order', 'clear_deliveries',
-      'set_my_location', 'evaluate_delivery_offer', 'open_navigation', 'delivery_earnings', 'screen_offer', 'start_delivery_navigation', 'undo_stop', 'map_control']],
+      'set_my_location', 'evaluate_delivery_offer', 'open_navigation', 'delivery_earnings', 'screen_offer', 'start_delivery_navigation', 'undo_stop', 'map_control', 'show_earnings', 'set_driving_mode']],
   nav: [/\b(navigat\w*|directions?|route|map|maps|take me|drive (me )?to|walk(ing)? to|get to|how far|eta|arriv|where am i|save (this|it|here|place)|home|work|zoom|traffic|toll|highway|reroute|stop navigation|guidance)/,
     ['navigate_to', 'start_delivery_navigation', 'stop_navigation', 'navigation_status', 'map_control', 'open_in_maps_app', 'save_place', 'where_am_i', 'set_my_location']],
-  voice: [/\b(voice|accent|sound like|speak (like|as)|male|female|man|woman)/, ['list_voices', 'set_voice']],
+  voice: [/\b(voice|accent|sound like|speak (like|as)|male|female|man|woman|face|avatar|look like|orb)/, ['list_voices', 'set_voice', 'choose_face']],
   interpreter: [/\b(interpret|interpreter|translat\w* (for|between|conversation)|conversation mode|speak to (him|her|them)|talk to (him|her|them)|in (spanish|french|german|portuguese|chinese|arabic|hindi|yoruba|igbo|hausa|swahili|japanese|korean|russian|italian))/,
     ['start_interpreter', 'stop_interpreter']],
   driving: [/\b(park|parked|parking|car|gas|fuel|petrol|station|shift|mileage|miles|mile log|tax|deduct|irs|break|drive|driving|driven|clock (in|out)|start (my )?(shift|dash|day)|end (my )?(shift|dash|day))/,
-    ['remember_parking', 'find_my_car', 'find_gas', 'start_shift', 'end_shift', 'shift_status', 'mileage_log']],
+    ['remember_parking', 'find_my_car', 'find_gas', 'start_shift', 'end_shift', 'shift_status', 'mileage_log', 'set_driving_mode', 'show_earnings']],
   expenses: [/\b(receipt|expense|expenses|spent|spend|spending|bought|cost|costs|budget|write.?off)/, ['scan_receipt', 'add_expense', 'expense_summary']],
   safety: [/\b(emergency|sos|help me|danger|unsafe|scared|threat|attack|accident|crash|911|police|ambulance|i'?m safe|safe now|emergency contact|share (my )?location|where i am)/,
     ['emergency', 'im_safe', 'set_emergency_contact', 'share_location']],

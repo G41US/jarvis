@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The talk button: a glowing ring with a microphone, the same as in the app -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="56dp" android:height="56dp" android:viewportWidth="56" android:viewportHeight="56">
+    <path android:fillColor="#1A7FD8FF" android:pathData="M28,0a28,28 0,1 1,0 56a28,28 0,1 1,0 -56z" />
+    <path android:fillColor="#FF0C1E30" android:pathData="M28,4a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF7FD8FF" android:strokeWidth="2" android:pathData="M28,4a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFEAF6FF" android:strokeWidth="2.2" android:strokeLineCap="round"
+        android:pathData="M28,17.5a4,4 0,0 1,4 4v6.5a4,4 0,0 1,-8 0v-6.5a4,4 0,0 1,4 -4z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFEAF6FF" android:strokeWidth="2.2" android:strokeLineCap="round"
+        android:pathData="M20.5,27.5a7.5,7.5 0,0 0,15 0M28,35v4" />
+</vector>

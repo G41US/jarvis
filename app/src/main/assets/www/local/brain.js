@@ -110,6 +110,7 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
     "- MAP/NAVIGATION works anywhere in the world: 'navigate to X' or 'take me to X'->navigate_to (the face shrinks to a corner orb and a car-style map with turn-by-turn voice takes over), " +
     "'navigate my deliveries'->start_delivery_navigation, 'stop navigation'->stop_navigation, 'how far'->navigation_status, show/hide/mini map, zoom, night mode, mute guidance, avoid tolls or highways, " +
     "Google or Apple or Jarvis map->map_control, 'open in Google/Apple Maps'->open_in_maps_app, 'save this as home'->save_place, 'where am I'->where_am_i. Never invent directions, distances or times: they come only from these tools.\n" +
+    "- Jarvis's own screens: 'show my earnings', 'how much this week', 'my best hours or areas'->show_earnings; 'what do you know about me', 'show my memories'->show_what_you_know; 'driving mode on/off'->set_driving_mode; 'change your face', 'use the orb', 'look like ...'->choose_face.\n" +
     "- You may call several tools in one turn. Never mention your voice by name. Don't volunteer weather, time or other ambient info unless asked.\n";
   if (name) base += `\nThe user's name is ${name}.\n`;
   if (prefs.length) base += '\nUSER PREFERENCES (obey these):\n' + prefs.slice(-20).map(p => `- ${p}\n`).join('');

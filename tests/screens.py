@@ -106,6 +106,29 @@ with sync_playwright() as p:
     ev("window.__phone.sos = true; window.dispatchEvent(new Event('jv-refresh'))"); shot('13-sos')
     ev("window.__phone.sos = false; window.__phone.shift = null; window.dispatchEvent(new Event('jv-refresh'))")
 
+    # earnings, what Jarvis knows, driving mode
+    ev("""(() => { const d = JARVIS.delivery._db(), now = Date.now() / 1000, rows = [];
+          const day = n => now - n * 86400;
+          const plan = [[0, [[1, 9.5, 'Tempe, AZ', 'Chipotle'], [2, 12.25, 'Tempe, AZ', 'Wingstop'], [3, 7, 'Mesa, AZ', 'Panda Express']]], [1, [[2, 11, 'Tempe, AZ', 'Chipotle'], [3, 8.5, 'Chandler, AZ', 'Five Guys'], [4, 14, 'Scottsdale, AZ', 'Wingstop']]],
+            [2, [[1, 6.75, 'Mesa, AZ', 'Chipotle']]], [3, [[1, 10, 'Tempe, AZ', 'Chipotle'], [2, 13.5, 'Scottsdale, AZ', 'Wingstop'], [2.5, 9, 'Chandler, AZ', 'Five Guys']]], [4, []],
+            [5, [[1, 16, 'Scottsdale, AZ', 'Wingstop'], [2, 12, 'Tempe, AZ', 'Chipotle'], [3, 9.25, 'Mesa, AZ', 'Panda Express'], [4, 11.5, 'Scottsdale, AZ', 'Five Guys']]], [6, [[1, 8, 'Mesa, AZ', 'Chipotle'], [2, 10.5, 'Tempe, AZ', 'Wingstop']]]];
+          for (const [dd, list] of plan) for (const [h, pay, area, r] of list) d.log.push({ platform: h % 2 ? 'DoorDash' : 'Uber Eats', restaurant: r, payout: pay, accepted_at: day(dd) - h * 3600 - 1500, delivered_at: day(dd) - h * 3600, area });
+          JARVIS.delivery._save(d);
+          JARVIS.kv.set('memories', [{ fact: 'Drives for DoorDash and Uber Eats around Tempe', ts: Date.now() - 86400000 * 3 }, { fact: 'Has a sister called Ada', ts: Date.now() - 86400000 }, { fact: 'Prefers Chipotle orders over long highway drops', ts: Date.now() }]);
+          JARVIS.kv.set('prefs', ['Keep answers short while driving', 'Use miles, not kilometres']);
+          JARVIS.kv.set('notes', [{ text: 'Ask about the parking at the Tempe Marketplace', ts: Date.now() - 7200000 }]);
+          JARVIS.config.set('places', { home: { address: '1420 East Apache Boulevard, Tempe, Arizona' } });
+        })()""")
+    ev("JARVIS.openEarnings('week')"); shot('16-earnings')
+    ev("document.getElementById('jv-pane').scrollBy(0, 700)"); shot('17-earnings-scrolled')
+    ev("JARVIS.openKnows()"); shot('18-what-i-know')
+    ev("document.querySelector('#jv-pane .back').click()")
+    ev("window.__phone.shift = { active: true, start: Date.now() - 2.2 * 3600000, meters: 34.2 * 1609.344 }; JARVIS.config.set('drive_mode', 'on'); window.dispatchEvent(new Event('jv-refresh'))")
+    pg.wait_for_timeout(1200); shot('19-driving')
+    ev("JARVIS.config.set('dash_map', false)"); ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev("JARVIS.say('I accepted an uber eats order from Wingstop to 45 Mill Avenue, 12 dollars')")
+    pg.wait_for_timeout(7000); ev("JARVIS.navsvc.stop && JARVIS.navsvc.stop()"); pg.wait_for_timeout(12000); shot('20-driving-next-stop')
+    ev("JARVIS.config.set('drive_mode', 'auto'); JARVIS.config.set('dash_map', true); window.__phone.shift = null; JARVIS.reg.exec('clear_deliveries', '{}'); window.dispatchEvent(new Event('jv-refresh'))"); pg.wait_for_timeout(1000)
+
     # the female face
     ev("document.querySelectorAll('#log .msg').forEach(m => m.remove()); JARVIS.config.merge({ avatar_gender: 'female', voice: '' }); JARVIS.applySettings({ voiceChanged: true })")
     state('standby'); pg.wait_for_timeout(9000); shot('14-female-home')

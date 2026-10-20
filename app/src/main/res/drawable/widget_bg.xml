@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widget's card: dark glass with a faint blue edge, like the app -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:startColor="#F0102236" android:endColor="#F0060E18" android:angle="270" />
+    <stroke android:width="1dp" android:color="#2E7FD8FF" />
+    <corners android:radius="28dp" />
+</shape>
