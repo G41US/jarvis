@@ -209,6 +209,7 @@ BRIDGE = r"""
     listen(on, pre) { window.__native.listening.push(on); window.__native.listen.push({ on, pre, t: performance.now() }); },
     setMuted(on) {}, setWakeThreshold(t) { window.__native.threshold = t; },
     tone(f, ms, v) { window.__native.tones++; },
+    vibrate(k) { (window.__native.vib = window.__native.vib || []).push(k); },
     pcVoices() { return JSON.stringify(window.__pc); },
     pcVoiceDownload(n) { window.__native.pcDownloads.push(n); window.__pc[n] = 'downloading:40'; window.__jvVoices(JSON.stringify(window.__pc));
       setTimeout(() => { window.__pc[n] = 'ready'; window.__jvVoices(JSON.stringify(window.__pc)); }, 300); },
@@ -518,9 +519,29 @@ def main():
         check('status pill shows plain-language state', ev("document.querySelector('#jv-status').textContent") in ('Say “Hey Jarvis”', 'Listening', 'Speaking', 'Thinking…'), ev("document.querySelector('#jv-status').textContent"))
         check('caption shows Jarvis\'s last reply', len(ev("document.querySelector('#jv-cap .him').textContent") + ev("document.querySelector('#jv-cap .you').textContent")) > 0)
         ev("document.getElementById('jv-hist').click()"); check('history sheet opens', ev("document.body.classList.contains('jv-history')")); ev("document.getElementById('jv-hist').click()")
-        ev("document.getElementById('jv-mute').click()"); pg.wait_for_timeout(200)
-        check('mute button mutes', ev("window.__jv.state().muted") is True and ev("document.querySelector('#jv-status').textContent") == 'Muted')
-        ev("document.getElementById('jv-mute').click()"); pg.wait_for_timeout(200)
+        HOLD = "(() => { const o = document.getElementById('jv-orb'), r = o.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;"
+        HOLD += " o.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 7, button: 0 }));"
+        HOLD += " return new Promise(res => setTimeout(() => { o.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y, pointerId: 7 })); res(1); }, 700)); })()"
+        check('the main screen has no mute or settings buttons any more (just talk + conversation)', not ev("!!document.getElementById('jv-mute')") and ev("document.querySelectorAll('#jv-dock button').length") == 2
+              and ev("!!document.querySelector('#jv-hist-head #jv-gear')"))
+        ev(HOLD); pg.wait_for_timeout(200)
+        check('holding the talk button mutes, with a buzz', ev("window.__jv.state().muted") is True and ev("document.querySelector('#jv-status').textContent").startswith('Muted')
+              and 'mute' in (ev("window.__native.vib") or []) and ev("getComputedStyle(document.getElementById('jv-status')).display") != 'none')
+        ev(HOLD); pg.wait_for_timeout(200)
+        check('holding it again unmutes; the status pill hides again', ev("window.__jv.state().muted") is False and ev("getComputedStyle(document.getElementById('jv-status')).display") == 'none')
+        ev("""(() => { const o = document.getElementById('jv-orb'), r = o.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
+              o.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 8, button: 0 }));
+              o.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y - 60, pointerId: 8 }));
+              o.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y - 60, pointerId: 8 })); })()"""); pg.wait_for_timeout(200)
+        check('swiping up from the talk button shows ideas', ev("document.body.classList.contains('jv-ideas')") and ev("document.querySelectorAll('#jv-ideas button').length") >= 4 and ev("window.__jv.state().muted") is False)
+        ev("document.getElementById('jv-scrim').click()")
+        check('tapping away hides them', not ev("document.body.classList.contains('jv-ideas')"))
+        ev("JARVIS.uiTiming.answerMs = 1500; JARVIS.wake()"); pg.wait_for_timeout(300); ev("JARVIS.say('what time is it')")
+        pg.wait_for_function("document.getElementById('jv-card').classList.contains('answer')", timeout=15000)
+        check('once he answers, the card shows just his answer (not your words)', ev("getComputedStyle(document.querySelector('#jv-card .you')).display") == 'none' and len(ev("document.querySelector('#jv-card .him').textContent")) > 0)
+        pg.wait_for_function("!document.body.classList.contains('jv-talking')", timeout=20000)
+        check('...and clears itself shortly after he is done', not ev("document.body.classList.contains('jv-talking')"))
+        ev("JARVIS.uiTiming.answerMs = 10000")
         ev("JARVIS.openSettings()"); pg.wait_for_timeout(400); pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/settings.png'))
         check('settings open pauses the 3D face', ev("window.__jvPaused === true && getComputedStyle(document.getElementById('three')).visibility === 'hidden'"))
         check('settings: hearing panel shows mic on', 'On' in ev("document.getElementById('jv-diag').textContent"), ev("document.getElementById('jv-diag').textContent")[:200])

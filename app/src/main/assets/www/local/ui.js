@@ -1,7 +1,8 @@
 // ui.js - the phone layout around Jarvis's face.
 // One idea runs the whole screen: the light changes with what Jarvis is doing (light blue waiting or talking, mint while he
 // listens, amber while he thinks, red when muted), and a ring of light around his face moves with your voice and his.
-// Around that: a greeting while he waits, a glass card with the whole answer while you talk, and one floating bar of buttons.
+// Around that, as little as possible: a greeting that steps back to the time, a glass card with the answer that clears itself,
+// the talk button (tap to talk, hold to mute, swipe up for ideas) and a conversation button. Words appear only when they say something.
 // The PC page's own controls stay underneath and keep working; this layer reads and drives them.
 const J = () => window.JARVIS;
 const $ = id => document.getElementById(id);
@@ -32,10 +33,15 @@ body[data-nav] #jv-aura { opacity: 0; }
 /* ---- top bar */
 #jv-top { position: fixed; z-index: 9; top: calc(var(--safe-t) + 12px); left: 14px; right: 14px; display: flex; align-items: center; gap: 10px; pointer-events: none; }
 #jv-top .jv-sp { flex: 1; }
-#jv-status { pointer-events: auto; display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px 0 13px; border-radius: 999px; max-width: 64vw;
+#jv-status { pointer-events: auto; display: none; align-items: center; gap: 10px; height: 40px; padding: 0 16px 0 13px; border-radius: 999px; max-width: 64vw;
   background: var(--glass); border: 1px solid color-mix(in srgb, var(--state) 38%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
   font: 600 15px/1 'Saira', system-ui, sans-serif; font-stretch: 88%; color: var(--ice); transition: border-color .4s; }
 #jv-status > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.jv-busy #jv-status { display: inline-flex; animation: jvIn .35s var(--ease); }
+@keyframes jvIn { from { opacity: 0; transform: translateY(-6px); } }
+#jv-clock { pointer-events: none; font: 400 19px/1 'Saira', system-ui, sans-serif; font-stretch: 104%; color: var(--mist); font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  padding-left: 6px; transition: opacity .5s var(--ease); }
+body.jv-busy #jv-clock, body.jv-greet #jv-clock { display: none; }
 /* the little sign in the pill: a dot waiting, moving bars listening or talking, a spinning arc thinking */
 #jv-status .sig { position: relative; width: 14px; height: 14px; flex: none; display: grid; grid-auto-flow: column; align-items: center; justify-content: center; gap: 2px; }
 #jv-status .sig i { width: 2.5px; height: 4px; border-radius: 2px; background: var(--state); transition: background .4s, height .2s; }
@@ -74,7 +80,7 @@ body.on-shift #jv-status { max-width: 40vw; }
 #jv-hello .n { font: 600 38px/1.05 'Saira', system-ui, sans-serif; font-stretch: 112%; margin-top: 2px; letter-spacing: -.005em;
   background: linear-gradient(100deg, var(--ice) 30%, color-mix(in srgb, var(--state) 80%, var(--ice))); -webkit-background-clip: text; background-clip: text; color: transparent; }
 #jv-hello .d { font: 400 14px/1.4 Roboto, system-ui, sans-serif; color: var(--dim); margin-top: 10px; }
-body.jv-talking #jv-hello, body[data-nav] #jv-hello, body.jv-route #jv-hello, body.sos-on #jv-hello { opacity: 0; transform: translateY(-10px); }
+body:not(.jv-greet) #jv-hello, body.jv-talking #jv-hello, body[data-nav] #jv-hello, body.jv-route #jv-hello, body.sos-on #jv-hello { opacity: 0; transform: translateY(-14px) scale(.96); transform-origin: 0 0; }
 
 /* ---- the answer card */
 #jv-card { position: fixed; z-index: 8; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 116px); max-height: 40vh; display: flex; flex-direction: column;
@@ -84,7 +90,8 @@ body.jv-talking #jv-hello, body[data-nav] #jv-hello, body.jv-route #jv-hello, bo
 #jv-card::before { content: ''; position: absolute; left: 22px; right: 22px; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--state), transparent); opacity: .8; transition: background .4s; }
 body.jv-talking #jv-card { opacity: 1; transform: none; pointer-events: auto; }
 #jv-card .you { padding: 16px 48px 0 18px; font: 400 14px/1.4 Roboto, system-ui, sans-serif; color: var(--mist); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-#jv-card .you:empty { display: none; }
+#jv-card .you:empty, #jv-card.answer .you { display: none; }
+#jv-card.answer .scroll { padding-top: 18px; }
 #jv-card .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 18px 18px; scrollbar-width: none; }
 #jv-card .scroll.up { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px); mask-image: linear-gradient(to bottom, transparent 0, #000 22px); }
 #jv-card .scroll::-webkit-scrollbar { display: none; }
@@ -102,7 +109,7 @@ body.jv-talking #jv-card { opacity: 1; transform: none; pointer-events: auto; }
 #jv-card:not(.listen) .heard { display: none; }
 #jv-card .x { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center; background: transparent; color: var(--dim); }
 #jv-card .x svg { width: 18px; height: 18px; }
-#jv-card.listen .x, #jv-card.think .x { display: none; }
+#jv-card.listen .x, #jv-card.think .x, #jv-card.answer .x { display: none; }   /* it clears itself; a tap on it also clears it */
 
 /* ---- something Jarvis says by himself (a new message, a reminder): a pill under the top bar */
 #jv-toast { position: fixed; z-index: 10; top: calc(var(--safe-t) + 64px); left: 14px; right: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px;
@@ -112,22 +119,29 @@ body.jv-talking #jv-card { opacity: 1; transform: none; pointer-events: auto; }
 #jv-toast svg { width: 20px; height: 20px; flex: none; color: var(--amber); }
 body.sos-on #jv-toast { top: calc(var(--safe-t) + 140px); }
 
-/* ---- things to try, while he waits */
-#jv-chips { position: fixed; z-index: 8; left: 0; right: 0; bottom: calc(var(--safe-b) + 118px); display: flex; gap: 8px; overflow-x: auto; padding: 4px 14px; scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent); mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
-  transition: opacity .4s var(--ease), transform .45s var(--ease); }
-#jv-chips::-webkit-scrollbar { display: none; }
-#jv-chips button { flex: none; height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--glass-hi); background: var(--glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
-  color: var(--ice); font-size: 14px; font-weight: 500; white-space: nowrap; }
-#jv-chips button:active { transform: scale(.96); }
-body.jv-talking #jv-chips, body[data-nav] #jv-chips, body.st-muted #jv-chips, body.jv-history #jv-chips { opacity: 0; transform: translateY(10px); pointer-events: none; }
+/* ---- ideas: only when asked for (swipe up from the talk button) */
+#jv-ideas { position: fixed; z-index: 10; left: 14px; right: 14px; bottom: calc(var(--safe-b) + 112px); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  opacity: 0; transform: translateY(16px); pointer-events: none; transition: opacity .3s var(--ease), transform .4s var(--ease); }
+body.jv-ideas #jv-ideas { opacity: 1; transform: none; pointer-events: auto; }
+#jv-ideas button { height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--glass-hi); background: rgba(12, 26, 42, .82); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  color: var(--ice); font: 500 15px/1 Roboto, system-ui, sans-serif; white-space: nowrap; text-transform: none; letter-spacing: normal; text-shadow: none; }
+#jv-ideas button:active { transform: scale(.96); }
+body.jv-ideas #jv-card, body.jv-ideas #jv-hint { opacity: 0 !important; pointer-events: none !important; }
+#jv-scrim { position: fixed; inset: 0; z-index: 9; display: none; background: linear-gradient(to top, rgba(3, 7, 12, .7), rgba(3, 7, 12, 0) 60%); }
+body.jv-ideas #jv-scrim { display: block; }
+/* the hint for new users: a small chevron over the talk button */
+#jv-hint { position: fixed; z-index: 8; left: 50%; bottom: calc(var(--safe-b) + 104px); transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 2px;
+  border: 0; background: none; padding: 6px 14px; color: var(--dim); font: 400 12px/1.2 Roboto, sans-serif; text-transform: none; letter-spacing: normal; text-shadow: none; transition: opacity .4s; }
+#jv-hint svg { width: 18px; height: 18px; animation: jvNudge 2.4s ease-in-out infinite; }
+@keyframes jvNudge { 0%, 70%, 100% { transform: none; } 80% { transform: translateY(-4px); } }
+body.jv-new #jv-hint { display: flex; }
+body.jv-talking #jv-hint, body[data-nav] #jv-hint, body.st-muted #jv-hint, body.jv-history #jv-hint { opacity: 0; pointer-events: none; }
 
-/* ---- the bar of buttons */
-#jv-dock { position: fixed; z-index: 9; left: 50%; bottom: calc(var(--safe-b) + 18px); transform: translateX(-50%); display: flex; align-items: center; gap: 26px; padding: 8px 14px; border-radius: 999px;
-  background: rgba(8, 18, 30, .55); border: 1px solid var(--glass-hi); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 16px 40px rgba(0, 0, 0, .4); }
-#jv-dock .jv-ic { background: transparent; border-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
-#jv-dock .jv-ic.on { background: color-mix(in srgb, var(--danger) 14%, transparent); }
-#jv-orb { position: relative; width: 72px; height: 72px; margin: -14px 0; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer;
+/* ---- the talk button in the middle, conversation in the corner */
+#jv-dock { position: fixed; z-index: 9; left: 0; right: 0; bottom: calc(var(--safe-b) + 22px); height: 72px; pointer-events: none; }
+#jv-dock > * { pointer-events: auto; }
+#jv-dock #jv-hist { position: absolute; right: 18px; top: 14px; }
+#jv-orb { position: absolute; left: 50%; top: 0; margin-left: -36px; width: 72px; height: 72px; border-radius: 50%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer;
   background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--state) 34%, #0c1a2a), #06101c 72%); color: var(--ice);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--state) 55%, transparent), 0 0 calc(14px + var(--lvl, 0) * 46px) color-mix(in srgb, var(--state) 60%, transparent), 0 10px 26px rgba(0, 0, 0, .5);
   transition: box-shadow .12s linear, transform .15s; -webkit-tap-highlight-color: transparent; }
@@ -138,7 +152,9 @@ body.jv-talking #jv-chips, body[data-nav] #jv-chips, body.st-muted #jv-chips, bo
 body.st-thinking #jv-orb::before, body.st-listening #jv-orb::before, body.st-session #jv-orb::before { opacity: 1; animation: jvSpin 1.6s linear infinite; }
 body.st-thinking #jv-orb::before { animation-duration: .8s; }
 #jv-orb svg { width: 28px; height: 28px; position: relative; }
-#jv-orb:active { transform: scale(.94); }
+#jv-orb:active, #jv-orb.press { transform: scale(.94); }
+#jv-orb.hold { transform: scale(1.08); transition: transform .45s var(--ease); }
+body.st-muted #jv-orb { background: radial-gradient(circle at 50% 35%, #4a1820, #12070a 72%); }
 
 /* ---- conversation history, as a sheet with bubbles */
 #jv-hist-head { position: fixed; z-index: 11; left: 0; right: 0; top: calc(var(--safe-t) + 70px); display: none; align-items: center; gap: 8px; padding: 14px 16px 10px 22px;
@@ -146,6 +162,7 @@ body.st-thinking #jv-orb::before { animation-duration: .8s; }
 #jv-hist-head h2 { flex: 1; margin: 0; font: 600 21px/1 'Saira', sans-serif; font-stretch: 100%; color: var(--ice); }
 #jv-hist-head::before { content: ''; position: absolute; top: 6px; left: 50%; width: 38px; height: 4px; margin-left: -19px; border-radius: 2px; background: rgba(255,255,255,.18); }
 #jv-hist-head button { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--glass-hi); background: transparent; color: var(--mist); font-size: 14px; }
+#jv-hist-head button.ic { width: 36px; padding: 0; display: grid; place-items: center; } #jv-hist-head button.ic svg { width: 19px; height: 19px; }
 body.jv-history #jv-hist-head { display: flex; }
 body.jv-history #log { position: fixed !important; z-index: 10; left: 0 !important; right: 0 !important; top: calc(var(--safe-t) + 128px) !important; bottom: 0 !important; width: auto !important; max-height: none !important;
   display: flex; flex-direction: column; gap: 10px; padding: 6px 14px calc(var(--safe-b) + 120px); background: rgba(6, 14, 24, .96); -webkit-mask-image: none; mask-image: none; font: 15px/1.45 Roboto, system-ui, sans-serif; }
@@ -199,8 +216,8 @@ body.sos-on[data-nav="mini"] #nav-frame { top: calc(var(--safe-t) + 140px) !impo
 
 /* ---- while the map is up the map owns the screen; Jarvis shrinks to the bar on the right */
 body[data-nav="full"] #jv-card { visibility: hidden; }
-body[data-nav="full"] #jv-dock { left: auto; right: 12px; transform: none; bottom: calc(var(--safe-b) + 110px); flex-direction: column; gap: 14px; padding: 10px 8px; }
-body[data-nav="full"] #jv-orb { width: 58px; height: 58px; margin: 0; }
+body[data-nav="full"] #jv-dock { bottom: calc(var(--safe-b) + 110px); }
+body[data-nav="full"] #jv-orb { left: auto; right: 12px; margin: 0; width: 58px; height: 58px; }
 body[data-nav="full"] #jv-hist { display: none; }
 @media (max-width: 820px), (orientation: portrait) {
   body[data-nav="mini"] #nav-frame { top: calc(var(--safe-t) + 66px) !important; left: 12px !important; right: 12px !important; width: auto !important; height: 34vh !important; }
@@ -237,8 +254,8 @@ body[data-nav="dash"] .ne-c b { font-size: 15px !important; } body[data-nav="das
 body[data-nav="dash"] .nb-then, body[data-nav="dash"] #nav-badge, body[data-nav="dash"] .nav-note, body[data-nav="dash"] #nav-caption, body[data-nav="dash"] .ne-stop { display: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
-  #jv-status .sig i, #jv-orb::before, #jv-card .wait b, #jv-card .heard::after { animation: none !important; }
-  body:not([data-nav]) #three, #jv-aura, #jv-card, #jv-hello, #jv-chips, #jv-toast { transition: none; }
+  #jv-status .sig i, #jv-orb::before, #jv-card .wait b, #jv-card .heard::after, #jv-hint svg, body.jv-busy #jv-status { animation: none !important; }
+  body:not([data-nav]) #three, #jv-aura, #jv-card, #jv-hello, #jv-ideas, #jv-toast { transition: none; }
 }
 `;
 
@@ -248,9 +265,10 @@ const ICON = {
   hist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.8 7L4 20l1.1-4A8 8 0 1 1 20 12z"/><path d="M8.5 10.5h7M8.5 13.5h4"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9M10 20a2.2 2.2 0 0 0 4 0"/></svg>',
 };
-const STATUS = { idle: 'Starting…', standby: 'Say “Hey Jarvis”', session: 'Listening', listening: 'Listening', thinking: 'Thinking…', speaking: 'Speaking', muted: 'Muted' };
+const STATUS = { idle: 'Starting…', standby: 'Say “Hey Jarvis”', session: 'Listening', listening: 'Listening', thinking: 'Thinking…', speaking: 'Speaking', muted: 'Muted · tap to unmute' };
 /** What Jarvis is doing while you wait, from the tool he's using. */
 export const ACTIVITY = {
   get_weather: 'Checking the weather', search_web: 'Searching the web', wikipedia: 'Looking it up', fetch_page: 'Reading the page', news_headlines: 'Getting the news',
@@ -269,6 +287,9 @@ export const SUGGEST = {
   orders: ['Where next?', 'Picked up', 'Delivered', 'How much did I make today?', 'Show the mini map'],
   shift: ['How is my shift going?', 'Where did I park?', 'Find gas near me', 'End my shift'],
 };
+
+/** How long things stay on screen. */
+export const TIMING = { greetMs: 6000, greetAgainAfterMs: 10 * 60000, answerMs: 10000, ideasMs: 12000, holdMs: 520, newUserUses: 8 };
 
 /** "Good evening" for an hour of the day. */
 export function greeting(h) { return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; }
@@ -364,39 +385,49 @@ function createAura(canvas) {
 export function initUi() {
   if ($('jv-dock')) return;
   const st = el('style'); st.textContent = CSS; document.head.append(st);
+  const B = document.body.classList;
+  const buzz = k => { try { if (window.AndroidBridge && window.AndroidBridge.vibrate) window.AndroidBridge.vibrate(k); else if (navigator.vibrate) navigator.vibrate(k === 'mute' ? [25, 60, 25] : 20); } catch {} };
 
   const aura = el('canvas'); aura.id = 'jv-aura'; aura.setAttribute('aria-hidden', 'true');
   const three = $('three'); if (three && three.parentNode) three.parentNode.insertBefore(aura, three.nextSibling); else document.body.prepend(aura);
   try { createAura(aura); } catch (e) { console.warn('[UI] aura', e); }
 
-  // ---- top bar
+  // ---- top bar: the time on the left (a status only while he's working or muted), the shift on the right while you work
   const top = el('div'); top.id = 'jv-top';
+  const clock = el('div'); clock.id = 'jv-clock'; clock.setAttribute('aria-hidden', 'true');
   const status = el('div'); status.id = 'jv-status'; status.setAttribute('role', 'status');
   const sig = el('span', 'sig'); sig.setAttribute('aria-hidden', 'true'); sig.append(el('i'), el('i'), el('i'));
   status.append(sig, el('span', '', STATUS.idle));
   const label = status.lastChild;
-  const gear = el('button', 'jv-ic'); gear.id = 'jv-gear'; gear.setAttribute('aria-label', 'Settings'); gear.innerHTML = ICON.gear;
-  gear.onclick = () => J() && J().openSettings && J().openSettings();
+  status.onclick = () => { if (B.contains('st-muted')) toggleMute(); };
   const shift = el('div'); shift.id = 'jv-shift'; shift.setAttribute('aria-label', 'Shift so far');
   const sTime = el('b'), sMiles = el('b'), sMoney = el('b', 'money');
   shift.append(sTime, sMiles, sMoney);
-  top.append(status, el('span', 'jv-sp'), shift, gear);
+  top.append(clock, status, el('span', 'jv-sp'), shift);
 
   const sos = el('div'); sos.id = 'jv-sos'; sos.setAttribute('role', 'alert');
   const sosText = el('span', '', 'SOS is on. Your location goes to your emergency contacts every 5 minutes.'), sosBtn = el('button', '', "I'm safe");
   sosBtn.onclick = async () => { if (J() && J().reg) { const r = await J().reg.exec('im_safe', '{}'); paintSos(); try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(r)); } catch {} } };
   sos.append(sosText, sosBtn);
 
-  // ---- greeting
+  // ---- greeting: for a few seconds when you open Jarvis, then it steps back to the time
   const hello = el('div'); hello.id = 'jv-hello';
   const hG = el('div', 'g'), hN = el('div', 'n'), hD = el('div', 'd');
   hello.append(hG, hN, hD);
+  const timeText = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/[  ]/g, ' ');
   const paintHello = () => {
     const d = new Date(), name = (J() && J().config && String(J().config.get('user_name', '') || '').trim()) || '';
     hG.textContent = greeting(d.getHours()) + (name ? ',' : '');
     hN.textContent = name || 'I’m listening.';
-    hD.textContent = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) + ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/[  ]/g, ' ');
+    hD.textContent = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) + ', ' + timeText(d);
+    clock.textContent = timeText(d);
   };
+  let greetTimer = 0, hiddenAt = 0;
+  const greet = () => { paintHello(); B.add('jv-greet'); clearTimeout(greetTimer); greetTimer = setTimeout(() => B.remove('jv-greet'), TIMING.greetMs); };
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (hiddenAt && Date.now() - hiddenAt > TIMING.greetAgainAfterMs) greet();
+  });
 
   // ---- the answer card (#jv-cap stays as its id so older code and tests still find it)
   const card = el('div'); card.id = 'jv-card';
@@ -412,52 +443,104 @@ export function initUi() {
   // ---- toast
   const toast = el('div'); toast.id = 'jv-toast'; toast.setAttribute('role', 'status'); toast.innerHTML = ICON.bell; const toastText = el('span'); toast.append(toastText);
 
-  // ---- things to try
-  const chips = el('div'); chips.id = 'jv-chips'; chips.setAttribute('aria-label', 'Things to try');
+  // ---- ideas (on request) and the hint that tells new users about them
+  const ideas = el('div'); ideas.id = 'jv-ideas'; ideas.setAttribute('aria-label', 'Things to try');
+  const scrim = el('div'); scrim.id = 'jv-scrim';
+  const hint = el('button'); hint.id = 'jv-hint'; hint.type = 'button'; hint.innerHTML = ICON.up; hint.append(el('span', '', 'Swipe up for ideas'));
 
-  // ---- dock
+  // ---- the talk button and the conversation button
   const dock = el('div'); dock.id = 'jv-dock';
-  const mute = el('button', 'jv-ic'); mute.id = 'jv-mute'; mute.setAttribute('aria-label', 'Mute microphone'); mute.innerHTML = ICON.mute;
-  const orb = el('button'); orb.id = 'jv-orb'; orb.setAttribute('aria-label', 'Talk to Jarvis'); orb.innerHTML = ICON.mic;
-  const hist = el('button', 'jv-ic'); hist.id = 'jv-hist'; hist.setAttribute('aria-label', 'Conversation'); hist.innerHTML = ICON.hist;
-  dock.append(mute, orb, hist);
+  const orb = el('button'); orb.id = 'jv-orb'; orb.setAttribute('aria-label', 'Talk to Jarvis. Hold to mute. Swipe up for ideas.'); orb.innerHTML = ICON.mic;
+  const hist = el('button', 'jv-ic'); hist.id = 'jv-hist'; hist.setAttribute('aria-label', 'Conversation and settings'); hist.innerHTML = ICON.hist;
+  dock.append(orb, hist);
 
-  // ---- history header
+  // ---- conversation sheet: Clear, Settings, Done
   const hh = el('div'); hh.id = 'jv-hist-head';
-  const hClear = el('button', '', 'Clear'), hClose = el('button', '', 'Done');
-  hh.append(el('h2', '', 'Conversation'), hClear, hClose);
+  const hClear = el('button', '', 'Clear'), hGear = el('button', 'ic'), hClose = el('button', '', 'Done');
+  hGear.id = 'jv-gear'; hGear.setAttribute('aria-label', 'Settings'); hGear.innerHTML = ICON.gear;
+  hh.append(el('h2', '', 'Conversation'), hClear, hGear, hClose);
 
-  document.body.append(sos, top, hello, card, toast, chips, dock, hh);
+  document.body.append(sos, top, hello, card, toast, scrim, ideas, hint, dock, hh);
 
   // ---- actions
-  mute.onclick = () => { const b = $('muteBtn'); if (b) b.click(); };
-  orb.onclick = () => { if (document.body.classList.contains('st-muted')) { const b = $('muteBtn'); if (b) b.click(); return; } J() && J().wake(); };
-  const toggleHist = on => { document.body.classList.toggle('jv-history', on); hist.setAttribute('aria-pressed', String(document.body.classList.contains('jv-history'))); const l = $('log'); if (l) l.scrollTop = l.scrollHeight; };
-  hist.onclick = () => toggleHist(!document.body.classList.contains('jv-history'));
+  const muteBtn = () => $('muteBtn');
+  function toggleMute() {
+    const b = muteBtn(); if (!b) return;
+    const was = B.contains('st-muted'); b.click(); buzz('mute');
+    showToast(was ? 'Listening again.' : 'Muted. Hold the button again, or tap here, to unmute.', true);
+  }
+  const talk = () => { closeIdeas(); if (B.contains('st-muted')) { toggleMute(); return; } J() && J().wake(); };
+  // tap: talk. hold: mute or unmute. swipe up: ideas.
+  let pd = null, holdTimer = 0;
+  const endPress = () => { clearTimeout(holdTimer); orb.classList.remove('press', 'hold'); pd = null; };
+  orb.addEventListener('pointerdown', e => {
+    if (e.button > 0) return;
+    pd = { x: e.clientX, y: e.clientY, done: false }; orb.classList.add('press');
+    try { orb.setPointerCapture(e.pointerId); } catch {}
+    holdTimer = setTimeout(() => { if (!pd || pd.done) return; pd.done = true; orb.classList.add('hold'); toggleMute(); }, TIMING.holdMs);
+  });
+  orb.addEventListener('pointermove', e => {
+    if (!pd || pd.done) return;
+    const dx = e.clientX - pd.x, dy = e.clientY - pd.y;
+    if (Math.abs(dx) > 14 || Math.abs(dy) > 14) clearTimeout(holdTimer);
+    if (dy < -36 && Math.abs(dy) > Math.abs(dx)) { pd.done = true; openIdeas(); }
+  });
+  orb.addEventListener('pointerup', () => { const p = pd; endPress(); if (p && !p.done) talk(); });
+  orb.addEventListener('pointercancel', endPress);
+  orb.addEventListener('click', e => { if (e.detail === 0) talk(); });     // keyboard and screen readers (taps are handled above)
+  orb.addEventListener('contextmenu', e => e.preventDefault());
+  // a swipe up from anywhere near the bottom (not on a button or the answer) also shows ideas
+  let sw = null;
+  document.addEventListener('touchstart', e => {
+    const t = e.touches[0]; sw = null;
+    if (!t || e.touches.length > 1 || t.clientY < window.innerHeight * 0.72 || B.contains('jv-history') || document.body.hasAttribute('data-nav')) return;
+    if (e.target.closest && e.target.closest('button, a, input, select, #jv-card, #jv-ov, #jv-setup, #route-panel')) return;
+    sw = { x: t.clientX, y: t.clientY };
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    const t = e.touches[0]; if (!sw || !t) return;
+    if (sw.y - t.clientY > 50 && Math.abs(t.clientX - sw.x) < 60) { sw = null; openIdeas(); }
+  }, { passive: true });
+
+  const toggleHist = on => { closeIdeas(); B.toggle('jv-history', on); hist.setAttribute('aria-pressed', String(B.contains('jv-history'))); const l = $('log'); if (l) l.scrollTop = l.scrollHeight; };
+  hist.onclick = () => toggleHist(!B.contains('jv-history'));
   hClose.onclick = () => toggleHist(false);
+  hGear.onclick = () => { toggleHist(false); J() && J().openSettings && J().openSettings(); };
   hClear.onclick = () => { const b = $('clearBtn'); if (b) b.click(); dismissed = Date.now(); paintCard(); };
   let dismissed = 0;
   x.onclick = () => { dismissed = Date.now(); paintCard(); };
+  card.addEventListener('click', e => { if (card.classList.contains('answer') && !e.target.closest('a')) { dismissed = Date.now(); paintCard(); } });
   const rp = $('route-panel');
   if (rp) {
     rp.addEventListener('click', () => rp.classList.toggle('jv-folded'));
     // a fresh route card starts folded to one line when the face is on screen (open in the delivery map view)
     new MutationObserver(() => {
       const shown = rp.classList.contains('show');
-      document.body.classList.toggle('jv-route', shown && document.body.getAttribute('data-nav') !== 'dash');
+      B.toggle('jv-route', shown && document.body.getAttribute('data-nav') !== 'dash');
       if (shown && !rp._seen) { rp._seen = true; if (!document.body.hasAttribute('data-nav')) rp.classList.add('jv-folded'); }
       if (!shown) rp._seen = false;
     }).observe(rp, { attributes: true, attributeFilter: ['class'] });
   }
 
+  // ---- ideas
   const ask = text => { if (!J()) return; J().wake(); setTimeout(() => J().say(text), 350); };
-  let chipsKey = '';
-  const paintChips = () => {
-    const ordersOn = !!(rp && rp.classList.contains('show')), shiftOn = document.body.classList.contains('on-shift');
-    const list = ordersOn ? SUGGEST.orders : shiftOn ? SUGGEST.shift : SUGGEST.idle, key = list.join('|');
-    if (key === chipsKey) return; chipsKey = key;
-    chips.replaceChildren(...list.map(t => { const b = el('button', '', t); b.type = 'button'; b.onclick = () => ask(t); return b; }));
+  let ideasTimer = 0;
+  const ideasList = () => {
+    const ordersOn = !!(rp && rp.classList.contains('show')), shiftOn = B.contains('on-shift');
+    return ordersOn ? SUGGEST.orders : shiftOn ? SUGGEST.shift : SUGGEST.idle;
   };
+  function openIdeas() {
+    if (document.body.hasAttribute('data-nav') || B.contains('jv-history')) return;
+    ideas.replaceChildren(...ideasList().map(t => { const b = el('button', '', t); b.type = 'button'; b.onclick = () => ask(t); return b; }));
+    B.add('jv-ideas'); buzz('tick');
+    clearTimeout(ideasTimer); ideasTimer = setTimeout(closeIdeas, TIMING.ideasMs);
+  }
+  function closeIdeas() { clearTimeout(ideasTimer); B.remove('jv-ideas'); }
+  scrim.onclick = closeIdeas; hint.onclick = openIdeas;
+  const uses = () => { try { return Number(J().config.get('ui_uses', 0)) || 0; } catch { return 0; } };
+  const paintNew = () => B.toggle('jv-new', uses() < TIMING.newUserUses);
+  const countUse = () => { try { J().config.set('ui_uses', uses() + 1); } catch {} paintNew(); };
+  J().openIdeas = openIdeas; J().uiTiming = TIMING;
 
   // dash layout: the map fills the space between the route card and Jarvis's corner orb, whatever the card's height
   let dashKey = '';
@@ -476,8 +559,9 @@ export function initUi() {
   new MutationObserver(() => {
     if (rp) { if (document.body.getAttribute('data-nav') === 'dash') rp.classList.remove('jv-folded');   // the delivery map view shows the whole route
               else if (!document.body.hasAttribute('data-nav') && rp.classList.contains('show')) rp.classList.add('jv-folded'); }   // back to the face: one line
-    document.body.classList.toggle('jv-route', !!(rp && rp.classList.contains('show')) && document.body.getAttribute('data-nav') !== 'dash');
-    setTimeout(dashLayout, 30); setTimeout(stage, 40); paintChips();
+    B.toggle('jv-route', !!(rp && rp.classList.contains('show')) && document.body.getAttribute('data-nav') !== 'dash');
+    if (document.body.hasAttribute('data-nav')) closeIdeas();
+    setTimeout(dashLayout, 30); setTimeout(stage, 40);
   }).observe(document.body, { attributes: true, attributeFilter: ['data-nav'] });
   if (rp && window.ResizeObserver) new ResizeObserver(() => { dashLayout(); stage(); }).observe(rp);
   window.addEventListener('resize', () => setTimeout(dashLayout, 50));
@@ -486,7 +570,7 @@ export function initUi() {
   // the face makes room for the answer card
   let stageKey = '';
   const stage = () => {
-    const talking = document.body.classList.contains('jv-talking') && !document.body.hasAttribute('data-nav');
+    const talking = B.contains('jv-talking') && !document.body.hasAttribute('data-nav');
     let topBelow = top.getBoundingClientRect().bottom;
     if (rp && rp.classList.contains('show') && rp.offsetHeight) topBelow = Math.max(topBelow, rp.getBoundingClientRect().bottom);
     const r = talking ? stageFor({ H: window.innerHeight, W: window.innerWidth, cardTop: card.getBoundingClientRect().top, safeTop: topBelow - 52 }) : { ty: 0, s: 1 };
@@ -501,59 +585,65 @@ export function initUi() {
   let activity = '';
   window.addEventListener('jv-activity', e => {
     activity = (e.detail && (ACTIVITY[e.detail] || '')) || '';
-    if (document.body.classList.contains('st-thinking')) { label.textContent = (activity || 'Thinking') + '…'; waitText.textContent = (activity || 'Thinking') + '…'; }
+    if (B.contains('st-thinking')) { label.textContent = (activity || 'Thinking') + '…'; waitText.textContent = (activity || 'Thinking') + '…'; }
   });
 
   // shift readout and SOS banner
   const fmtH = ms => { const m = Math.floor(ms / 60000); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; };
   const paintShift = () => {
     const s = J() && J().shiftSummary ? J().shiftSummary() : null;
-    document.body.classList.toggle('on-shift', !!(s && s.active));
+    B.toggle('on-shift', !!(s && s.active));
     if (!s || !s.active) return;
     const put = (n, v, u) => { const t = `${v}`; if (n.firstChild && n.firstChild.textContent === t) return; n.textContent = ''; n.append(t, el('small', '', u)); };
     put(sTime, fmtH(Date.now() - s.start), 'on shift'); put(sMiles, s.miles.toFixed(1), 'miles'); put(sMoney, `${s.currency}${Math.round(s.earned)}`, 'earned');
   };
-  const paintSos = () => { let on = false; try { on = !!(window.AndroidPhone && window.AndroidPhone.sosActive && window.AndroidPhone.sosActive()); } catch {} document.body.classList.toggle('sos-on', on); };
-  const tick = () => { paintShift(); paintSos(); paintHello(); paintChips(); };
+  const paintSos = () => { let on = false; try { on = !!(window.AndroidPhone && window.AndroidPhone.sosActive && window.AndroidPhone.sosActive()); } catch {} B.toggle('sos-on', on); };
+  const tick = () => { paintShift(); paintSos(); paintHello(); };
   setInterval(tick, 5000); setTimeout(tick, 1500); tick();
   window.addEventListener('jv-refresh', tick);
 
-  // status: mirror the page's own state element
+  // status: mirror the page's own state element. The pill shows only while he's working (thinking) or muted.
   const stateEl = $('state'); let last = '', lastActive = Date.now();
   const syncState = () => {
     const cls = (stateEl && stateEl.className) || 'idle'; if (cls === last) return; last = cls;
     if (cls !== 'thinking') activity = '';
-    if (cls !== 'standby' && cls !== 'idle') lastActive = Date.now();
+    if (cls !== 'standby' && cls !== 'idle' && cls !== 'session') lastActive = Date.now();
     document.body.className = document.body.className.replace(/\bst-\S+/g, '').trim() + ' st-' + cls;
     label.textContent = cls === 'thinking' && activity ? activity + '…' : STATUS[cls] || STATUS.standby;
-    const muted = cls === 'muted'; mute.classList.toggle('on', muted); mute.setAttribute('aria-label', muted ? 'Unmute microphone' : 'Mute microphone');
+    B.toggle('jv-busy', cls === 'thinking' || cls === 'muted');
+    orb.setAttribute('aria-label', cls === 'muted' ? 'Unmute Jarvis' : 'Talk to Jarvis. Hold to mute. Swipe up for ideas.');
+    if (cls === 'listening' || cls === 'thinking') { closeIdeas(); B.remove('jv-greet'); }
     paintCard();
   };
   if (stateEl) new MutationObserver(syncState).observe(stateEl, { attributes: true, childList: true, characterData: true, subtree: true });
 
-  // the card: what you said, then Jarvis's whole answer (it scrolls; it's never cut off). It hides by itself a while after he's done.
+  // the card: what you're saying while you say it, then just Jarvis's answer (it scrolls; it's never cut off).
+  // It clears itself about ten seconds after he's done.
   const logEl = $('log'); let lastMsgAt = 0, follow = true, toastTimer = 0, lastToast = '';
   scroll.addEventListener('scroll', () => { follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 24; scroll.classList.toggle('up', scroll.scrollTop > 4); }, { passive: true });
-  const showToast = text => {
-    if (!text || text === lastToast) return; lastToast = text;
+  function showToast(text, force) {
+    if (!text || (text === lastToast && !force)) return; lastToast = text;
     toastText.textContent = text; toast.classList.add('on'); clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove('on'), Math.min(14000, 5000 + text.length * 60));
-  };
-  toast.onclick = () => toast.classList.remove('on');
-  const paintCard = () => {
-    const b = document.body.classList, s = last;
+    toastTimer = setTimeout(() => toast.classList.remove('on'), Math.min(14000, 4000 + text.length * 60));
+  }
+  toast.onclick = () => { toast.classList.remove('on'); if (B.contains('st-muted')) toggleMute(); };
+  let cardTimer = 0;
+  function paintCard() {
+    const s = last;
     const listening = (s === 'listening' || s === 'session') && heard.textContent;
     const thinking = s === 'thinking';
     const hasExchange = !!(you.textContent || him.textContent) && lastMsgAt > dismissed;
-    const recent = Date.now() - Math.max(lastMsgAt, lastActive) < 25000;
-    const active = s === 'thinking' || s === 'speaking' || s === 'listening' || s === 'session';
-    const on = listening || thinking || (hasExchange && (active || recent));
-    b.toggle('jv-talking', !!on);
+    const busy = thinking || s === 'speaking' || listening;
+    const quietFor = Date.now() - Math.max(lastMsgAt, lastActive);
+    const on = listening || thinking || (hasExchange && (busy || quietFor < TIMING.answerMs));
+    B.toggle('jv-talking', !!on);
     card.classList.toggle('listen', !!listening && !thinking);
     card.classList.toggle('think', thinking && !him.textContent);
+    card.classList.toggle('answer', !listening && !!him.textContent);
     if (thinking && !activity) waitText.textContent = 'Thinking…';
+    clearTimeout(cardTimer); if (on && !busy) cardTimer = setTimeout(paintCard, Math.max(200, TIMING.answerMs - quietFor + 50));
     setTimeout(stage, 30);
-  };
+  }
   const syncCaps = () => {
     if (!logEl) return;
     const msgs = [...logEl.querySelectorAll('.msg')];
@@ -563,16 +653,16 @@ export function initUi() {
     const body = m => (m.querySelector('.body') || m).textContent;
     const yt = u ? body(u) : '', ht = j && order(j) > order(u) ? body(j) : '';   // empty while Jarvis is working on your question
     if (yt !== you.textContent || ht !== him.textContent) {
-      if (yt !== you.textContent) follow = true;
+      if (yt !== you.textContent) { follow = true; if (yt) countUse(); }
       you.textContent = yt; him.textContent = ht; lastMsgAt = Date.now();
-      if (follow) requestAnimationFrame(() => { scroll.scrollTop = scroll.scrollHeight; });
+      if (follow) requestAnimationFrame(() => { scroll.scrollTop = ht ? 0 : scroll.scrollHeight; });
     }
     const nt = p && order(p) > Math.max(order(u), order(j)) ? p.textContent : '';
     if (nt !== note.textContent) { note.textContent = nt; showToast(nt); }
     paintCard();
   };
   if (logEl) new MutationObserver(syncCaps).observe(logEl, { childList: true, subtree: true, characterData: true });
-  setInterval(paintCard, 4000);                                      // lets the card fade away once a conversation has gone quiet
+  setInterval(paintCard, 3000);
 
   // live "heard" line from the page's partial transcript
   const partial = $('partial-text');
@@ -581,7 +671,7 @@ export function initUi() {
     heard.textContent = t; heard.classList.toggle('on', !!t); if (t) lastActive = Date.now(); paintCard();
   }).observe(partial, { attributes: true, childList: true, characterData: true, subtree: true });
 
-  syncState(); syncCaps();
+  syncState(); syncCaps(); paintNew(); greet();
 
   // mic level drives the orb's glow
   let lvl = 0;

@@ -670,6 +670,37 @@ public class Bridge {
         });
     }
 
+    /** A short buzz the hand can feel: "wake" (heard "Hey Jarvis"), "mute" (two taps), "tick" (a light tap), "done" (a firm tap). */
+    @JavascriptInterface
+    public void vibrate(final String kind) {
+        try {
+            android.os.Vibrator v;
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                android.os.VibratorManager vm = (android.os.VibratorManager) activity.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+                v = vm == null ? null : vm.getDefaultVibrator();
+            } else {
+                v = (android.os.Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE);
+            }
+            if (v == null || !v.hasVibrator()) return;
+            String k = kind == null ? "tick" : kind;
+            android.os.VibrationEffect fx;
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                int id = "mute".equals(k) ? android.os.VibrationEffect.EFFECT_DOUBLE_CLICK
+                       : "done".equals(k) || "wake".equals(k) ? android.os.VibrationEffect.EFFECT_HEAVY_CLICK : android.os.VibrationEffect.EFFECT_TICK;
+                fx = android.os.VibrationEffect.createPredefined(id);
+            } else if ("mute".equals(k)) {
+                fx = android.os.VibrationEffect.createWaveform(new long[]{0, 30, 70, 30}, -1);
+            } else {
+                fx = android.os.VibrationEffect.createOneShot("tick".equals(k) ? 12 : 35, android.os.VibrationEffect.DEFAULT_AMPLITUDE);
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                v.vibrate(fx, android.os.VibrationAttributes.createForUsage(android.os.VibrationAttributes.USAGE_TOUCH));
+            } else {
+                v.vibrate(fx, new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).build());
+            }
+        } catch (Exception e) { Log.w(TAG, "vibrate", e); }
+    }
+
     /** Lets the page keep the screen awake while it is on screen. */
     @JavascriptInterface
     public void keepAwake(final boolean on) {

@@ -68,6 +68,8 @@ with sync_playwright() as p:
     pg.wait_for_timeout(9000)                                             # the face loads
     ev("JARVIS.setup && JARVIS.setup.close && JARVIS.setup.close(false)")
     shot('03-home')
+    ev("document.body.classList.add('jv-greet')"); shot('03a-greeting'); ev("document.body.classList.remove('jv-greet')")
+    ev("JARVIS.openIdeas()"); shot('03b-ideas'); ev("document.getElementById('jv-scrim').click()")
 
     def state(s, partial=''):
         ev(f"(() => {{ const e = document.getElementById('state'); e.className = {json.dumps(s)}; e.textContent = {json.dumps(s.upper())};"
