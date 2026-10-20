@@ -129,6 +129,13 @@ with sync_playwright() as p:
     pg.wait_for_timeout(7000); ev("JARVIS.navsvc.stop && JARVIS.navsvc.stop()"); pg.wait_for_timeout(12000); shot('20-driving-next-stop')
     ev("JARVIS.config.set('drive_mode', 'auto'); JARVIS.config.set('dash_map', true); window.__phone.shift = null; JARVIS.reg.exec('clear_deliveries', '{}'); window.dispatchEvent(new Event('jv-refresh'))"); pg.wait_for_timeout(1000)
 
+    # the face picker, and the orb
+    ev("JARVIS.openSettings('voice')"); shot('21-faces')
+    ev("document.querySelector('#jv-ov .bar .x').click(); JARVIS.chooseFace('orb')"); pg.wait_for_timeout(1500); shot('22-orb')
+    ev("JARVIS.chooseFace('amara')"); pg.wait_for_timeout(9000); shot('23-amara')
+    msg("Tell me a joke.", 'user'); msg("Why did the delivery driver bring a ladder? Because the order said the food was on the house.", 'jarvis'); state('speaking'); pg.wait_for_timeout(1500); shot('24-amara-speaking')
+    state('standby'); ev("JARVIS.chooseFace('adam')"); pg.wait_for_timeout(6000)
+
     # the female face
     ev("document.querySelectorAll('#log .msg').forEach(m => m.remove()); JARVIS.config.merge({ avatar_gender: 'female', voice: '' }); JARVIS.applySettings({ voiceChanged: true })")
     state('standby'); pg.wait_for_timeout(9000); shot('14-female-home')

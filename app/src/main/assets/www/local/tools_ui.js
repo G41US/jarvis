@@ -43,6 +43,13 @@ export function registerUiTools(ctx) {
       return `${name ? `You're ${name}. ` : ''}${bits.length ? `I've saved ${bits.join(', ')}. ` : ''}It's all on the screen now; tap the cross next to anything that's wrong and I'll forget it.`;
     });
 
+  T('choose_face', "Change Jarvis's face: adam (man), kofi (man), amara (woman), nova (woman), or orb (no face, just a ball of light that moves with his voice; saves battery). The voice changes to match a man's or woman's face. Use for 'change your face', 'be Amara', 'use the orb', 'show your face again'.",
+    { face: { type: 'string', enum: ['adam', 'kofi', 'amara', 'nova', 'orb', 'back'] } }, ['face'], async a => {
+      let id = String(a.face || '').toLowerCase();
+      if (id === 'back') { const g = config.get('avatar_gender', 'male') === 'female' ? 'female' : 'male'; id = config.get('face_' + g, g === 'female' ? 'amara' : 'adam'); }
+      return ctx.chooseFace ? ctx.chooseFace(id) : 'I can only change my face in the app.';
+    });
+
   T('set_driving_mode', "Driving mode: a simple screen with big text and big buttons for while the user drives (time, next stop, today's pay). mode: on, off, or auto (comes on by itself during a shift or while moving).",
     { mode: { type: 'string', enum: ['on', 'off', 'auto'] } }, ['mode'], a => {
       const m = ['on', 'off', 'auto'].includes(a.mode) ? a.mode : 'auto';

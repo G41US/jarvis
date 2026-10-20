@@ -43,6 +43,8 @@ FRAME_BY_HEAD = r"""
 const HEAD_UNITS = 1.05, HEAD_CENTER_Y = 4.37;      // where Adam's head has always been
 function frameByHead(model) {
   try {
+    const known = model.userData && model.userData.jvHead;                 // our own faces say where their head is (tools/faces)
+    if (known && known.top > known.neck) return { neck: known.neck, top: known.top, cx: known.cx || 0, cz: known.cz || 0 };
     model.updateMatrixWorld(true);
     const pts = [], v = new THREE.Vector3();
     model.traverse(c => {
@@ -73,6 +75,17 @@ function frameByHead(model) {
   } catch (e) { console.warn('[AVATAR] framing', e); return null; }
 }
 """
+
+# Blinking, for faces that have an "eyeBlink" morph: every 2.5-6 seconds, a 150 ms close-and-open (sometimes twice).
+BLINK_JS = r"""
+  { const bl = window.__jvBlinkMorphs; if (bl && bl.length) {
+      const B = window.__jvBlink || (window.__jvBlink = { next: t + 2 + Math.random() * 3, start: -1, twice: false });
+      if (B.start < 0 && t >= B.next) { B.start = t; B.twice = Math.random() < 0.18; }
+      let v = 0;
+      if (B.start >= 0) { const e = t - B.start, d = 0.15; v = e < d ? Math.sin(Math.PI * e / d) : 0;
+        if (e >= d) { if (B.twice) { B.twice = false; B.start = t + 0.08; } else { B.start = -1; B.next = t + 2.5 + Math.random() * 3.5; } } }
+      for (const m of bl) if (m.mesh.morphTargetInfluences) m.mesh.morphTargetInfluences[m.index] = v;
+  } }"""
 
 # The phone layout (ui.js) asks for the face to lift and shrink while the answer card is up: window.__jvStage = {ty, s}.
 # Done with the camera (zoom + view offset) rather than by moving the canvas, so there is never a visible canvas edge.
@@ -116,11 +129,25 @@ def main():
              'catch(e){window.__NO_ADAM=true;}})();</script>\n')
     html = html.replace(m.group(0), probe + importmap)
     # if the Adam model was not copied into the app, show the online face instead of nothing
-    # the female face also ships inside the app when models/female.glb is present (no internet needed for the face)
-    if os.path.exists(os.path.join(WWW, 'models', 'female.glb')):
-        html = sub_once(html, "const AVATAR_FEMALE = 'https://three.ws/avatars/default.glb';", "const AVATAR_FEMALE = 'models/female.glb';", 'local female face')
+    # the faces ship inside the app (local/faces.js lists them; models/faces/*.glb are original, made from CC0 MakeHuman assets)
+    if os.path.exists(os.path.join(WWW, 'models', 'faces', 'amara.glb')):
+        html = sub_once(html, "const AVATAR_FEMALE = 'https://three.ws/avatars/default.glb';", "const AVATAR_FEMALE = 'models/faces/amara.glb';", 'local female face')
     html = sub_once(html, "const AVATAR_MALE = 'models/adam.glb';",
                     "const AVATAR_MALE = window.__NO_ADAM ? AVATAR_FEMALE : 'models/adam.glb';", 'adam fallback')
+
+    # ---- choice of faces: which face goes with the voice comes from the face you picked (local/faces.js); "orb" means no face
+    html = sub_once(html, "  const want = isMaleVoice(currentVoice) ? AVATAR_MALE : AVATAR_FEMALE;\n",
+                    "  const want = window.__jvFaceFor ? window.__jvFaceFor(isMaleVoice(currentVoice)) : (isMaleVoice(currentVoice) ? AVATAR_MALE : AVATAR_FEMALE);\n"
+                    "  if (want === 'orb') { try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: 'orb' })); } catch (e) {} return; }\n", 'face choice')
+    html = sub_once(html, "loadAvatar(AVATAR_FEMALE);\n", "window.__jvSyncFace = syncAvatarToVoice;\n"
+                    "loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);\n", 'first face')
+    # ---- every mesh that talks: hair, teeth and tongue move with the jaw too (a name can be on several meshes), and blinking
+    html = sub_once(html, "          if (MOUTH_MORPH_NAMES.includes(n)) mouthMorphs[n] = { mesh: child, index: child.morphTargetDictionary[n] };\n",
+                    "          if (MOUTH_MORPH_NAMES.includes(n)) mouthMorphs[n + '#' + child.uuid] = { mesh: child, index: child.morphTargetDictionary[n], name: n };\n"
+                    "          if (n === 'eyeBlink') (window.__jvBlinkMorphs = window.__jvBlinkMorphs || []).push({ mesh: child, index: child.morphTargetDictionary[n] });\n", 'all talking meshes')
+    html = sub_once(html, "        const lower = name.toLowerCase();\n", "        const lower = (m.name || name).toLowerCase();\n", 'morph name')
+    html = sub_once(html, "  for (const k in mouthMorphs) delete mouthMorphs[k];\n", "  for (const k in mouthMorphs) delete mouthMorphs[k];\n  window.__jvBlinkMorphs = [];\n", 'reset blink')
+    html = sub_once(html, "  driveLipSync(t, speakingAmount);\n", "  driveLipSync(t, speakingAmount);\n" + BLINK_JS, 'blink')
 
     html = sub_once(html, 'async function identifyUser() {\n',
                     'async function identifyUser() {\n  if (window.JARVIS_NATIVE) return currentUser;   // no face ID on the phone\n', 'identifyUser guard')

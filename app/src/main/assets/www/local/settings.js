@@ -63,6 +63,13 @@ body.jv-settings #bg-base, body.jv-settings #bg-rings, body.jv-settings #bg-halo
 #jv-ov .seg { display: flex; padding: 4px; gap: 4px; border-radius: 16px; background: rgba(10, 22, 38, .9); border: 1px solid rgba(160, 215, 255, .12); }
 #jv-ov .seg button { flex: 1; border: 0; border-radius: 12px; background: transparent; color: #9db3c6; padding: 12px; }
 #jv-ov .seg button[aria-pressed=true] { background: #16324c; color: #eaf6ff; box-shadow: 0 0 0 1px rgba(127, 216, 255, .35); }
+#jv-ov .faces { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin: 6px 0 14px; }
+#jv-ov .face { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px 10px; border-radius: 18px; border: 1px solid rgba(160, 215, 255, .12); background: rgba(14, 28, 44, .62); }
+#jv-ov .face .pic { width: 72px; height: 72px; border-radius: 50%; margin-bottom: 6px; background: #0a1624 center 30% / cover no-repeat; box-shadow: 0 0 0 1px rgba(160, 215, 255, .15); }
+#jv-ov .face .pic.orb { background: radial-gradient(circle at 38% 34%, #fff 0, #bfe9ff 12%, rgba(127, 216, 255, .75) 34%, rgba(181, 155, 255, .45) 62%, rgba(10, 22, 36, 1) 72%); }
+#jv-ov .face b { font-size: 15px; font-weight: 500; } #jv-ov .face span:last-child { font-size: 12px; color: #8aa1b5; }
+#jv-ov .face[aria-checked=true] { border-color: #7fd8ff; background: rgba(22, 50, 76, .9); box-shadow: 0 0 0 1px #7fd8ff inset; }
+#jv-ov .face[aria-checked=true] .pic { box-shadow: 0 0 0 2px #7fd8ff, 0 0 18px rgba(127, 216, 255, .4); }
 #jv-ov .msg { min-height: 20px; margin-top: 8px; font-size: 14px; } #jv-ov .ok { color: #52f2b6; } #jv-ov .bad { color: #ff7a85; }
 /* hearing check */
 #jv-diag { margin-top: 14px; padding: 16px; border-radius: 18px; background: rgba(10, 22, 38, .9); border: 1px solid rgba(160, 215, 255, .1); }
@@ -152,10 +159,21 @@ export function initSettings() {
   add(sBrain, 'text', 'user_name', 'Your name', { ph: 'What should I call you?' });
 
   // ---- voice and face
-  const sVoice = section('Voice and face');
+  const sVoice = section('Voice and face', 'Pick a face. The voice goes with it: a man\'s face speaks with a male voice, a woman\'s with a female one.');
+  // the faces (faces.js): a card each, with its picture; the orb is drawn
+  const faceGrid = el('div', { class: 'faces', role: 'radiogroup', 'aria-label': 'Face' });
+  const faceCards = {};
+  for (const f of (J().faces || [])) {
+    const pic = el('span', { class: 'pic' + (f.id === 'orb' ? ' orb' : '') });
+    if (f.thumb) pic.style.backgroundImage = `url(${f.thumb})`;
+    const b = el('button', { type: 'button', class: 'face', role: 'radio', 'data-face': f.id }, pic, el('b', {}, f.name), el('span', {}, f.gender ? (f.gender === 'male' ? 'Male voice' : 'Female voice') : 'No face'));
+    b.onclick = () => pickFace(f.id); faceCards[f.id] = b; faceGrid.append(b);
+  }
+  sVoice.append(faceGrid);
+  // the orb has no face, so its voice is chosen here
   const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Voice' });
-  const bMale = el('button', { type: 'button' }, 'Male'), bFemale = el('button', { type: 'button' }, 'Female');
-  seg.append(bMale, bFemale); sVoice.append(seg);
+  const bMale = el('button', { type: 'button' }, 'Male voice'), bFemale = el('button', { type: 'button' }, 'Female voice');
+  seg.append(bMale, bFemale); const segWrap = el('div', {}, el('label', {}, 'The orb\'s voice'), seg); sVoice.append(segWrap);
   let gender = J().config.get('avatar_gender', 'male');
   const vsel = el('select', { 'aria-label': 'Voice' }); const vw = el('div'); vw.append(el('label', {}, 'Voice'), vsel); sVoice.append(vw);
   const vnote = el('p', { class: 'hint' }); sVoice.append(vnote);
@@ -171,7 +189,17 @@ export function initSettings() {
   };
   pcBtn.onclick = () => { J().ensurePcVoice(true); setTimeout(paintPc, 200); };
   J().onVoices = () => { if (ov.classList.contains('on')) { paintPc(); fillVoices(); } };
-  const paintSeg = () => { bMale.setAttribute('aria-pressed', String(gender === 'male')); bFemale.setAttribute('aria-pressed', String(gender === 'female')); };
+  const curFace = () => J().config.get('face', '') || (gender === 'female' ? 'amara' : 'adam');
+  const paintSeg = () => {
+    bMale.setAttribute('aria-pressed', String(gender === 'male')); bFemale.setAttribute('aria-pressed', String(gender === 'female'));
+    const id = curFace(); for (const [k, b] of Object.entries(faceCards)) b.setAttribute('aria-checked', String(k === id));
+    segWrap.style.display = id === 'orb' ? '' : 'none';
+  };
+  const pickFace = async id => {
+    const f = (J().faces || []).find(x => x.id === id); if (!f) return;
+    const p = J().chooseFace(id); if (f.gender) gender = f.gender; paintSeg(); fillVoices(); paintPc();
+    await p; gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc();
+  };
   const fillVoices = () => {
     vsel.replaceChildren();
     const g = gender === 'female' ? 'f' : 'm';
@@ -182,7 +210,7 @@ export function initSettings() {
     const cur = J().config.get('voice', ''); if (cur && list.some(v => v.id === cur)) vsel.value = cur;
     vnote.textContent = mine.some(v => !v.pc) || mine.some(v => v.pc && !/\(/.test(v.name)) ? '' : `This phone has no ${gender} voice installed, so Jarvis changes the pitch. More voices: ${window.JARVIS_IOS ? 'Settings, Accessibility, Spoken Content, Voices, English (pick an Enhanced or Premium voice)' : 'Android Settings, Text-to-speech, Speech Services by Google, Install voice data'}.`;
   };
-  const choose = g => { gender = g; paintSeg(); J().config.merge({ avatar_gender: g, voice: '' }); fillVoices(); J().announceVoice(); J().ensurePcVoice(); paintPc(); };
+  const choose = g => { gender = g; J().config.merge({ avatar_gender: g, voice: '' }); paintSeg(); fillVoices(); J().announceVoice(); J().ensurePcVoice(); paintPc(); };
   bMale.onclick = () => choose('male'); bFemale.onclick = () => choose('female');
   vsel.onchange = () => { J().config.set('voice', vsel.value); J().announceVoice(); };
   sVoice.append(el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { type: 'button', onclick: () => J().speakTest(gender === 'female' ? 'Hello. This is how I sound.' : 'Good evening. This is how I sound.') }, 'Hear it')));
@@ -381,7 +409,7 @@ export function initSettings() {
   };
   const menuSub = {
     brain: () => J().api.ready() ? [J().api.mode() === 'proxy' ? 'Connected to the Jarvis service' : 'Using your Groq key', 'ok'] : ['Needs a key', 'warn'],
-    voice: () => [(gender === 'female' ? 'Female' : 'Male') + ' voice and face'],
+    voice: () => { const f = (J().faces || []).find(x => x.id === curFace()); return [f ? (f.id === 'orb' ? `Orb, ${gender} voice` : `${f.name}, ${f.gender} voice`) : 'Male voice and face']; },
     hearing: () => { const s = J().stats || {}; return [s.wake ? `Wake word ready, ${s.wakes || 0} wakes so far` : 'Wake word loading']; },
     offer: () => { const st = J().offerStatus ? J().offerStatus() : null; return st && st.enabled ? ['On', 'ok'] : ['Off']; },
     nav: () => [`${{ jarvis: 'Jarvis map', google: 'Google Maps', apple: 'Apple Maps' }[J().config.get('map_provider', 'jarvis')] || 'Jarvis map'}, ${{ auto: 'automatic units', miles: 'miles', km: 'kilometres' }[J().config.get('units', 'auto')] || 'automatic units'}`],

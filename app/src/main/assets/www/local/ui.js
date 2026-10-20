@@ -261,6 +261,7 @@ body[data-nav="dash"] .nb-then, body[data-nav="dash"] #nav-badge, body[data-nav=
 #jv-drive { position: fixed; z-index: 6; left: 14px; right: 14px; top: calc(var(--safe-t) + 12px); bottom: calc(var(--safe-b) + 110px); display: none; flex-direction: column; gap: 12px; color: var(--ice); overflow: hidden;
   font: 400 15px/1.35 Roboto, system-ui, sans-serif; }
 body.jv-drive #jv-drive { display: flex; }
+body.jv-faceless #three { visibility: hidden; }
 body.jv-drive #three, body.jv-drive #jv-aura, body.jv-drive #jv-hello, body.jv-drive #jv-clock, body.jv-drive #jv-hint, body.jv-drive #jv-shift, body.jv-drive #route-panel { visibility: hidden !important; }
 body.jv-drive.jv-busy #jv-drive .dv-head { visibility: hidden; }
 #jv-drive .dv-head { display: flex; align-items: flex-start; gap: 10px; }
@@ -385,6 +386,7 @@ function createAura(canvas) {
     const g = ctx.createRadialGradient(cx, cy, R * 0.85, cx, cy, R * 2.4);
     g.addColorStop(0, rgba(0)); g.addColorStop(0.12, rgba(0.07 + energy * 0.12)); g.addColorStop(0.5, rgba(0.025 + energy * 0.04)); g.addColorStop(1, rgba(0));
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (b.contains('jv-faceless')) drawOrb(t, cx, cy, R);              // no face: a ball of light that breathes and swirls with his voice
     ctx.lineCap = 'round';
     const spin = reduced() ? 0 : t * (st === 'think' ? 1.4 : 0.18);
     // fine outer ring with ticks
@@ -420,6 +422,24 @@ function createAura(canvas) {
       const r = R * m.r + Math.sin(t + m.p) * 4, x = cx + Math.cos(m.a) * r, y = cy + Math.sin(m.a) * r * 0.92;
       ctx.fillStyle = rgba((0.18 + 0.25 * Math.sin(t * 1.5 + m.p) ** 2) * (0.5 + energy)); ctx.beginPath(); ctx.arc(x, y, m.z, 0, Math.PI * 2); ctx.fill();
     }
+  }
+  const HUES = [[127, 216, 255], [181, 155, 255], [82, 242, 182]];
+  function drawOrb(t, cx, cy, R) {
+    const still = reduced(), r0 = R * (0.6 + energy * 0.16 + (still ? 0 : Math.sin(t * 1.6) * 0.015));
+    const core = ctx.createRadialGradient(cx - r0 * 0.28, cy - r0 * 0.32, r0 * 0.04, cx, cy, r0);
+    core.addColorStop(0, `rgba(255,255,255,${0.5 + energy * 0.3})`); core.addColorStop(0.4, rgba(0.42 + energy * 0.25)); core.addColorStop(1, rgba(0.05));
+    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, r0, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r0, 0, Math.PI * 2); ctx.clip(); ctx.globalCompositeOperation = 'lighter';
+    HUES.forEach(([r, g, bl], i) => {
+      const a = (still ? 0 : t) * (0.45 + i * 0.19) * (i % 2 ? -1 : 1) + i * 2.1, k = r0 * (0.32 + energy * 0.12);
+      const x = cx + Math.cos(a) * k, y = cy + Math.sin(a * 1.3) * k;
+      const gg = ctx.createRadialGradient(x, y, 0, x, y, r0 * (0.75 + energy * 0.3));
+      const mix = (c, j) => Math.round(c * 0.55 + col[j] * 0.45);
+      gg.addColorStop(0, `rgba(${mix(r, 0)},${mix(g, 1)},${mix(bl, 2)},${0.32 + energy * 0.3})`); gg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gg; ctx.fillRect(cx - r0, cy - r0, r0 * 2, r0 * 2);
+    });
+    ctx.restore();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = rgba(0.45 + energy * 0.35); ctx.beginPath(); ctx.arc(cx, cy, r0, 0, Math.PI * 2); ctx.stroke();
   }
   raf = requestAnimationFrame(frame);
   return { stop: () => cancelAnimationFrame(raf) };
@@ -766,7 +786,7 @@ export function initUi() {
   function paintDrive() {
     const on = driving();
     if (on !== B.contains('jv-drive')) {
-      B.toggle('jv-drive', on); window.__jvHideFace = on;                           // the 3D face stops drawing: less battery while you drive
+      B.toggle('jv-drive', on); syncHide();                                          // the 3D face stops drawing: less battery while you drive
       if (on) { closeIdeas(); B.remove('jv-greet'); }
     }
     watch();
@@ -821,6 +841,11 @@ export function initUi() {
   window.addEventListener('jv-refresh', () => { dvKey = ''; paintDrive(); });
   document.addEventListener('visibilitychange', () => { watch(); });
   new MutationObserver(() => paintDrive()).observe(document.body, { attributes: true, attributeFilter: ['data-nav'] });
+
+  // ---- no face ("Orb"): the aura draws a ball of light and the 3D face stops drawing
+  function syncHide() { window.__jvHideFace = B.contains('jv-drive') || B.contains('jv-faceless'); }
+  const paintFace = () => { let orbOn = false; try { orbOn = J().config.get('face', '') === 'orb'; } catch {} B.toggle('jv-faceless', orbOn); syncHide(); };
+  window.addEventListener('jv-face', paintFace); paintFace();
 
   syncState(); syncCaps(); paintNew(); greet(); setTimeout(paintDrive, 1600);
 
