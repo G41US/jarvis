@@ -52,12 +52,20 @@ export function groupsFor(text) {
   return out;
 }
 
+/** A follow-up to the last request rather than a new one: short, or leaning on what was just said. */
+export function isFollowUp(text) {
+  const t = ' ' + String(text || '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+  if (t.trim().split(' ').length <= 4) return true;
+  return /\b(it|that|them|again|also|too|instead|same|another|other one|the next|yes|yeah|yep|no|nope|do it|go ahead|send it|cancel that|undo)\b/.test(t) || /^ (and|but|also|then|now|ok|okay) /.test(t);
+}
+
 /** The router: remembers the last two turns' groups. `all` is reg.schemas. */
 export function createRouter() {
   const recent = [];
   return {
     pick(all, text, extraGroups = []) {
-      const groups = new Set([...groupsFor(text), ...extraGroups, ...recent.flat()]);
+      // the last two turns' tools carry over only for follow-ups ("turn it off", "yes send it", "and the other one?")
+      const groups = new Set([...groupsFor(text), ...extraGroups, ...(isFollowUp(text) ? recent.flat() : [])]);
       recent.push([...groupsFor(text), ...extraGroups]); while (recent.length > 2) recent.shift();
       const want = new Set(CORE);
       for (const g of groups) for (const n of (GROUPS[g] ? GROUPS[g][1] : [])) want.add(n);
