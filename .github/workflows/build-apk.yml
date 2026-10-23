@@ -268,6 +268,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 3
           name: Jarvis-apk
           path: Jarvis.apk
 
@@ -291,6 +292,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: env.HAS_UPLOAD_PASSWORD == 'true'
         with:
+          retention-days: 3
           name: Jarvis-playstore-aab
           path: Jarvis.aab
 
