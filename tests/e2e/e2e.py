@@ -211,7 +211,7 @@ BRIDGE = r"""
     tone(f, ms, v) { window.__native.tones++; },
     vibrate(k) { (window.__native.vib = window.__native.vib || []).push(k); },
     widget(j) { (window.__native.widget = window.__native.widget || []).push(JSON.parse(j)); }, pinWidget() { window.__native.pinned = 1; return 'asked'; }, widgetCount() { return 0; },
-    appBuild() { return 50; }, installUpdate(url, token, size, parts) { window.__native.update = [url, token, size, parts]; return 'started'; },
+    appBuild() { return 50; }, mouthLevel() { return window.__mouth == null ? 0 : window.__mouth; }, setSpeechSpeed(x) { window.__native.speed = x; }, installUpdate(url, token, size, parts) { window.__native.update = [url, token, size, parts]; return 'started'; },
     pcVoices() { return JSON.stringify(window.__pc); },
     pcVoiceDownload(n) { window.__native.pcDownloads.push(n); window.__pc[n] = 'downloading:40'; window.__jvVoices(JSON.stringify(window.__pc));
       setTimeout(() => { window.__pc[n] = 'ready'; window.__jvVoices(JSON.stringify(window.__pc)); }, 300); },
@@ -582,6 +582,11 @@ def main():
         check('"Hey Jarvis" buzzes', 'wake' in (ev("window.__native.vib") or []))
         ev("window.__native.vib = []; JARVIS.wake()"); pg.wait_for_timeout(200)
         check('...a tap on the button does not buzz', 'wake' not in (ev("window.__native.vib") or []))
+        # ---- talking: speaking speed and a mouth that follows the voice's loudness
+        check('he talks a bit faster by default (both voices get the speed)', ev("window.__native.speed") == 1.15, ev("window.__native.speed"))
+        ev("window.__mouth = 0.2"); [ev("window.__jvMouthLevel()") for _ in range(5)]
+        check('a loud sound from the speaker opens the mouth', ev("window.__jvMouthLevel()") > 0.7)
+        ev("window.__mouth = null")
         # ---- faces
         r = ev("JARVIS.reg.exec('choose_face', JSON.stringify({ face: 'orb' }))")
         check('"use the orb": no face, a ball of light (and the 3D face stops drawing)', ev("document.body.classList.contains('jv-faceless')") and ev("window.__jvHideFace") is True and ev("window.__jvFaceFor(true)") == 'orb', r)

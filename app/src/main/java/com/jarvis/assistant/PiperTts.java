@@ -45,6 +45,20 @@ public final class PiperTts {
     private String loaded = "";
     private volatile String failed = "";                                        // a voice that would not load (corrupt download, out of memory)
     private AudioTrack track;
+    // how loud he is, every HOP samples of the sentence being played: the face's mouth follows it (level())
+    private static final int HOP = 512;
+    private volatile float[] env = new float[256];
+    private volatile int envLen = 0;
+    private volatile long envBase = 0;
+    private volatile float speed = 1f;                                        // the user's speaking speed (1 = normal)
+    public void setSpeed(float s) { speed = Math.max(0.6f, Math.min(1.6f, s)); }
+
+    /** Loudness (RMS) of what the speaker is playing right now; 0 when quiet. */
+    public float level() {
+        AudioTrack t = track; int n = envLen; if (t == null || n == 0) return 0f;
+        try { long i = ((t.getPlaybackHeadPosition() & 0xffffffffL) - envBase) / HOP; return i >= 0 && i < n ? env[(int) i] : 0f; }
+        catch (Exception e) { return 0f; }
+    }
 
     public PiperTts(File root, Events events) {
         this.root = root;
@@ -162,6 +176,12 @@ public final class PiperTts {
             if (cancel) return 0;
             AudioTrack t = track;
             if (t != null && samples != null && samples.length > 0) {
+                for (int s = 0; s < samples.length; s += HOP) {                  // record the loudness before playing it
+                    double sum = 0; int e = Math.min(samples.length, s + HOP);
+                    for (int k = s; k < e; k++) sum += samples[k] * samples[k];
+                    float[] a = env; if (envLen >= a.length) { a = java.util.Arrays.copyOf(a, a.length * 2); env = a; }
+                    a[envLen] = (float) Math.sqrt(sum / Math.max(1, e - s)); envLen++;
+                }
                 int off = 0;
                 while (off < samples.length && !cancel) {
                     int w = t.write(samples, off, samples.length - off, AudioTrack.WRITE_BLOCKING);
@@ -201,8 +221,9 @@ public final class PiperTts {
                 }
                 track.play();
                 final long base = track.getPlaybackHeadPosition() & 0xffffffffL;
+                envLen = 0; envBase = base;
                 Sink sink = new Sink();
-                tts.generateWithCallback(text, 0, PC_SPEED, sink);
+                tts.generateWithCallback(text, 0, PC_SPEED * speed, sink);
                 // wait for the speaker to finish what was written (the page waits for this "done" before listening again)
                 long deadline = System.currentTimeMillis() + 2000 + sink.written * 1000L / sr;
                 while (!cancel && System.currentTimeMillis() < deadline) {
@@ -210,6 +231,7 @@ public final class PiperTts {
                     if (played >= sink.written) break;
                     Thread.sleep(15);
                 }
+                envLen = 0;
                 if (cancel) { track.pause(); track.flush(); } else track.stop();
             } catch (Throwable e) {
                 Log.w(TAG, "speak", e);

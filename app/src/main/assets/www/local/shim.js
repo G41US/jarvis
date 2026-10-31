@@ -29,6 +29,18 @@ import { describeVoices, pickVoice, fallbackPitch } from './voices.js';
 
 const W = window; W.JARVIS_NATIVE = true;
 const bridge = () => W.AndroidBridge || null;
+/** Turns raw speech loudness into how open the mouth is (0..1): measured against his recent loudest, opening fast and closing a
+ *  little slower, like a real mouth. read() returns -1 when there's no measurement (then the page uses its own rhythm). */
+export function mouthFollower(read) {
+  let peak = 0.05, cur = 0;
+  return () => {
+    const raw = read(); if (!(raw >= 0)) return -1;
+    peak = Math.max(raw, peak * 0.997, 0.02);
+    const want = Math.min(1, Math.max(0, (raw / (peak * 0.75) - 0.12) / 0.88));   // quiet hiss stays shut
+    cur += (want - cur) * (want > cur ? 0.65 : 0.3);
+    return cur;
+  };
+}
 const has = m => !!(bridge() && typeof bridge()[m] === 'function');
 const log = (...a) => console.log('[JARVIS]', ...a);
 W.JARVIS_NATIVE_MIC = has('micStart');                 // the page skips its own microphone code when the app records natively
@@ -126,6 +138,7 @@ function setVoice(q) {
 
 // ---------------------------------------------------------------- faces (faces.js): which face goes with the voice
 W.__jvFaceFor = wantMale => faceFor(cfgStore, wantMale);
+W.__jvMouthLevel = mouthFollower(() => (has('mouthLevel') ? Number(bridge().mouthLevel()) : -1));
 
 // ---- updates (Settings > Updates): each build also goes to the Jarvis service (the GitHub repo is private), and
 //      Android's installer puts it on after one tap. state: '', downloading, installing, confirm, done, failed, permission
@@ -275,6 +288,7 @@ export function applySettings({ voiceChanged = false } = {}) {
   brain.refreshPrompt(); if (voiceChanged) announceVoice(); else applyVoice();
   faceChanged(); try { W.__jvSyncFace && W.__jvSyncFace(); } catch {}                     // a face picked in settings
   const th = Number(cfgStore.get('wake_sensitivity', 0.3)); if (has('setWakeThreshold') && th) bridge().setWakeThreshold(th);
+  if (has('setSpeechSpeed')) bridge().setSpeechSpeed(Number(cfgStore.get('speech_speed', 1.15)) || 1.15);
   if (typeof pushOfferPrefs === 'function') pushOfferPrefs();
   if (typeof proactive !== 'undefined' && proactive) proactive.scheduleBriefing();                // a new briefing time takes effect at once
   broadcast('nav:' + JSON.stringify({ cmd: 'provider', value: cfgStore.get('map_provider', 'jarvis'), cfg: navsvc.config() }));
