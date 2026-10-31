@@ -385,6 +385,9 @@ function makeGoldenParticleFace(model) {
     }
   });
   if (!candidates.length || totalArea <= 0) return null;
+  // a human head: fuller at the temples and cranium, slimming down to the jaw and chin
+  const cx = head ? head.cx || 0 : 0, widen = y => { if (!head) return 1; const t = Math.min(1, Math.max(0, (y - head.neck) / (head.top - head.neck)));
+    const k = Math.min(1, Math.max(0, (t - 0.12) / 0.5)); return 0.94 + 0.18 * k * k * (3 - 2 * k); };
   const count = 28000, points = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
     const target = Math.random() * totalArea;
@@ -392,8 +395,8 @@ function makeGoldenParticleFace(model) {
     while (lo < hi) { const mid = (lo + hi) >> 1; if (cumulative[mid] < target) lo = mid + 1; else hi = mid; }
     const tri = candidates[lo], u = Math.random(), v = Math.random(), su = Math.sqrt(u);
     const wa = 1 - su, wb = su * (1 - v), wc = su * v;
-    points[i*3] = tri[0].x * wa + tri[1].x * wb + tri[2].x * wc;
     points[i*3+1] = tri[0].y * wa + tri[1].y * wb + tri[2].y * wc;
+    points[i*3] = cx + (tri[0].x * wa + tri[1].x * wb + tri[2].x * wc - cx) * widen(points[i*3+1]);
     points[i*3+2] = tri[0].z * wa + tri[1].z * wb + tri[2].z * wc;
   }
   const geo = new THREE.BufferGeometry();
@@ -408,10 +411,10 @@ function makeGoldenParticleFace(model) {
   model.add(cloud);
   if (eyeMeshes.length) {                       // two glowing eyes, like the reference
     const eb = new THREE.Box3(); eyeMeshes.forEach(e => eb.expandByObject(e)); eb.applyMatrix4(invRoot);
-    const c = eb.getCenter(new THREE.Vector3()), dx = (eb.max.x - eb.min.x) / 4, r = (eb.max.y - eb.min.y) * 1.1;
+    const c = eb.getCenter(new THREE.Vector3()), dx = (eb.max.x - eb.min.x) / 4 * widen(c.y) * 1.3, r = (eb.max.y - eb.min.y) * 1.1;   // set wide, like the reference
     for (const sx of [-1, 1]) {
       const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff1d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-      eye.position.set(c.x + sx * dx, c.y, eb.max.z); eye.scale.setScalar(r); model.add(eye);
+      eye.position.set(cx + (c.x - cx) + sx * dx, c.y, eb.max.z); eye.scale.set(r * 1.7, r * 0.75, 1); model.add(eye);   // oval, like a human eye
     }
   }
   return cloud;
