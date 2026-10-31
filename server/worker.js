@@ -74,6 +74,12 @@ export default {
       j.max_tokens = Math.min(Number(j.max_tokens) || 1024, MAX_TOKENS);
       delete j.n; delete j.user;
       body = JSON.stringify(j); headers['content-type'] = 'application/json';
+    } else if (path === '/audio/speech' && req.method === 'POST') {             // Jarvis's natural voice (Orpheus)
+      let j;
+      try { j = await req.json(); } catch { return fail(400, 'Bad JSON.'); }
+      if (!String(j.model || '').startsWith('canopylabs/orpheus')) return fail(400, `Model not allowed: ${j.model}`);
+      if (String(j.input || '').length > 400) return fail(413, 'Too long for one request.');
+      body = JSON.stringify({ model: j.model, input: String(j.input), voice: String(j.voice || ''), response_format: 'wav' }); headers['content-type'] = 'application/json';
     } else if (path === '/audio/transcriptions' && req.method === 'POST') {
       const len = Number(req.headers.get('content-length') || 0);
       if (len > MAX_AUDIO) return fail(413, 'Audio clip too long.');
