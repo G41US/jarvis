@@ -64,7 +64,7 @@ public class Bridge {
     private final List<Object[]> ttsPending = new ArrayList<>();   // {id, text, rate, pitch} spoken once the engine is up
     private String wantedVoice = "";
     private AudioFocusRequest focus;
-    private int speaking = 0;
+    private volatile int speaking = 0;
 
     // ---- microphone + wake word (VoiceEngine) and streaming HTTP
     private VoiceEngine voice;
@@ -241,6 +241,7 @@ public class Bridge {
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
                     tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                         @Override public void onStart(String utteranceId) { }
+                        @Override public void onRangeStart(String utteranceId, int start, int end, int frame) { wordAt = android.os.SystemClock.uptimeMillis(); wordLen = end - start; }
                         @Override public void onDone(String utteranceId) { finished(utteranceId, "done"); }
                         @Override public void onError(String utteranceId) { finished(utteranceId, "error"); }
                         @Override public void onStop(String utteranceId, boolean interrupted) { finished(utteranceId, "done"); }
@@ -283,7 +284,7 @@ public class Bridge {
 
     private void speakNow(long id, String text, float rate, float pitch) {
         try {
-            tts.setSpeechRate(Math.max(0.5f, Math.min(rate, 2.5f)));
+            tts.setSpeechRate(Math.max(0.5f, Math.min(rate * speechSpeed, 2.5f)));
             tts.setPitch(Math.max(0.5f, Math.min(pitch, 2.0f)));
             synchronized (this) { if (speaking == 0) takeFocus(); speaking++; }
             Bundle p = new Bundle();
@@ -707,6 +708,19 @@ public class Bridge {
     /** Asks the launcher to put the widget on the home screen: "asked" or "unsupported". */
     @JavascriptInterface public String pinWidget() { return JarvisWidget.pin(activity); }
     @JavascriptInterface public int widgetCount() { return JarvisWidget.count(activity); }
+
+    // ---- the mouth follows the speech: the PC voice's real loudness; with the phone's voice, a shape on each word Android reports
+    private volatile long wordAt = 0; private volatile int wordLen = 0; private volatile float speechSpeed = 1f;
+    @JavascriptInterface public float mouthLevel() {
+        if (speaking == 0) return 0f;
+        if (piper != null && piper.speaksNow()) return piper.level();
+        long t = android.os.SystemClock.uptimeMillis() - wordAt; long dur = Math.min(520, 110 + 45L * wordLen);
+        if (t > dur) return 0.04f;
+        double syl = Math.abs(Math.sin(Math.PI * t / Math.max(120, dur / Math.max(1, wordLen / 3))));   // a few openings across a long word
+        return (float) (0.25 + 0.75 * syl * Math.sin(Math.PI * Math.min(1.0, (double) t / dur)));
+    }
+    /** How fast he talks: 1 normal, 1.15 a bit faster, 1.3 fast (both the PC voice and the phone's voice). */
+    @JavascriptInterface public void setSpeechSpeed(float s) { speechSpeed = Math.max(0.6f, Math.min(1.6f, s)); if (piper != null) piper.setSpeed(speechSpeed); }
     /** This APK's build number (the GitHub Actions run that made it). 0 for a build made by hand. */
     @JavascriptInterface public int appBuild() {
         try { long v = Build.VERSION.SDK_INT >= 28 ? activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).getLongVersionCode()
