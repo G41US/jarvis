@@ -222,6 +222,12 @@ body.sos-on[data-nav="mini"] #nav-frame { top: calc(var(--safe-t) + 140px) !impo
 body[data-nav="full"] #jv-card { visibility: hidden; }
 body[data-nav="full"] #jv-dock { bottom: calc(var(--safe-b) + 110px); }
 body[data-nav="full"] #jv-orb { left: auto; right: 12px; margin: 0; width: 58px; height: 58px; }
+@media (orientation: portrait) {   /* phone: his head is in the bottom-right corner, so the talk button goes bottom-left */
+  body[data-nav="full"] #jv-orb { left: 16px; right: auto; }
+  body[data-nav="full"] #jv-toast { top: calc(var(--safe-t) + 178px); }   /* under the turn banner, not over it */
+  body[data-nav] .nav-note, body[data-nav] #nav-badge { display: none !important; }   /* map-provider and GPS labels printed over the trip numbers */
+}
+#nav-orb { border-color: color-mix(in srgb, var(--state) 70%, transparent) !important; box-shadow: 0 0 22px color-mix(in srgb, var(--state) 45%, transparent) !important; }   /* gold, like the rest */
 body[data-nav="full"] #jv-hist { display: none; }
 @media (max-width: 820px), (orientation: portrait) {
   body[data-nav="mini"] #nav-frame { top: calc(var(--safe-t) + 66px) !important; left: 12px !important; right: 12px !important; width: auto !important; height: 34vh !important; }
