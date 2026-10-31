@@ -27,6 +27,7 @@ body.jv-history #log { visibility: visible; }
 
 /* ---- the aura: rings of light drawn over the face's canvas, around (never across) the face. The face itself lifts and shrinks
    with the 3D camera when the answer card needs room (window.__jvStage); the aura follows with the same move. */
+#three, #three canvas { touch-action: none; }   /* a drag on the face turns his head (not the page) */
 #jv-aura { position: fixed; inset: 0; z-index: 2; pointer-events: none; transform-origin: 50% 50%; transform: translateY(var(--stage-ty, 0px)) scale(var(--stage-s, 1)); transition: transform .5s var(--ease), opacity .5s; }
 body[data-nav] #jv-aura { opacity: 0; }
 
@@ -571,6 +572,23 @@ export function initUi() {
   orb.addEventListener('pointercancel', endPress);
   orb.addEventListener('click', e => { if (e.detail === 0) talk(); });     // keyboard and screen readers (taps are handled above)
   orb.addEventListener('contextmenu', e => e.preventDefault());
+  // ---- turn his head: drag the face to look at it from any side (it stays there); double-tap to bring it back to you
+  const spin = { yaw: 0, pitch: 0, drag: false }; window.__jvSpin = spin;
+  let turn = null, lastTap = 0;
+  document.addEventListener('pointerdown', e => {
+    if (e.clientY > window.innerHeight * 0.72 || B.contains('jv-history') || B.contains('jv-drive') || B.contains('jv-faceless') || document.body.hasAttribute('data-nav')) return;
+    if (e.target.closest && e.target.closest('button, a, input, select, textarea, #jv-card, #jv-ov, #jv-setup, #jv-pane, #route-panel, #jv-ideas, #jv-toast, #jv-top')) return;
+    const now = Date.now(); if (now - lastTap < 320) { spin.yaw = 0; spin.pitch = 0; lastTap = 0; turn = null; buzz && buzz('tick'); return; }
+    lastTap = now; turn = { x: e.clientX, y: e.clientY, yaw: spin.yaw, pitch: spin.pitch, id: e.pointerId }; spin.drag = true;
+  }, { passive: true });
+  document.addEventListener('pointermove', e => {
+    if (!turn || e.pointerId !== turn.id) return;
+    spin.yaw = turn.yaw + (e.clientX - turn.x) * 0.012;                                         // all the way round, any number of times
+    spin.pitch = Math.max(-0.75, Math.min(0.75, turn.pitch + (e.clientY - turn.y) * 0.008));   // up and down, short of upside down
+  }, { passive: true });
+  const endTurn = () => { turn = null; spin.drag = false; };
+  document.addEventListener('pointerup', endTurn); document.addEventListener('pointercancel', endTurn);
+
   // a swipe up from anywhere near the bottom (not on a button or the answer) also shows ideas
   let sw = null;
   document.addEventListener('touchstart', e => {

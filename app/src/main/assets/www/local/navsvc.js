@@ -29,7 +29,11 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   /** Why there's no position, in words that say what to do. */
   function noOrigin() {
     const P = typeof window !== 'undefined' && window.AndroidPhone, why = S.locWhy;
-    if (why === 'permission') { try { P && P.request && P.request('location'); } catch {} return "I'm not allowed to use your location yet. Tap Allow on the screen that just opened, then ask me again."; }
+    if (why === 'permission') {
+      let r = ''; try { r = P && P.request ? String(P.request('location')) : ''; } catch {}
+      return r === 'settings' ? "I'm not allowed to use your location. On the screen that just opened, tap Permissions, then Location, then Allow only while using the app, and ask me again."
+        : "I'm not allowed to use your location yet. Tap Allow on the window that just opened, then ask me again.";
+    }
     if (why === 'off') { try { P && P.openSettings && P.openSettings('location'); } catch {} return "Your phone's location is switched off. Turn on Location, then ask me again."; }
     if (P && P.lastLocation) return "Your phone couldn't get a location fix just now. Try again in a few seconds, or tell me where you are.";
     return NO_ORIGIN;

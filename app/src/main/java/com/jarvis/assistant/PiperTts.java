@@ -86,8 +86,29 @@ public final class PiperTts {
         cloudUrl = url == null ? "" : url; cloudHeaders = headersJson == null ? "{}" : headersJson; cloudVoice = voice == null ? "" : voice;
     }
 
-    /** One sentence from the natural voice: {samples, {sampleRate}}. */
+    private volatile String cloudNote = "ok";                                   // for Settings: ok, quota:<minutes>, refused
+    public String cloudStatus() { return cloudOn() ? "ok" : cloudUrl.isEmpty() ? "off" : cloudNote; }
+
+    /** A sentence from the natural voice: {samples, {sampleRate}}. Groq takes up to 200 characters a request, so a long
+     *  sentence goes in pieces cut at commas or spaces, joined back together. */
     private float[][] fetchCloud(String text) throws Exception {
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        String rest = text.trim();
+        while (rest.length() > 190) {
+            int cut = Math.max(rest.lastIndexOf(", ", 190), rest.lastIndexOf("; ", 190));
+            if (cut < 60) cut = rest.lastIndexOf(' ', 190); if (cut < 1) cut = 190;
+            parts.add(rest.substring(0, cut + 1).trim()); rest = rest.substring(cut + 1).trim();
+        }
+        if (!rest.isEmpty()) parts.add(rest);
+        float[] all = new float[0]; float rate = 24000;
+        for (String p : parts) {
+            float[][] w = fetchOne(p); rate = w[1][0];
+            float[] joined = java.util.Arrays.copyOf(all, all.length + w[0].length); System.arraycopy(w[0], 0, joined, all.length, w[0].length); all = joined;
+        }
+        return new float[][]{all, {rate}};
+    }
+
+    private float[][] fetchOne(String text) throws Exception {
         java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(cloudUrl).openConnection();
         c.setRequestMethod("POST"); c.setDoOutput(true); c.setConnectTimeout(8000); c.setReadTimeout(20000);
         c.setRequestProperty("Content-Type", "application/json");
@@ -95,8 +116,15 @@ public final class PiperTts {
         JSONObject body = new JSONObject().put("model", "canopylabs/orpheus-v1-english").put("voice", cloudVoice).put("input", text).put("response_format", "wav");
         try (java.io.OutputStream o = c.getOutputStream()) { o.write(body.toString().getBytes("UTF-8")); }
         int code = c.getResponseCode();
-        if (code == 400 || code == 401 || code == 403) cloudPausedUntil = System.currentTimeMillis() + 10 * 60000;   // no point asking every sentence
-        if (code != 200) throw new java.io.IOException("speech " + code);
+        if (code != 200) {
+            String err = ""; try (java.io.InputStream es = c.getErrorStream()) { if (es != null) { byte[] eb = new byte[2048]; int n = es.read(eb); if (n > 0) err = new String(eb, 0, n, "UTF-8"); } } catch (Exception ignored) { }
+            if (code == 429) {                                                    // the day's free allowance is used up: wait until Groq says it resets
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("try again in (?:(\\d+)h)?(?:(\\d+)m)?").matcher(err);
+                long mins = m.find() ? (m.group(1) == null ? 0 : Long.parseLong(m.group(1)) * 60) + (m.group(2) == null ? 1 : Long.parseLong(m.group(2)) + 1) : 15;
+                cloudPausedUntil = System.currentTimeMillis() + mins * 60000; cloudNote = "quota:" + mins;
+            } else if (code == 401 || code == 403 || err.contains("terms")) { cloudPausedUntil = System.currentTimeMillis() + 10 * 60000; cloudNote = "refused"; }
+            throw new java.io.IOException("speech " + code + " " + err);
+        }
         java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
         try (java.io.InputStream in = c.getInputStream()) { byte[] b = new byte[16384]; int n; while ((n = in.read(b)) > 0) bo.write(b, 0, n); }
         float[][] w = Wav.decode(bo.toByteArray()); w[0] = Wav.trim(w[0], (int) w[1][0]); return w;

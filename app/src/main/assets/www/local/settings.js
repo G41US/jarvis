@@ -215,6 +215,13 @@ export function initSettings() {
   bMale.onclick = () => choose('male'); bFemale.onclick = () => choose('female');
   vsel.onchange = () => { J().config.set('voice', vsel.value); J().announceVoice(); };
   add(sVoice, 'select', 'natural_voice', 'Natural voice', { def: 'true', options: [['true', 'On: sounds like a real person (needs internet; the PC voice fills in offline)'], ['false', 'Off: the PC voice or the phone\'s voice only']] });
+  const cloudNote = el('p', { class: 'hint' }); sVoice.append(cloudNote);
+  const paintCloud = () => {                         // why he's using the PC voice right now, if he is
+    let st = 'ok'; try { st = window.AndroidBridge && window.AndroidBridge.cloudVoiceStatus ? String(window.AndroidBridge.cloudVoiceStatus()) : 'ok'; } catch {}
+    const m = /^quota:(\d+)/.exec(st);
+    cloudNote.textContent = m ? `Today's free natural-voice allowance on your Groq account is used up, so he's using the PC voice for about ${m[1] >= 60 ? Math.round(m[1] / 60) + ' more hours' : m[1] + ' more minutes'}. To never run out, upgrade the Groq account to the Developer tier (pay as you go) at console.groq.com.`
+      : st === 'refused' ? 'Groq refused the natural voice (check that its terms are accepted at console.groq.com), so he is using the PC voice for now.' : '';
+  };
   add(sVoice, 'select', 'speech_speed', 'How fast he talks', { def: '1.15', options: [['1', 'Normal'], ['1.15', 'A bit faster'], ['1.3', 'Fast'], ['1.45', 'Very fast']] });
   sVoice.append(el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { type: 'button', onclick: () => J().speakTest(gender === 'female' ? 'Hello. This is how I sound.' : 'Good evening. This is how I sound.') }, 'Hear it')));
 
@@ -467,7 +474,7 @@ export function initSettings() {
       ul.append(el('button', { type: 'button', class: 'mi', 'data-go': id, onclick: () => { close(); fn(); } }, ico, el('span', { class: 'tx' }, el('b', {}, t), el('span', {}, sub))));
     }
   };
-  const open = page => { reload(); J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); paintEc(); paintMenu(); paintUpdate(); go(typeof page === 'string' ? page : (!J().api.ready() ? 'brain' : null)); };
+  const open = page => { reload(); J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); paintEc(); paintMenu(); paintUpdate(); paintCloud(); go(typeof page === 'string' ? page : (!J().api.ready() ? 'brain' : null)); };
   J().openSettings = open;
   if (!J().api.ready()) open('brain');
 }

@@ -172,10 +172,18 @@ public class PhoneActions {
         if (p != null || n.equals("calendar")) {
             final List<String> ps = new ArrayList<>();
             if (n.equals("calendar")) { ps.add(Manifest.permission.READ_CALENDAR); ps.add(Manifest.permission.WRITE_CALENDAR); } else ps.add(p);
+            // Android 12+ silently ignores a request for precise location on its own: it must come with approximate
+            if (Manifest.permission.ACCESS_FINE_LOCATION.equals(p)) ps.add(Manifest.permission.ACCESS_COARSE_LOCATION);
             boolean all = true;
             for (String x : ps) all &= has(x);
-            if (all) return "granted";
+            if (all || (n.equals("location") && has(Manifest.permission.ACCESS_COARSE_LOCATION))) return "granted";
             if (!visible) { start(new Intent(a, MainActivity.class), "Jarvis to allow it"); return "asked"; }
+            // asked before and refused: Android won't show its window again, so open Jarvis's App info > Permissions instead
+            android.content.SharedPreferences asked = a.getSharedPreferences("perm_asks", android.content.Context.MODE_PRIVATE);
+            boolean blocked = false;
+            for (String x : ps) if (!has(x) && asked.getBoolean(x, false) && !a.shouldShowRequestPermissionRationale(x)) blocked = true;
+            if (blocked) { a.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + a.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return "settings"; }
+            android.content.SharedPreferences.Editor ed = asked.edit(); for (String x : ps) ed.putBoolean(x, true); ed.apply();
             a.runOnUiThread(new Runnable() { @Override public void run() { a.requestPermissions(ps.toArray(new String[0]), REQ); } });
             return "asked";
         }
