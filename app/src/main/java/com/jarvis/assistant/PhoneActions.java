@@ -148,7 +148,7 @@ public class PhoneActions {
             o.put("brightness", Settings.System.canWrite(a));
             o.put("screenshots", Build.VERSION.SDK_INT >= 30);
             o.put("sms", has(Manifest.permission.SEND_SMS));
-            o.put("location", has(Manifest.permission.ACCESS_FINE_LOCATION));
+            o.put("location", has(Manifest.permission.ACCESS_FINE_LOCATION) || has(Manifest.permission.ACCESS_COARSE_LOCATION));
             o.put("mic", has(Manifest.permission.RECORD_AUDIO));
             o.put("offer", OfferReaderService.isEnabled(a));
             o.put("restricted", restricted(a));

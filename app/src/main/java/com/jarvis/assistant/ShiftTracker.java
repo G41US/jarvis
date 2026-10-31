@@ -31,7 +31,9 @@ public final class ShiftTracker implements LocationListener {
     public static synchronized ShiftTracker get(Context c) { if (inst == null) inst = new ShiftTracker(c); return inst; }
 
     private SharedPreferences prefs() { return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
-    private boolean hasPermission() { return ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED; }
+    // precise OR approximate: Android 12+ lets people grant only approximate location, and that still knows the street
+    private boolean hasPermission() { return ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            || ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED; }
 
     public synchronized boolean active() { return prefs().getBoolean("active", false); }
 
@@ -116,13 +118,18 @@ public final class ShiftTracker implements LocationListener {
         LocationManager lm = (LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
         if (lm != null && hasPermission()) {
             try {
-                for (String prov : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER}) {
+                for (String prov : new String[]{"fused", LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER}) {
+                    if (!lm.getAllProviders().contains(prov)) continue;
                     Location l = lm.getLastKnownLocation(prov);
                     if (l != null && (best == null || l.getTime() > best.getTime() + 30_000 || (Math.abs(l.getTime() - best.getTime()) <= 30_000 && l.getAccuracy() < best.getAccuracy()))) best = l;
                 }
             } catch (SecurityException ignored) { }
         }
         JSONObject o = new JSONObject();
+        if (best == null) try {                                                     // nothing: say why, so Jarvis can tell you what to do
+            boolean on = lm != null && (lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER));
+            o.put("why", !hasPermission() ? "permission" : !on ? "off" : "nofix");
+        } catch (Exception ignored) { }
         if (best != null) try {
             o.put("lat", best.getLatitude()); o.put("lon", best.getLongitude()); o.put("acc", Math.round(best.getAccuracy()));
             o.put("age_s", Math.max(0, (System.currentTimeMillis() - best.getTime()) / 1000));
@@ -139,13 +146,16 @@ public final class ShiftTracker implements LocationListener {
             final LocationManager lm = (LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
             final java.util.concurrent.CountDownLatch got = new java.util.concurrent.CountDownLatch(1);
             final LocationListener once = new LocationListener() {
-                @Override public void onLocationChanged(Location l) { if (l != null && (!l.hasAccuracy() || l.getAccuracy() < 150)) { synchronized (ShiftTracker.this) { lastGood = l; } got.countDown(); } }
+                @Override public void onLocationChanged(Location l) {   // any fix beats none (indoors the network fix is 50-2000 m)
+                    if (l == null) return;
+                    synchronized (ShiftTracker.this) { if (lastGood == null || !l.hasAccuracy() || l.getAccuracy() < 150 || l.getTime() > lastGood.getTime() + 120_000) lastGood = l; }
+                    if (!l.hasAccuracy() || l.getAccuracy() < 150 || got.getCount() > 0) got.countDown(); }
                 @Override public void onStatusChanged(String p, int s, Bundle b) { }
                 @Override public void onProviderEnabled(String p) { }
                 @Override public void onProviderDisabled(String p) { }
             };
-            for (String prov : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER})
-                if (lm.isProviderEnabled(prov)) lm.requestLocationUpdates(prov, 0, 0f, once, Looper.getMainLooper());
+            for (String prov : new String[]{"fused", LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER})
+                if (lm.getAllProviders().contains(prov) && lm.isProviderEnabled(prov)) lm.requestLocationUpdates(prov, 0, 0f, once, Looper.getMainLooper());
             got.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             lm.removeUpdates(once);
         } catch (Exception e) { Log.w(TAG, "fresh", e); }

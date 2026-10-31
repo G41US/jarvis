@@ -19,11 +19,20 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     try {
       const P = typeof window !== 'undefined' && window.AndroidPhone; if (!P || !P.lastLocation) return null;
       const l = JSON.parse(fresh && P.freshLocation ? P.freshLocation(7000) : P.lastLocation());
-      if (!l || !Number.isFinite(l.lat) || (l.age_s ?? 0) > 900 || (l.acc ?? 0) > 3000) return null;
+      S.locWhy = (l && l.why) || (l && Number.isFinite(l.lat) ? 'old' : 'nofix');
+      if (!l || !Number.isFinite(l.lat) || (l.age_s ?? 0) > (fresh ? 86400 : 1800) || (l.acc ?? 0) > 5000) return null;   // a fresh ask takes the best the phone has
       S.pos = { lat: l.lat, lon: l.lon, acc: l.acc || 50, ts: Date.now() / 1000 - (l.age_s || 0), speed: null };
       if (l.acc <= 200 && config.get('use_gps', true)) syncLocation(l.lat, l.lon).catch(() => {});
       return [l.lat, l.lon];
     } catch { return null; }
+  }
+  /** Why there's no position, in words that say what to do. */
+  function noOrigin() {
+    const P = typeof window !== 'undefined' && window.AndroidPhone, why = S.locWhy;
+    if (why === 'permission') { try { P && P.request && P.request('location'); } catch {} return "I'm not allowed to use your location yet. Tap Allow on the screen that just opened, then ask me again."; }
+    if (why === 'off') { try { P && P.openSettings && P.openSettings('location'); } catch {} return "Your phone's location is switched off. Turn on Location, then ask me again."; }
+    if (P && P.lastLocation) return "Your phone couldn't get a location fix just now. Try again in a few seconds, or tell me where you are.";
+    return NO_ORIGIN;
   }
   /** Where you are now, waiting a few seconds for a GPS fix if the phone hasn't had one lately. */
   async function originNow() { return origin() || phoneFix(true); }
@@ -117,7 +126,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return [r, stops[0].label];
   }
   async function startDelivery() {
-    const org = await originNow(); if (!org) return NO_ORIGIN;
+    const org = await originNow(); if (!org) return noOrigin();
     const [r, info] = await buildDelivery(org); if (r === null) return info;
     const wps = r.waypoints;
     Object.assign(S, { active: true, route: r, label: info, mode: 'auto', delivery: true, progress: null, view: 'full', dest: wps.slice(1).map(w => [w.lat, w.lon, w.label]) });
@@ -131,7 +140,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     try {
       const org = origin();
       if (!delivery.hasActive()) { const dash = S.view === 'dash'; Object.assign(S, { active: false, route: null, delivery: false, progress: null, view: 'off', here: null, dashMuted: false }); cmd('stop', { say: dash ? '' : 'That was the last stop. Navigation ended.' }); return; }
-      const [r, info] = org ? await buildDelivery(org) : [null, NO_ORIGIN];
+      const [r, info] = org ? await buildDelivery(org) : [null, noOrigin()];
       if (r === null) { console.warn('[NAV] delivery refresh:', info); return; }
       const wps = r.waypoints;
       Object.assign(S, { route: r, label: info, dest: wps.slice(1).map(w => [w.lat, w.lon, w.label]), progress: null });
@@ -152,7 +161,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if (fromText && !/^(here|my location|where i am|me)$/i.test(fromText.trim())) {   // "from Wuse 2 to Jabi": the route starts there
       from = await resolve(fromText, org); if (!from) return `I couldn't find ${fromText}. Try the street and the town.`; org = [from.lat, from.lon];
     }
-    if (!org) return NO_ORIGIN;
+    if (!org) return noOrigin();
     const g = await resolve(destText, org); if (!g) return `I couldn't find ${destText}. Try the street and the town.`;
     const r = await route([org, [g.lat, g.lon]], mode); if (!r.ok) return r.error;
     const label = (g.short || destText).trim() || destText;
@@ -223,11 +232,11 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return url;
   }
   async function openInMaps(app, destination = '') {
-    const appName = /apple/i.test(app || '') ? 'apple' : 'google', org = origin(); let pts, extra = '';
-    if (destination) { if (!org) return NO_ORIGIN; const g = await resolve(destination, org); if (!g) return `I couldn't find ${destination}.`; pts = [org, [g.lat, g.lon]]; }
+    const appName = /apple/i.test(app || '') ? 'apple' : 'google', org = await originNow(); let pts, extra = '';
+    if (destination) { if (!org) return noOrigin(); const g = await resolve(destination, org); if (!g) return `I couldn't find ${destination}.`; pts = [org, [g.lat, g.lon]]; }
     else if (S.active && org) pts = [org, ...S.dest.map(d => [d[0], d[1]])];
     else if (delivery.hasActive() && org) pts = [org, ...(await delivery.plan()).stops.map(s => [s.lat, s.lon])];
-    else return org ? 'Tell me where to, or start a route first.' : NO_ORIGIN;
+    else return org ? 'Tell me where to, or start a route first.' : noOrigin();
     if (appName === 'apple' && pts.length > 2) { pts = pts.slice(0, 2); extra = ' Apple Maps takes one stop at a time, so that\'s the first stop.'; }
     openUrl(externalUrl(appName, S.mode, pts));
     return `Opened it in ${appName === 'apple' ? 'Apple' : 'Google'} Maps.${extra}`;
@@ -247,16 +256,16 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return `${fmtDuration(secs)} and ${fmtDistance(dist, u)} to ${S.label || 'go'}, arriving about ${clock(now + secs)}.${tail}`;
   }
   async function savePlace(name, address) {
-    const org = origin(); let entry;
+    const org = await originNow(); let entry;
     if (['here', 'this place', 'my location', 'current location', 'where i am'].includes((address || '').trim().toLowerCase())) {
-      if (!org) return NO_ORIGIN; const info = (await NAV.reverse(org[0], org[1])) || {};
+      if (!org) return noOrigin(); const info = (await NAV.reverse(org[0], org[1])) || {};
       entry = { lat: org[0], lon: org[1], address: info.display || 'here', cc: info.country_code || '' };
     } else { const g = await NAV.geocode(address, org); if (!g) return `I couldn't find ${address}.`; entry = { lat: g.lat, lon: g.lon, address: g.display, cc: g.country_code || '' }; }
     const key = name.trim().toLowerCase().replace(/^(my|the)\s+/, ''), places = config.get('places', {}) || {}; places[key] = entry; config.set('places', places);
     return `Saved ${key}.`;
   }
   async function whereAmI() {
-    const o = await originNow(); if (!o) return NO_ORIGIN;
+    const o = await originNow(); if (!o) return noOrigin();
     const info = await NAV.reverse(o[0], o[1]); if (!info) return "I have your position but can't name the street right now.";
     const weak = (!S.pos || S.pos.acc > 200) ? ' My location is only approximate.' : '';
     return `You're near ${info.short}, ${info.area}.`.replace(', .', '.') + weak;
