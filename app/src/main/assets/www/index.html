@@ -593,6 +593,7 @@ const headHalo = new THREE.Sprite(new THREE.SpriteMaterial({
   blending: THREE.AdditiveBlending, depthWrite: false,
 }));
 headHalo.scale.setScalar(6.0); headHalo.position.set(0, 4.4, -2.5); faceGroup.add(headHalo);
+headHalo.visible = false;   // the particle face needs no glowing disc behind it
 const particleCount = 100;
 const particlePositions = new Float32Array(particleCount * 3);
 const particlePhases = new Float32Array(particleCount);

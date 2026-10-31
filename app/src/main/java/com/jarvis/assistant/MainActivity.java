@@ -82,11 +82,15 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         web = new WebView(this);
-        web.setBackgroundColor(0xFF05060A);
-        getWindow().getDecorView().setBackgroundColor(0xFF05060A);
-        setContentView(web, new android.view.ViewGroup.LayoutParams(-1, -1));
-        // Android 15+ draws apps edge to edge: keep Jarvis clear of the status bar, navigation bar and camera cutout
-        web.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+        web.setBackgroundColor(0xFF000000);
+        getWindow().getDecorView().setBackgroundColor(0xFF000000);
+        // Android 15+ draws apps edge to edge: keep Jarvis clear of the status bar, navigation bar and camera cutout.
+        // The padding goes on a frame around the page: a WebView ignores its own padding and draws under the status bar.
+        final android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        frame.setBackgroundColor(0xFF000000);
+        frame.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        setContentView(frame, new android.view.ViewGroup.LayoutParams(-1, -1));
+        frame.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override public android.view.WindowInsets onApplyWindowInsets(View v, android.view.WindowInsets in) {
                 int l = in.getSystemWindowInsetLeft(), t = in.getSystemWindowInsetTop(), r = in.getSystemWindowInsetRight(), b = in.getSystemWindowInsetBottom();
                 if (Build.VERSION.SDK_INT >= 28 && in.getDisplayCutout() != null) {
