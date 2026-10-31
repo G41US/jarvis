@@ -48,6 +48,14 @@ check('update: newest build number', r.status === 200 && (await r.json()).build 
 r = await callU('/v1/update/apk');
 const apk = await r.text();
 check('update: the APK comes back whole, in order', r.status === 200 && apk === 'PKZZZZ' && r.headers.get('content-length') === '6' && r.headers.get('content-type') === 'application/vnd.android.package-archive', apk);
+r = await callU('/v1/update');
+check('update: says how many parts', (await r.json()).parts === 2);
+r = await callU('/v1/update/apk?part=1');
+check('update: one part, straight from storage', r.status === 200 && await r.text() === 'ZZZZ');
+r = await callU('/v1/update/apk?part=2');
+check('update: no such part', r.status === 404, r.status);
+r = await callU('/v1/update/apk?part=1', { 'x-jarvis-token': 'wrong' });
+check('update: parts need the app token too', r.status === 403, r.status);
 r = await callU('/v1/update/apk', { 'x-jarvis-token': 'wrong' });
 check('update: needs the app token', r.status === 403, r.status);
 r = await callU('/v1/update', H, env);

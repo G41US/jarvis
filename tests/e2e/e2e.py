@@ -211,7 +211,7 @@ BRIDGE = r"""
     tone(f, ms, v) { window.__native.tones++; },
     vibrate(k) { (window.__native.vib = window.__native.vib || []).push(k); },
     widget(j) { (window.__native.widget = window.__native.widget || []).push(JSON.parse(j)); }, pinWidget() { window.__native.pinned = 1; return 'asked'; }, widgetCount() { return 0; },
-    appBuild() { return 50; }, installUpdate(url, token) { window.__native.update = [url, token]; return 'started'; },
+    appBuild() { return 50; }, installUpdate(url, token, size, parts) { window.__native.update = [url, token, size, parts]; return 'started'; },
     pcVoices() { return JSON.stringify(window.__pc); },
     pcVoiceDownload(n) { window.__native.pcDownloads.push(n); window.__pc[n] = 'downloading:40'; window.__jvVoices(JSON.stringify(window.__pc));
       setTimeout(() => { window.__pc[n] = 'ready'; window.__jvVoices(JSON.stringify(window.__pc)); }, 300); },
@@ -948,7 +948,7 @@ def main():
         def proxy_handler(route):
             req = route.request; state['proxy'].append({'url': req.url, 'h': dict(req.headers)})
             if req.url.endswith('/models'): return route.fulfill(status=200, body='{"data":[]}')
-            if req.url.endswith('/update'): return route.fulfill(status=200, body='{"build":52,"size":70000000}')
+            if req.url.endswith('/update'): return route.fulfill(status=200, body='{"build":52,"size":70000000,"parts":3}')
             return route.fulfill(status=200, headers={'Content-Type': 'text/event-stream'}, body=sse([delta(content='Proxy mode works. '), delta(content='No key needed.')]))
         ctx2 = b.new_context(viewport={'width': 412, 'height': 860}, is_mobile=True, has_touch=True)
         ctx2.add_init_script(BRIDGE)
@@ -1007,7 +1007,7 @@ def main():
         p2.click('#jv-update-btn'); p2.wait_for_function("document.querySelector('#jv-update-btn').textContent === 'Update now'", timeout=5000)
         check('checking finds build 52 (asked the Jarvis service)', 'Build 52 is ready. You have build 50.' == up()[1] and any(x['url'].endswith('/v1/update') for x in state['proxy']), up())
         p2.click('#jv-update-btn'); p2.wait_for_timeout(200)
-        check('"Update now" downloads it from the service with the app token', p2.evaluate("window.__native.update") == ['https://jarvis-proxy.example.workers.dev/v1/update/apk', 'tok123'] and 'Downloading build 52' in up()[1], (p2.evaluate("window.__native.update"), up()))
+        check('"Update now" downloads it from the service with the app token, its exact size and parts', p2.evaluate("window.__native.update") == ['https://jarvis-proxy.example.workers.dev/v1/update/apk', 'tok123', 70000000, 3] and 'Downloading build 52' in up()[1], (p2.evaluate("window.__native.update"), up()))
         p2.evaluate("window.__jvUpdate(JSON.stringify({ state: 'downloading', percent: 45 }))")
         check('...showing progress', 'Downloading build 52… 45%' == up()[1] and p2.evaluate("document.querySelector('#jv-update-btn').disabled"), up())
         p2.evaluate("window.__jvUpdate(JSON.stringify({ state: 'confirm' }))")

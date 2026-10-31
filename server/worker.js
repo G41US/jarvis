@@ -17,12 +17,21 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json', ...CORS } });
 const fail = (status, message) => json({ error: { message } }, status);
 
-// the newest build: {build, size, parts}; the APK itself is streamed part by part
-async function update(route, env, ctx) {
+// the newest build: {build, size, parts}. The app fetches the APK part by part (/update/apk?part=0, 1, ...): each part goes
+// straight from storage to the phone, so nothing here can cut a long download short. /update/apk (all in one) is for
+// builds 52-54, which ask for it that way.
+async function update(route, url, env, ctx) {
   const meta = env.UPDATES ? await env.UPDATES.get('meta', 'json') : null;
-  if (route === '/update') return json(meta ? { build: meta.build, size: meta.size } : { build: 0 }, 200);
+  if (route === '/update') return json(meta ? { build: meta.build, size: meta.size, parts: meta.parts } : { build: 0 }, 200);
   if (!meta) return fail(404, 'No update stored yet.');
-  const { readable, writable } = new TransformStream();
+  const APK = { 'content-type': 'application/vnd.android.package-archive', 'cache-control': 'no-store', ...CORS };
+  if (url.searchParams.has('part')) {
+    const i = Number(url.searchParams.get('part'));
+    const part = Number.isInteger(i) && i >= 0 && i < meta.parts ? await env.UPDATES.get(`apk:${meta.build}:${i}`, 'stream') : null;
+    return part ? new Response(part, { status: 200, headers: APK }) : fail(404, 'No such part.');
+  }
+  // a fixed length tells the phone the size, so a cut-off download is caught (a plain stream loses its Content-Length)
+  const { readable, writable } = typeof FixedLengthStream === 'function' ? new FixedLengthStream(meta.size) : new TransformStream();
   ctx.waitUntil((async () => {
     try {
       for (let i = 0; i < meta.parts; i++) {
@@ -44,7 +53,7 @@ export default {
     if (env.APP_TOKEN && req.headers.get('x-jarvis-token') !== env.APP_TOKEN) return fail(403, 'Unknown app.');
 
     const route = new URL(req.url).pathname.replace(/^\/v1(?=\/)/, '');
-    if (route === '/update' || route === '/update/apk') return update(route, env, ctx);
+    if (route === '/update' || route === '/update/apk') return update(route, new URL(req.url), env, ctx);
     if (route === '/ping') return new Response(null, { status: 204, headers: CORS });   // the app warms its connection on "Hey Jarvis"
     const device = (req.headers.get('x-jarvis-device') || 'anonymous').slice(0, 64);
     if (env.LIMITER) {

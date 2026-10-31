@@ -135,12 +135,12 @@ const updChanged = () => { try { W.dispatchEvent(new Event('jv-update')); } catc
 async function checkUpdate() {
   if (!upBase() || !upd.mine) return upd;
   const r = await httpRaw(upBase() + '/update', { headers: { 'X-Jarvis-Token': BUILD.appToken || '' } });
-  try { if (r.status === 200) upd.latest = Number(JSON.parse(r.text).build) || 0; } catch {}
+  try { if (r.status === 200) { const j = JSON.parse(r.text); Object.assign(upd, { latest: Number(j.build) || 0, size: Number(j.size) || 0, parts: Number(j.parts) || 0 }); } } catch {}
   upd.checked = r.status === 200; kv.set('update_checked', Date.now()); updChanged(); return upd;
 }
 function installUpdate() {
   if (!(upd.latest > upd.mine) || !has('installUpdate')) return 'none';
-  const r = String(bridge().installUpdate(upBase() + '/update/apk', BUILD.appToken || ''));
+  const r = String(bridge().installUpdate(upBase() + '/update/apk', BUILD.appToken || '', upd.size || 0, upd.parts || 0));   // exact size: a cut-off download is caught
   Object.assign(upd, { state: r === 'started' ? 'downloading' : r, percent: 0, error: '' }); updChanged(); return r;
 }
 W.__jvUpdate = j => { try { Object.assign(upd, JSON.parse(j)); } catch {} updChanged(); };
