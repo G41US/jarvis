@@ -7,8 +7,7 @@ You do not need Android Studio. GitHub builds the APK for you, for free.
 
 ## Build it (one time, about 15 minutes)
 
-1. **Put the Jarvis face in.** Copy the `models` folder from your PC Jarvis folder (it has `adam.glb`, `gideon.png`...) into
-   `app/src/main/assets/www/models/` in this project. If you skip this, Jarvis shows the online face instead.
+1. **The faces are already in.** Jarvis's male and female faces (glowing particle heads) ship in `app/src/main/assets/www/models/faces/`.
 2. **Make a free GitHub account** (github.com) and create a **private** repository, for example `jarvis-android`.
    Keep it private: it contains the app's signing key.
 3. **Upload this whole project** to that repository. Easiest: install *GitHub Desktop*, choose *Add an existing repository / Create repository*

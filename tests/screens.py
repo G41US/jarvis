@@ -132,9 +132,9 @@ with sync_playwright() as p:
     # the face picker, and the orb
     ev("JARVIS.openSettings('voice')"); shot('21-faces')
     ev("document.querySelector('#jv-ov .bar .x').click(); JARVIS.chooseFace('orb')"); pg.wait_for_timeout(1500); shot('22-orb')
-    ev("JARVIS.chooseFace('amara')"); pg.wait_for_timeout(9000); shot('23-amara')
+    ev("JARVIS.chooseFace('female')"); pg.wait_for_timeout(9000); shot('23-female')
     msg("Tell me a joke.", 'user'); msg("Why did the delivery driver bring a ladder? Because the order said the food was on the house.", 'jarvis'); state('speaking'); pg.wait_for_timeout(1500); shot('24-amara-speaking')
-    state('standby'); ev("JARVIS.chooseFace('adam')"); pg.wait_for_timeout(6000)
+    state('standby'); ev("JARVIS.chooseFace('male')"); pg.wait_for_timeout(6000)
 
     # the female face
     ev("document.querySelectorAll('#log .msg').forEach(m => m.remove()); JARVIS.config.merge({ avatar_gender: 'female', voice: '' }); JARVIS.applySettings({ voiceChanged: true })")

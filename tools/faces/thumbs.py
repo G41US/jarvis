@@ -17,7 +17,7 @@ with sync_playwright() as p:
     pg = ctx.new_page(); pg.goto(e2e.ORIGIN + '/index.html'); pg.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=20000)
     pg.evaluate("JARVIS.proactive.stop(); JARVIS.config.set('groq_key', 'gsk_x'); document.querySelectorAll('#jv-ov .bar button')[0].click()")
     pg.add_style_tag(content='#jv-aura,#jv-top,#jv-dock,#jv-hint,#jv-hello,#jv-card,#jv-toast,#jv-setup{display:none!important} body{background:#0a1624!important}')
-    for fid in ['adam', 'kofi', 'amara', 'nova']:
+    for fid in ['male', 'female']:
         pg.evaluate(f"JARVIS.chooseFace('{fid}')"); pg.wait_for_timeout(9000)
         pg.screenshot(path='/tmp/jv-thumb.png')
         im = Image.open('/tmp/jv-thumb.png').convert('RGB'); W, H = im.size

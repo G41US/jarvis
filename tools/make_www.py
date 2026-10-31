@@ -125,15 +125,11 @@ def main():
     importmap = ('<script type="importmap">\n{ "imports": { "three": "./vendor/three/build/three.module.js",\n'
                  '  "three/addons/": "./vendor/three/examples/jsm/" } }\n</script>\n'
                  '<script type="module" src="local/boot.js"></script>')
-    probe = ('<script>(function(){try{var x=new XMLHttpRequest();x.open("HEAD","models/adam.glb",false);x.send();window.__NO_ADAM=x.status!==200;}'
-             'catch(e){window.__NO_ADAM=true;}})();</script>\n')
-    html = html.replace(m.group(0), probe + importmap)
-    # if the Adam model was not copied into the app, show the online face instead of nothing
-    # the faces ship inside the app (local/faces.js lists them; models/faces/*.glb are original, made from CC0 MakeHuman assets)
-    if os.path.exists(os.path.join(WWW, 'models', 'faces', 'amara.glb')):
-        html = sub_once(html, "const AVATAR_FEMALE = 'https://three.ws/avatars/default.glb';", "const AVATAR_FEMALE = 'models/faces/amara.glb';", 'local female face')
-    html = sub_once(html, "const AVATAR_MALE = 'models/adam.glb';",
-                    "const AVATAR_MALE = window.__NO_ADAM ? AVATAR_FEMALE : 'models/adam.glb';", 'adam fallback')
+    html = html.replace(m.group(0), importmap)
+    # the faces ship inside the app (local/faces.js lists them; models/faces/*.glb are original, made from CC0 MakeHuman assets,
+    # and are drawn as glowing particles by local/particles.js)
+    html = sub_once(html, "const AVATAR_FEMALE = 'https://three.ws/avatars/default.glb';", "const AVATAR_FEMALE = 'models/faces/nova.glb';", 'local female face')
+    html = sub_once(html, "const AVATAR_MALE = 'models/adam.glb';", "const AVATAR_MALE = 'models/faces/kofi.glb';", 'local male face')
 
     # ---- choice of faces: which face goes with the voice comes from the face you picked (local/faces.js); "orb" means no face
     html = sub_once(html, "  const want = isMaleVoice(currentVoice) ? AVATAR_MALE : AVATAR_FEMALE;\n",
@@ -242,7 +238,7 @@ def main():
     # ---- voice change, cinematic: the old face fades out, the new one materialises in a flare of light, and Jarvis
     #      speaks in the new voice once the new face is up (shim.js waits for 'jv-avatar-ready')
     html = sub_once(html, "    gidPlane.visible = false; faceGroup.add(avatarModel);\n",
-                    "    gidPlane.visible = false; faceGroup.add(avatarModel);\n    window.__jvSwapFx = window.__jvSwapFx === undefined ? 0 : 1;   // no flare for the very first face\n"
+                    "    gidPlane.visible = false; faceGroup.add(avatarModel);\n    if (window.__jvParticlize) window.__jvParticlize(avatarModel);   // the face as glowing particles (local/particles.js)\n    window.__jvSwapFx = window.__jvSwapFx === undefined ? 0 : 1;   // no flare for the very first face\n"
                     "    try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: url })); } catch (e) {}\n", 'avatar ready event')
     html = sub_once(html, "  bloomPass.strength = 0.10 + speakingAmount * 0.05;",
                     "  bloomPass.strength = 0.10 + speakingAmount * 0.05 + (window.__jvSwapFx || 0) * 0.85;\n"

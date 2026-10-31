@@ -189,7 +189,7 @@ export function initSettings() {
   };
   pcBtn.onclick = () => { J().ensurePcVoice(true); setTimeout(paintPc, 200); };
   J().onVoices = () => { if (ov.classList.contains('on')) { paintPc(); fillVoices(); } };
-  const curFace = () => J().config.get('face', '') || (gender === 'female' ? 'amara' : 'adam');
+  const curFace = () => J().config.get('face', '') === 'orb' ? 'orb' : gender;   // the male and female faces go with the voice
   const paintSeg = () => {
     bMale.setAttribute('aria-pressed', String(gender === 'male')); bFemale.setAttribute('aria-pressed', String(gender === 'female'));
     const id = curFace(); for (const [k, b] of Object.entries(faceCards)) b.setAttribute('aria-checked', String(k === id));

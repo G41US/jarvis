@@ -125,23 +125,25 @@ function setVoice(q) {
 
 // ---------------------------------------------------------------- faces (faces.js): which face goes with the voice
 W.__jvFaceFor = wantMale => faceFor(cfgStore, wantMale);
+let particlize = null; import('./particles.js').then(m => { particlize = m.particlize; }).catch(e => log('particles: ' + e));   // the 3D face is optional; the assistant isn't
+W.__jvParticlize = m => { try { W.__jvParticles = particlize && particlize(m, { state: () => (document.body.className.match(/\bst-(\S+)/) || [])[1] || 'idle',
+  level: () => Math.min(1, Math.sqrt(stats.rms || 0) / 40), speak: () => W.__jvSpeak || 0 }); } catch (e) { log('particles: ' + (e && e.stack || e)); } };
 function faceChanged() { try { W.dispatchEvent(new Event('jv-face')); } catch {} }
 const avatarReady = (ms = 5000) => new Promise(res => { const done = () => { W.removeEventListener('jv-avatar-ready', done); clearTimeout(t); setTimeout(res, 350); }; const t = setTimeout(done, ms); W.addEventListener('jv-avatar-ready', done); });
-/** "Be Amara", "use the orb": the face changes (with the voice that goes with it, if that changes too). */
+/** "Use your female face", "use the orb": the face changes (with the voice that goes with it, if that changes too). */
 async function chooseFace(id) {
   const f = faceById(id);
-  if (!f) return `I don't have a face called ${id}. I can be ${FACES.filter(x => x.gender).map(x => x.name).join(', ')}, or just an orb of light.`;
-  const cur = cfgStore.get('face', '') || DEFAULT_FACE[cfgStore.get('avatar_gender', 'male') === 'female' ? 'female' : 'male'];
-  if (cur === f.id) return f.id === 'orb' ? "I'm already just the orb." : `I'm already ${f.name}.`;
+  if (!f) return `I don't have a face called ${id}. I have a male face, a female face, or just an orb of light.`;
+  const cur = (faceById(cfgStore.get('face', '')) || {}).id || DEFAULT_FACE[cfgStore.get('avatar_gender', 'male') === 'female' ? 'female' : 'male'];
+  if (cur === f.id) return f.id === 'orb' ? "I'm already just the orb." : `That's already my ${f.id} face.`;
   const up = { face: f.id }, before = gender();
-  if (f.gender) up['face_' + f.gender] = f.id;
   const newGender = f.gender && (f.gender === 'female') !== (before === 'f');
   if (newGender) Object.assign(up, { avatar_gender: f.gender, voice: '' });
   cfgStore.merge(up); faceChanged();
   const ready = avatarReady();
   if (newGender) { ensurePcVoice(); announceVoice(); } else if (W.__jvSyncFace) W.__jvSyncFace();
   await ready;
-  return f.id === 'orb' ? 'Done. No face, just me.' : `Done. This is ${f.name}${newGender ? ', with my ' + f.gender + ' voice' : ''}.`;
+  return f.id === 'orb' ? 'Done. No face, just me.' : `Done. This is my ${f.id} face${newGender ? ', with my ' + f.gender + ' voice' : ''}.`;
 }
 
 /** "Switch to the female voice": the face fades out, the new one materialises, and the answer is spoken in the new voice
