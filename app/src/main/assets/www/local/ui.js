@@ -1,6 +1,6 @@
 // ui.js - the phone layout around Jarvis's face.
-// One idea runs the whole screen: the light changes with what Jarvis is doing (light blue waiting or talking, mint while he
-// listens, amber while he thinks, red when muted), and a ring of light around his face moves with your voice and his.
+// One idea runs the whole screen: black and gold, like his particle face. The light changes with what Jarvis is doing (gold
+// waiting or talking, bright champagne while he listens, deep amber while he thinks, red when muted). Rings only in Orb mode.
 // Around that, as little as possible: a greeting that steps back to the time, a glass card with the answer that clears itself,
 // the talk button (tap to talk, hold to mute, swipe up for ideas) and a conversation button. Words appear only when they say something.
 // The PC page's own controls stay underneath and keep working; this layer reads and drives them.
@@ -11,11 +11,11 @@ const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-m
 
 const CSS = `
 @font-face { font-family: 'Saira'; src: url('fonts/Saira.ttf') format('truetype'); font-weight: 100 900; font-stretch: 50% 125%; font-display: swap; }
-:root { --abyss: #03070c; --glass: rgba(12, 26, 42, .58); --glass-hi: rgba(160, 215, 255, .14); --ice: #eaf6ff; --mist: #9db3c6; --dim: #61798d;
-  --holo: #7fd8ff; --live: #52f2b6; --amber: #ffb24c; --danger: #ff5a67;
+:root { --abyss: #000; --glass: rgba(24, 18, 10, .62); --glass-hi: rgba(255, 214, 150, .16); --ice: #fff6e8; --mist: #cdbb9f; --dim: #8c7a62;
+  --holo: #f5c97a; --live: #ffecbe; --amber: #ff9a3d; --danger: #ff5a67;   /* black and gold, like his face: gold waiting, bright champagne listening, deep amber thinking */
   --state: var(--holo); --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
   --ease: cubic-bezier(.2, .8, .2, 1); }
-body { background: radial-gradient(120% 70% at 50% 46%, #0b1a2c 0%, #050c16 46%, var(--abyss) 78%); }
+body { background: radial-gradient(120% 70% at 50% 46%, #130d06 0%, #050302 50%, var(--abyss) 78%); }
 body.st-session, body.st-listening { --state: var(--live); }
 body.st-thinking { --state: var(--amber); }
 body.st-muted { --state: var(--danger); }
@@ -84,7 +84,7 @@ body:not(.jv-greet) #jv-hello, body.jv-talking #jv-hello, body[data-nav] #jv-hel
 
 /* ---- the answer card */
 #jv-card { position: fixed; z-index: 8; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 116px); max-height: 40vh; display: flex; flex-direction: column;
-  border-radius: 24px; background: linear-gradient(180deg, rgba(16, 32, 50, .72), rgba(8, 18, 30, .78)); -webkit-backdrop-filter: blur(22px) saturate(140%); backdrop-filter: blur(22px) saturate(140%);
+  border-radius: 24px; background: linear-gradient(180deg, rgba(50, 32, 16, .72), rgba(30, 18, 8, .78)); -webkit-backdrop-filter: blur(22px) saturate(140%); backdrop-filter: blur(22px) saturate(140%);
   border: 1px solid var(--glass-hi); box-shadow: 0 24px 60px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .06);
   opacity: 0; transform: translateY(18px) scale(.98); pointer-events: none; transition: opacity .45s var(--ease), transform .55s var(--ease); }
 #jv-card::before { content: ''; position: absolute; left: 22px; right: 22px; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--state), transparent); opacity: .8; transition: background .4s; }
@@ -123,11 +123,11 @@ body.sos-on #jv-toast { top: calc(var(--safe-t) + 140px); }
 #jv-ideas { position: fixed; z-index: 10; left: 14px; right: 14px; bottom: calc(var(--safe-b) + 112px); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
   opacity: 0; transform: translateY(16px); pointer-events: none; transition: opacity .3s var(--ease), transform .4s var(--ease); }
 body.jv-ideas #jv-ideas { opacity: 1; transform: none; pointer-events: auto; }
-#jv-ideas button { height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--glass-hi); background: rgba(12, 26, 42, .82); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+#jv-ideas button { height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--glass-hi); background: rgba(24, 18, 10, .82); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
   color: var(--ice); font: 500 15px/1 Roboto, system-ui, sans-serif; white-space: nowrap; text-transform: none; letter-spacing: normal; text-shadow: none; }
 #jv-ideas button:active { transform: scale(.96); }
 body.jv-ideas #jv-card, body.jv-ideas #jv-hint { opacity: 0 !important; pointer-events: none !important; }
-#jv-scrim { position: fixed; inset: 0; z-index: 9; display: none; background: linear-gradient(to top, rgba(3, 7, 12, .7), rgba(3, 7, 12, 0) 60%); }
+#jv-scrim { position: fixed; inset: 0; z-index: 9; display: none; background: linear-gradient(to top, rgba(0, 0, 0, .7), rgba(0, 0, 0, 0) 60%); }
 body.jv-ideas #jv-scrim { display: block; }
 /* the hint for new users: a small chevron over the talk button */
 #jv-hint { position: fixed; z-index: 8; left: 50%; bottom: calc(var(--safe-b) + 104px); transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 2px;
@@ -142,7 +142,7 @@ body.jv-talking #jv-hint, body[data-nav] #jv-hint, body.st-muted #jv-hint, body.
 #jv-dock > * { pointer-events: auto; }
 #jv-dock #jv-hist { position: absolute; right: 18px; top: 14px; }
 #jv-orb { position: absolute; left: 50%; top: 0; margin-left: -36px; width: 72px; height: 72px; border-radius: 50%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer;
-  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--state) 34%, #0c1a2a), #06101c 72%); color: var(--ice);
+  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--state) 24%, #15100a), #060402 72%); color: var(--ice);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--state) 55%, transparent), 0 0 calc(14px + var(--lvl, 0) * 46px) color-mix(in srgb, var(--state) 60%, transparent), 0 10px 26px rgba(0, 0, 0, .5);
   transition: box-shadow .12s linear, transform .15s; -webkit-tap-highlight-color: transparent; }
 #jv-orb::before { content: ''; position: absolute; inset: -5px; border-radius: 50%; padding: 2px;
@@ -158,21 +158,21 @@ body.st-muted #jv-orb { background: radial-gradient(circle at 50% 35%, #4a1820, 
 
 /* ---- conversation history, as a sheet with bubbles */
 #jv-hist-head { position: fixed; z-index: 11; left: 0; right: 0; top: calc(var(--safe-t) + 70px); display: none; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 16px 10px 22px;
-  border-radius: 26px 26px 0 0; background: rgba(6, 14, 24, .96); border-top: 1px solid var(--glass-hi); }
+  border-radius: 26px 26px 0 0; background: rgba(24, 14, 6, .96); border-top: 1px solid var(--glass-hi); }
 #jv-hist-head h2 { flex: 1; margin: 0; font: 600 21px/1 'Saira', sans-serif; font-stretch: 100%; color: var(--ice); }
 #jv-hist-head .links { flex-basis: 100%; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 6px -16px 0 -6px; padding: 0 16px 2px 6px; }
 #jv-hist-head .links::-webkit-scrollbar { display: none; }
-#jv-hist-head .links button { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 38px; color: var(--ice); background: rgba(127, 216, 255, .08); }
+#jv-hist-head .links button { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 38px; color: var(--ice); background: rgba(245, 201, 122, .08); }
 #jv-hist-head .links button svg { width: 17px; height: 17px; color: var(--mist); }
 #jv-hist-head::before { content: ''; position: absolute; top: 6px; left: 50%; width: 38px; height: 4px; margin-left: -19px; border-radius: 2px; background: rgba(255,255,255,.18); }
 #jv-hist-head button { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--glass-hi); background: transparent; color: var(--mist); font-size: 14px; }
 #jv-hist-head button.ic { width: 36px; padding: 0; display: grid; place-items: center; } #jv-hist-head button.ic svg { width: 19px; height: 19px; }
 body.jv-history #jv-hist-head { display: flex; }
 body.jv-history #log { position: fixed !important; z-index: 10; left: 0 !important; right: 0 !important; top: calc(var(--safe-t) + 176px) !important; bottom: 0 !important; width: auto !important; max-height: none !important;
-  display: flex; flex-direction: column; gap: 10px; padding: 6px 14px calc(var(--safe-b) + 120px); background: rgba(6, 14, 24, .96); -webkit-mask-image: none; mask-image: none; font: 15px/1.45 Roboto, system-ui, sans-serif; }
+  display: flex; flex-direction: column; gap: 10px; padding: 6px 14px calc(var(--safe-b) + 120px); background: rgba(24, 14, 6, .96); -webkit-mask-image: none; mask-image: none; font: 15px/1.45 Roboto, system-ui, sans-serif; }
 body.jv-history #log .msg { margin: 0; max-width: 84%; }
 body.jv-history #log .who { display: none; }
-body.jv-history #log .msg.user { align-self: flex-end; padding: 10px 14px; border-radius: 20px 20px 6px 20px; background: rgba(127, 216, 255, .16); }
+body.jv-history #log .msg.user { align-self: flex-end; padding: 10px 14px; border-radius: 20px 20px 6px 20px; background: rgba(245, 201, 122, .16); }
 body.jv-history #log .msg.user .body { color: var(--ice); }
 body.jv-history #log .msg.jarvis { align-self: flex-start; padding: 11px 15px; border-radius: 20px 20px 20px 6px; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .06); }
 body.jv-history #log .msg.jarvis .body { color: #dcecf8; }
@@ -195,7 +195,7 @@ body.sos-on[data-nav="mini"] #nav-frame { top: calc(var(--safe-t) + 140px) !impo
 @media (max-width: 820px), (orientation: portrait) {
   #route-panel { top: calc(var(--safe-t) + 66px) !important; left: 12px !important; right: 12px !important; width: auto !important; max-height: 32vh; z-index: 7;
     padding: 14px 16px 12px; border-radius: 22px; border: 1px solid rgba(255, 178, 76, .26); border-left: 1px solid rgba(255, 178, 76, .26) !important;
-    background: linear-gradient(180deg, rgba(22, 30, 40, .82), rgba(10, 18, 28, .86)); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 18px 50px rgba(0,0,0,.4); }
+    background: linear-gradient(180deg, rgba(40, 30, 22, .82), rgba(28, 18, 10, .86)); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 18px 50px rgba(0,0,0,.4); }
   #route-head { margin-bottom: 8px !important; font: 400 13px/1.45 Roboto, sans-serif !important; letter-spacing: 0 !important; text-transform: none !important; color: var(--mist) !important; text-shadow: none !important; }
   #route-head > span { display: block; } #route-head br { display: none; }
   #route-head > span:first-child { font: 600 17px/1.25 'Saira', sans-serif; font-stretch: 92%; color: var(--ice); margin-bottom: 2px; padding-right: 26px; }
@@ -234,12 +234,12 @@ body[data-nav="full"] #jv-hist { display: none; }
 /* ---- deliveries ("dash"): the route card on top, a small map with directions under it, Jarvis as an orb in the bottom-right */
 body[data-nav="dash"] #nav-frame { inset: auto !important; top: var(--dash-top, 330px) !important; left: 12px !important; right: 12px !important; width: auto !important;
   height: var(--dash-h, 34vh) !important; border-radius: 22px; opacity: 1; clip-path: inset(0 round 22px);
-  box-shadow: 0 0 0 1px rgba(127, 216, 255, .22), 0 18px 50px rgba(0, 0, 0, .5); }
+  box-shadow: 0 0 0 1px rgba(245, 201, 122, .22), 0 18px 50px rgba(0, 0, 0, .5); }
 body[data-nav="dash"] #three { z-index: 5; pointer-events: none; transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% var(--orb-fy, 50%)); }
 body[data-nav="dash"] #nav-orb { opacity: 1; }
 body[data-nav="dash"] #route-panel { max-height: 24vh; overflow-y: auto; }
 body[data-nav="dash"] #jv-card { right: calc(var(--orb-d, 110px) + 30px); max-height: var(--orb-d, 110px); bottom: var(--dash-orb-bottom, 112px); border-radius: 20px; }
-#nav-frame .maplibregl-ctrl-attrib { background: rgba(3, 7, 12, .55) !important; color: var(--dim); font: 9px/1.3 Roboto, sans-serif; border-radius: 8px; margin: 0 6px 6px 0 !important; }
+#nav-frame .maplibregl-ctrl-attrib { background: rgba(0, 0, 0, .55) !important; color: var(--dim); font: 9px/1.3 Roboto, sans-serif; border-radius: 8px; margin: 0 6px 6px 0 !important; }
 #nav-frame .maplibregl-ctrl-attrib a { color: var(--mist) !important; }
 #nav-frame .maplibregl-ctrl-attrib.maplibregl-compact { min-height: 18px; padding: 2px 22px 2px 6px !important; }
 #nav-frame .maplibregl-ctrl-attrib-button { width: 18px; height: 18px; filter: invert(.8); }
@@ -271,7 +271,7 @@ body.jv-drive.jv-busy #jv-drive .dv-head { visibility: hidden; }
 #jv-drive .dv-x { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--glass-hi); background: var(--glass); color: var(--mist); display: grid; place-items: center; padding: 0; flex: none;
   text-transform: none; letter-spacing: normal; text-shadow: none; }
 #jv-drive .dv-x svg { width: 22px; height: 22px; }
-#jv-drive .dv-card { border-radius: 26px; padding: 18px 18px 16px; background: linear-gradient(180deg, rgba(16, 32, 50, .78), rgba(8, 18, 30, .82)); border: 1px solid var(--glass-hi); }
+#jv-drive .dv-card { border-radius: 26px; padding: 18px 18px 16px; background: linear-gradient(180deg, rgba(50, 32, 16, .78), rgba(30, 18, 8, .82)); border: 1px solid var(--glass-hi); }
 #jv-drive .dv-kick { display: flex; align-items: center; gap: 8px; font: 500 14px/1 Roboto, sans-serif; color: var(--mist); }
 #jv-drive .dv-kick i { width: 10px; height: 10px; border-radius: 50%; background: var(--live); box-shadow: 0 0 10px var(--live); }
 #jv-drive .dv-kick i.pick { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
@@ -279,9 +279,9 @@ body.jv-drive.jv-busy #jv-drive .dv-head { visibility: hidden; }
 #jv-drive .dv-sub { margin-top: 6px; font-size: 17px; color: var(--mist); }
 #jv-drive .dv-sub b { color: var(--ice); font-weight: 600; }
 #jv-drive .dv-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
-#jv-drive .dv-btns button { height: 62px; border-radius: 18px; border: 1px solid var(--glass-hi); background: rgba(127, 216, 255, .08); color: var(--ice); font: 600 18px/1 Roboto, sans-serif;
+#jv-drive .dv-btns button { height: 62px; border-radius: 18px; border: 1px solid var(--glass-hi); background: rgba(245, 201, 122, .08); color: var(--ice); font: 600 18px/1 Roboto, sans-serif;
   text-transform: none; letter-spacing: normal; text-shadow: none; }
-#jv-drive .dv-btns button.go { background: var(--ice); color: #03121f; border-color: var(--ice); }
+#jv-drive .dv-btns button.go { background: var(--ice); color: #1f1203; border-color: var(--ice); }
 #jv-drive .dv-btns button:active { transform: scale(.97); }
 #jv-drive .dv-today { cursor: pointer; }
 #jv-drive .dv-money { margin-top: 8px; font: 600 54px/1 'Saira', sans-serif; font-variant-numeric: tabular-nums; }
@@ -357,7 +357,7 @@ function createAura(canvas) {
   const ctx = canvas.getContext('2d');
   let W = 0, H = 0, dpr = 1, t0 = performance.now(), last = 0, energy = 0, raf = 0;
   const col = [127, 216, 255], target = [127, 216, 255];
-  const COLORS = { holo: [127, 216, 255], live: [82, 242, 182], amber: [255, 178, 76], danger: [255, 90, 103] };
+  const COLORS = { holo: [245, 201, 122], live: [255, 236, 190], amber: [255, 154, 61], danger: [255, 90, 103] };
   const motes = Array.from({ length: 46 }, (_, i) => ({ a: Math.random() * Math.PI * 2, r: 1.05 + Math.random() * 0.75, s: (0.02 + Math.random() * 0.05) * (i % 2 ? 1 : -1), z: 0.6 + Math.random() * 1.6, p: Math.random() * 6.28 }));
   const resize = () => {
     dpr = Math.min(2, window.devicePixelRatio || 1); W = window.innerWidth; H = window.innerHeight;
@@ -386,7 +386,8 @@ function createAura(canvas) {
     const g = ctx.createRadialGradient(cx, cy, R * 0.85, cx, cy, R * 2.4);
     g.addColorStop(0, rgba(0)); g.addColorStop(0.12, rgba(0.07 + energy * 0.12)); g.addColorStop(0.5, rgba(0.025 + energy * 0.04)); g.addColorStop(1, rgba(0));
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    if (b.contains('jv-faceless')) drawOrb(t, cx, cy, R);              // no face: a ball of light that breathes and swirls with his voice
+    if (!b.contains('jv-faceless')) return;                           // with a face, just the glow: his own gold dust does the rest
+    drawOrb(t, cx, cy, R);                                            // no face: a ball of light that breathes and swirls with his voice
     ctx.lineCap = 'round';
     const spin = reduced() ? 0 : t * (st === 'think' ? 1.4 : 0.18);
     // fine outer ring with ticks
@@ -423,7 +424,7 @@ function createAura(canvas) {
       ctx.fillStyle = rgba((0.18 + 0.25 * Math.sin(t * 1.5 + m.p) ** 2) * (0.5 + energy)); ctx.beginPath(); ctx.arc(x, y, m.z, 0, Math.PI * 2); ctx.fill();
     }
   }
-  const HUES = [[127, 216, 255], [181, 155, 255], [82, 242, 182]];
+  const HUES = [[245, 201, 122], [255, 154, 61], [255, 236, 190]];
   function drawOrb(t, cx, cy, R) {
     const still = reduced(), r0 = R * (0.6 + energy * 0.16 + (still ? 0 : Math.sin(t * 1.6) * 0.015));
     const core = ctx.createRadialGradient(cx - r0 * 0.28, cy - r0 * 0.32, r0 * 0.04, cx, cy, r0);
