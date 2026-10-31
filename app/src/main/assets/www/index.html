@@ -357,6 +357,7 @@ function makeGoldenParticleFace(model) {
   const pA = new THREE.Vector3(), pB = new THREE.Vector3(), pC = new THREE.Vector3();
   const localA = new THREE.Vector3(), localB = new THREE.Vector3(), localC = new THREE.Vector3();
   let totalArea = 0;
+  const srcMeshes = [];
   const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [], span = head ? head.top - head.neck : 1;
   const mid = head ? new THREE.Vector3(head.cx || 0, head.neck + (head.top - head.neck) * 0.55, head.cz || 0) : null, nrm = new THREE.Vector3(), toMid = new THREE.Vector3();
   model.traverse(mesh => {
@@ -365,6 +366,7 @@ function makeGoldenParticleFace(model) {
     if (/high-?poly|eyelash/i.test(mesh.name)) { if (/high-?poly/i.test(mesh.name)) eyeMeshes.push(mesh); return; }   // eyes get a glow instead of dots
     const g = mesh.geometry, pos = g.attributes.position, idx = g.index;
     mesh.updateMatrixWorld(true);
+    const mi = srcMeshes.push({ mesh, pos, m: new THREE.Matrix4().multiplyMatrices(invRoot, mesh.matrixWorld), morph: (g.morphAttributes && g.morphAttributes.position) || [], rel: g.morphTargetsRelative }) - 1;
     const triCount = idx ? Math.floor(idx.count / 3) : Math.floor(pos.count / 3);
     for (let t = 0; t < triCount; t++) {
       const ia = idx ? idx.getX(t * 3) : t * 3;
@@ -383,7 +385,7 @@ function makeGoldenParticleFace(model) {
       if (mid && nrm.dot(toMid.set((localA.x + localB.x + localC.x) / 3, cy, (localA.z + localB.z + localC.z) / 3).sub(mid)) < 0) continue;   // facing into the head (inside the mouth, eye sockets): it'd shine through the face
       const nz = Math.abs(nrm.z) / (2 * area), out = mid ? Math.max(0, (nrm.x * toMid.x + nrm.z * toMid.z) / (2 * area * Math.hypot(toMid.x, toMid.z) || 1)) : 1;
       totalArea += area * (nz > 0.5 || out > 0.6 ? 1 : 0.35);   // fewer dots in creases seen edge-on (they piled up into a frown); the outline keeps its dots
-      candidates.push([localA.clone(), localB.clone(), localC.clone()]);
+      candidates.push([localA.clone(), localB.clone(), localC.clone(), mi, ia, ib, ic, nrm.clone().divideScalar(2 * area)]);
       cumulative.push(totalArea);
     }
   });
@@ -391,21 +393,49 @@ function makeGoldenParticleFace(model) {
   // a human head: fuller at the temples and cranium, slimming down to the jaw and chin
   const cx = head ? head.cx || 0 : 0, widen = y => { if (!head) return 1; const t = Math.min(1, Math.max(0, (y - head.neck) / (head.top - head.neck)));
     const k = Math.min(1, Math.max(0, (t - 0.12) / 0.5)); return 0.94 + 0.18 * k * k * (3 - 2 * k); };
-  const count = 9000, points = new Float32Array(count * 3);   // fewer, crisper dots: the face reads as light, not sand
+  const count = 9000, points = new Float32Array(count * 3), colors = new Float32Array(count * 3), moving = [];   // fewer, crisper dots: the face reads as light, not sand
+  const LIGHT = new THREE.Vector3(-0.45, 0.5, 0.74).normalize();
   for (let i = 0; i < count; i++) {
     const target = Math.random() * totalArea;
     let lo = 0, hi = cumulative.length - 1;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (cumulative[mid] < target) lo = mid + 1; else hi = mid; }
     const tri = candidates[lo], u = Math.random(), v = Math.random(), su = Math.sqrt(u);
     const wa = 1 - su, wb = su * (1 - v), wc = su * v;
+    const src = srcMeshes[tri[3]];
+    if (src.morph.length && src.morph.some(a => [tri[4], tri[5], tri[6]].some(j => Math.abs(a.getX(j)) + Math.abs(a.getY(j)) + Math.abs(a.getZ(j)) > 1e-6 || !src.rel))) moving.push(i, lo, wa, wb, wc);
+    const l = tri[7], lit = Math.max(0, l.x * LIGHT.x + l.y * LIGHT.y + l.z * LIGHT.z);
+    colors[i*3] = colors[i*3+1] = colors[i*3+2] = 0.62 + 0.55 * lit;   // a soft light from the upper left: the nose, lips and brow show
     points[i*3+1] = tri[0].y * wa + tri[1].y * wb + tri[2].y * wc;
     points[i*3] = cx + (tri[0].x * wa + tri[1].x * wb + tri[2].x * wc - cx) * widen(points[i*3+1]);
     points[i*3+2] = tri[0].z * wa + tri[1].z * wb + tri[2].z * wc;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  // the dots ride the face's own mouth and eyelids: each frame, the dots on moving skin are put back on their triangle, with
+  // the face's mouth-open and blink shapes (driven by the lip sync and blink code) applied
+  const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3();
+  let wasMoving = false; const MOUTH_GAIN = 2.2;   // dots are sparse: the real mouth movement, exaggerated, so it reads
+  const vert = (src, j, out) => {
+    out.fromBufferAttribute(src.pos, j); const inf = src.mesh.morphTargetInfluences || [];
+    for (let k = 0; k < src.morph.length; k++) { const w = (inf[k] || 0) * MOUTH_GAIN; if (!w) continue; const a = src.morph[k];
+      if (src.rel) { out.x += w * a.getX(j); out.y += w * a.getY(j); out.z += w * a.getZ(j); }
+      else { out.x += w * (a.getX(j) - src.pos.getX(j)); out.y += w * (a.getY(j) - src.pos.getY(j)); out.z += w * (a.getZ(j) - src.pos.getZ(j)); } }
+    return out.applyMatrix4(src.m);
+  };
+  const followFace = () => {
+    const now = srcMeshes.some(s => s.morph.length && (s.mesh.morphTargetInfluences || []).some(w => w > 1e-3));
+    if (!now && !wasMoving) return; wasMoving = now;
+    for (let n = 0; n < moving.length; n += 5) {
+      const i = moving[n], tri = candidates[moving[n + 1]], src = srcMeshes[tri[3]], wa = moving[n + 2], wb = moving[n + 3], wc = moving[n + 4];
+      vert(src, tri[4], va); vert(src, tri[5], vb); vert(src, tri[6], vc);
+      const y = va.y * wa + vb.y * wb + vc.y * wc;
+      points[i*3] = cx + (va.x * wa + vb.x * wb + vc.x * wc - cx) * widen(y); points[i*3+1] = y; points[i*3+2] = va.z * wa + vb.z * wb + vc.z * wc;
+    }
+    geo.attributes.position.needsUpdate = true;
+  };
   particleFaceMaterial = new THREE.PointsMaterial({
-    color: 0xffd783, size: 0.016, map: glowTex, transparent: true, opacity: 1,   // applyAvatarAlpha fades it from this base
+    vertexColors: true, color: 0xffd783, size: 0.016, map: glowTex, transparent: true, opacity: 1,   // applyAvatarAlpha fades it from this base
     blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
   });
   const cloud = new THREE.Points(geo, particleFaceMaterial);
@@ -440,7 +470,7 @@ function makeGoldenParticleFace(model) {
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
       const ring = new THREE.Points(g, mat(0.014, 0xffcf7a)); ring.frustumCulled = false; ring.rotation.y = Math.random() * 6; orbit.add(ring);
     }
-    particleFx = { spark, orbit };
+    particleFx = { spark, orbit, followFace };
   }
   return cloud;
 }
@@ -642,7 +672,7 @@ function applyColors() {
   if (window.__jvSwapFx > 0) window.__jvSwapFx = Math.max(0, window.__jvSwapFx - 0.025);
   if (particleFaceMaterial) { particleFaceMaterial.color.copy(currentCool); particleFaceMaterial.size = 0.016 * (1 + speakingAmount * 0.35); }
   if (particleFx && avatarModel) {
-    const t = performance.now() / 1000, f = particleFx;
+    const t = performance.now() / 1000, f = particleFx; f.followFace();
     f.spark.forEach((o, i) => { o.material.opacity = avatarAlpha * (0.55 + 0.45 * Math.sin(t * 1.7 + i * 3.1)); });
     f.orbit.rotation.y = t * 0.12 * currentSpinMul * 2.5; f.orbit.rotation.z = 0.12 * Math.sin(t * 0.2);
   }
