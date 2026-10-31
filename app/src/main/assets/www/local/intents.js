@@ -65,8 +65,8 @@ export const INTENTS = [
   [/^(resume|continue|unpause) (the )?(music|song|playback)?$|^play music$/, () => ['spotify_play', {}]],
   [/^(next|skip)( (this )?(song|track))?$|^next (song|track)$/, () => ['spotify_next', {}]],
   [/^(previous|last|go back a) (song|track)$|^previous$/, () => ['spotify_previous', {}]],
-  // ---- faces ("be Amara", "use the orb", "switch to Kofi", "show your face")
-  [/^(be|become|switch to|change to|use|turn into|show me|go back to|change your face to|switch your face to|look like)( the)? (adam|kofi|amara|nova|orb)( face)?$/, m => ['choose_face', { face: m[3] }]],
+  // ---- faces ("use your female face", "use the orb", "show your face")
+  [/^(be|become|switch to|change to|use|turn into|show me|go back to|change your face to|switch your face to)( the| your)? (male|female|orb)( face)?$/, m => ['choose_face', { face: m[3] }]],
   [/^(no face|hide your face|just (the )?(orb|light))$/, () => ['choose_face', { face: 'orb' }]],
   [/^(show|bring back) your face( again)?$/, () => ['choose_face', { face: 'back' }]],
   // ---- Jarvis's own screens

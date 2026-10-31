@@ -184,7 +184,6 @@
     </div>
   </div>
 
-<script>(function(){try{var x=new XMLHttpRequest();x.open("HEAD","models/adam.glb",false);x.send();window.__NO_ADAM=x.status!==200;}catch(e){window.__NO_ADAM=true;}})();</script>
 <script type="importmap">
 { "imports": { "three": "./vendor/three/build/three.module.js",
   "three/addons/": "./vendor/three/examples/jsm/" } }
@@ -204,8 +203,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 console.log('[JARVIS] v24 — speech-only, fast speech queue, quiet-voice friendly');
 
 const TTS_RATE = 1.22, TTS_PITCH = 1.0;
-const AVATAR_FEMALE = 'models/faces/amara.glb';
-const AVATAR_MALE = window.__NO_ADAM ? AVATAR_FEMALE : 'models/adam.glb';
+const AVATAR_FEMALE = 'models/faces/nova.glb';
+const AVATAR_MALE = 'models/faces/kofi.glb';
 const FADE_OUT_RATE = 5.0, FADE_IN_RATE = 3.0;
 
 const container = document.getElementById('three');
@@ -445,6 +444,7 @@ function doSwap(url) {
       mats.forEach(m => { delete m.userData._baseOpacity; delete m.userData._baseTransparent; });
     });
     gidPlane.visible = false; faceGroup.add(avatarModel);
+    if (window.__jvParticlize) window.__jvParticlize(avatarModel);   // the face as glowing particles (local/particles.js)
     window.__jvSwapFx = window.__jvSwapFx === undefined ? 0 : 1;   // no flare for the very first face
     try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: url })); } catch (e) {}
     avatarAlpha = 0; applyAvatarAlpha(0);

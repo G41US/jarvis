@@ -43,10 +43,10 @@ export function registerUiTools(ctx) {
       return `${name ? `You're ${name}. ` : ''}${bits.length ? `I've saved ${bits.join(', ')}. ` : ''}It's all on the screen now; tap the cross next to anything that's wrong and I'll forget it.`;
     });
 
-  T('choose_face', "Change Jarvis's face: adam (man), kofi (man), amara (woman), nova (woman), or orb (no face, just a ball of light that moves with his voice; saves battery). The voice changes to match a man's or woman's face. Use for 'change your face', 'be Amara', 'use the orb', 'show your face again'.",
-    { face: { type: 'string', enum: ['adam', 'kofi', 'amara', 'nova', 'orb', 'back'] } }, ['face'], async a => {
+  T('choose_face', "Change Jarvis's face: male or female (a glowing head made of light that reacts as he listens, thinks and talks), or orb (no face, just a ball of light that moves with his voice; saves battery). The voice changes to match. Use for 'change your face', 'use your female face', 'use the orb', 'show your face again'.",
+    { face: { type: 'string', enum: ['male', 'female', 'orb', 'back'] } }, ['face'], async a => {
       let id = String(a.face || '').toLowerCase();
-      if (id === 'back') { const g = config.get('avatar_gender', 'male') === 'female' ? 'female' : 'male'; id = config.get('face_' + g, g === 'female' ? 'amara' : 'adam'); }
+      if (id === 'back') id = config.get('avatar_gender', 'male') === 'female' ? 'female' : 'male';
       return ctx.chooseFace ? ctx.chooseFace(id) : 'I can only change my face in the app.';
     });
 
