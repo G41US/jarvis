@@ -196,6 +196,7 @@ public class MainActivity extends Activity {
     private void handleIntent(Intent i) {
         if (i == null) return;
         String a = i.getAction() == null ? "" : i.getAction();
+        if (Updater.ACTION.equals(a)) { Updater.onStatus(this, i); setIntent(new Intent(this, MainActivity.class)); return; }
         String open = i.getStringExtra("open");
         if (Intent.ACTION_ASSIST.equals(a) || Intent.ACTION_VOICE_COMMAND.equals(a) || "android.intent.action.SEARCH_LONG_PRESS".equals(a) || ACTION_TALK.equals(a)) {
             runJs("window.JARVIS&&window.JARVIS.wake()");

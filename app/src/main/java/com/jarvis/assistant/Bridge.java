@@ -15,6 +15,7 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.BatteryManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
@@ -706,6 +707,16 @@ public class Bridge {
     /** Asks the launcher to put the widget on the home screen: "asked" or "unsupported". */
     @JavascriptInterface public String pinWidget() { return JarvisWidget.pin(activity); }
     @JavascriptInterface public int widgetCount() { return JarvisWidget.count(activity); }
+    /** This APK's build number (the GitHub Actions run that made it). 0 for a build made by hand. */
+    @JavascriptInterface public int appBuild() {
+        try { long v = Build.VERSION.SDK_INT >= 28 ? activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).getLongVersionCode()
+                                                   : activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).versionCode;
+              return (int) Math.max(0, v - 100); } catch (Exception e) { return 0; }
+    }
+    /** Downloads the newer build and opens Android's "Update?" screen. Progress: window.__jvUpdate(json). */
+    @JavascriptInterface public String installUpdate(String url, String token) {
+        return Updater.start(activity, url, token, new Updater.Report() { public void send(String json) { js("window.__jvUpdate&&window.__jvUpdate(" + JSONObject.quote(json) + ")"); } });
+    }
 
     /** Lets the page keep the screen awake while it is on screen. */
     @JavascriptInterface

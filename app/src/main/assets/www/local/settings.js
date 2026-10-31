@@ -100,6 +100,7 @@ const PAGES = {
   'Phone powers': { id: 'powers', grp: 'This phone', c: '#7fd8ff', ic: SVG('<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M12 7.5l-2 4h4l-2 4"/>') },
   'Safety': { id: 'safety', grp: 'This phone', c: '#ff5a67', ic: SVG('<path d="M12 3l7 3v5c0 5-3.2 8.3-7 10-3.8-1.7-7-5-7-10V6z"/><path d="M12 9v4M12 16h.01"/>') },
   'Smart home': { id: 'home', grp: 'This phone', c: '#52f2b6', ic: SVG('<path d="M4 11l8-6.5 8 6.5M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/>') },
+  'Updates': { id: 'update', grp: 'More', c: '#52f2b6', ic: SVG('<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/>') },
   'Advanced': { id: 'advanced', grp: 'More', c: '#9db3c6', ic: SVG('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>') },
 };
 
@@ -386,6 +387,29 @@ export function initSettings() {
   add(adv, 'text', 'stt_language', 'Speech language code', { ph: 'en', hint: 'Leave blank for English.' });
   if (proxy) keyIn = add(adv, 'password', 'groq_key', 'Your own Groq key (optional)', { ph: 'gsk_…', hint: 'Not needed. Only if you want Jarvis to use your own Groq account instead of the Jarvis service.' });
 
+  // ---- updates: a newer build comes from the Jarvis service, and Android asks you to tap Update once
+  const sUp = section('Updates', 'New versions of Jarvis install from here. Android asks you to tap Update to finish; your settings and everything Jarvis knows stay.');
+  const upMsg = el('p', { class: 'hint', 'aria-live': 'polite' }), upBtn = el('button', { type: 'button', id: 'jv-update-btn' }, 'Check for updates');
+  sUp.append(upMsg, el('div', { class: 'row' }, upBtn));
+  const paintUpdate = () => {
+    const U = J().update, u = U ? U.info() : {}, ready = u.latest > u.mine;
+    let msg = `You have build ${u.mine}.`, btn = 'Check for updates', act = 'check', busy = false;
+    if (!u.mine) { msg = 'This copy of Jarvis wasn\'t built by GitHub, so it can\'t update itself. Install the newest build from GitHub instead.'; act = ''; }
+    else if (!J().api.hasProxy()) { msg = 'Updates come through the Jarvis service, which isn\'t set up for this build.'; act = ''; }
+    else if (u.state === 'downloading') { msg = `Downloading build ${u.latest}… ${u.percent >= 0 ? u.percent + '%' : ''}`; busy = true; }
+    else if (u.state === 'installing' || u.state === 'confirm') { msg = 'Tap Update on Android\'s screen to finish. Jarvis restarts as the new build.'; busy = true; }
+    else if (u.state === 'permission') { msg = 'Turn on "Allow from this source" for Jarvis on the screen that just opened, then come back and tap Update now.'; btn = 'Update now'; act = 'install'; }
+    else if (u.state === 'failed') { msg = `The update didn't finish${u.error && u.error !== 'cancelled' ? ` (${u.error})` : ''}. Try again on Wi-Fi.`; btn = 'Try again'; act = ready ? 'install' : 'check'; }
+    else if (ready) { msg = `Build ${u.latest} is ready. You have build ${u.mine}.`; btn = 'Update now'; act = 'install'; }
+    else if (u.checked) { msg = `You have the newest build (${u.mine}).`; btn = 'Check again'; }
+    upMsg.textContent = msg; upBtn.textContent = btn; upBtn.hidden = !act; upBtn.disabled = busy; upBtn.dataset.act = act;
+  };
+  upBtn.onclick = async () => {
+    if (upBtn.dataset.act === 'install') { J().update.install(); paintUpdate(); return; }
+    upBtn.disabled = true; upMsg.textContent = 'Checking…'; await J().update.check(); paintUpdate();
+  };
+  window.addEventListener('jv-update', paintUpdate); paintUpdate();
+
   const saveMsg = el('div', { class: 'msg' });
   const close = () => { ov.classList.remove('on'); document.body.classList.remove('jv-settings'); window.__jvPaused = false; clearInterval(diagTimer); };
   const save = () => {
@@ -417,6 +441,7 @@ export function initSettings() {
     powers: () => { const st = J().phone ? J().phone.status() : {}; const ks = POWERS.map(([k]) => k); const on = ks.filter(k => st && st[k]).length; return [`${on} of ${ks.length} on`, on === ks.length ? 'ok' : '']; },
     safety: () => { const n = (J().config.get('emergency_contacts', []) || []).length; return [n ? `${n} emergency contact${n > 1 ? 's' : ''}` : 'No emergency contacts yet', n ? 'ok' : 'warn']; },
     home: () => [J().config.get('ha_url', '') ? 'Home Assistant' : J().config.get('hue_user', '') ? 'Philips Hue' : 'Not connected'],
+    update: () => { const u = J().update ? J().update.info() : {}; return u.latest > u.mine ? [`Build ${u.latest} is ready`, 'warn'] : [u.mine ? `Build ${u.mine}` : 'Not available']; },
     advanced: () => [{ auto: 'Automatic thinking', low: 'Fast thinking', medium: 'Medium thinking', high: 'Careful thinking' }[J().config.get('reasoning', 'auto')] || 'Automatic thinking'],
   };
   const paintMenu = () => {
@@ -440,7 +465,7 @@ export function initSettings() {
       ul.append(el('button', { type: 'button', class: 'mi', 'data-go': id, onclick: () => { close(); fn(); } }, ico, el('span', { class: 'tx' }, el('b', {}, t), el('span', {}, sub))));
     }
   };
-  const open = page => { reload(); J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); paintEc(); paintMenu(); go(typeof page === 'string' ? page : (!J().api.ready() ? 'brain' : null)); };
+  const open = page => { reload(); J().refreshVoices(); gender = J().config.get('avatar_gender', 'male'); paintSeg(); fillVoices(); paintPc(); saveMsg.textContent = ''; ov.classList.add('on'); document.body.classList.add('jv-settings'); window.__jvPaused = true; paintDiag(); diagTimer = setInterval(() => { paintDiag(); paintOffer(); if (++powTick % 4 === 0) paintPowers(); }, 300); paintOffer(); paintPowers(); paintEc(); paintMenu(); paintUpdate(); go(typeof page === 'string' ? page : (!J().api.ready() ? 'brain' : null)); };
   J().openSettings = open;
   if (!J().api.ready()) open('brain');
 }

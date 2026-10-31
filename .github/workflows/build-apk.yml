@@ -145,6 +145,15 @@ jobs:
           print('::warning title=Cloudflare workers.dev address::Could not register it automatically. Open dash.cloudflare.com > Workers & Pages once, then run the build again.')
           PY
 
+      - name: Storage for app updates on the Jarvis service (created once)
+        id: kv
+        if: env.HAS_CLOUDFLARE == 'true'
+        continue-on-error: true   # without it the app just says it's up to date
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/kv_update.py ensure && echo "ok=true" >> "$GITHUB_OUTPUT"
+
       - name: Deploy the Jarvis service to Cloudflare
         id: proxy
         if: env.HAS_CLOUDFLARE == 'true'
@@ -321,6 +330,15 @@ jobs:
             If the file on your phone is smaller, the download was cut off: delete it and download again on Wi-Fi.
             Checked with Android's apksigner, zipalign and aapt2. SHA-256 starts ${{ steps.apkcheck.outputs.sha }}.
           files: Jarvis-build-${{ github.run_number }}.apk
+
+      # The app's "Check for updates" downloads from the Jarvis service (the repo is private), so the new APK goes there too
+      - name: Put this build on the Jarvis service for in-app updates
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && steps.kv.outputs.ok == 'true' && steps.proxy.outputs.deployment-url
+        continue-on-error: true
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/kv_update.py upload Jarvis.apk "$GITHUB_RUN_NUMBER"
 
   # ---- iPhone: the shared engine first (cheap Linux machine), then the app on a Mac
   ios-core:

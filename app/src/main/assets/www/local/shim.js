@@ -1,7 +1,8 @@
 // shim.js - the "server" that lives inside the app. The page still talks to /chat_stream, /speak, /ws, /audio ... exactly as it did on
 // the PC; here those calls are answered on the phone: fetch() and WebSocket are intercepted, the voice goes through Android's text-to-speech,
 // the microphone and the "Hey Jarvis" wake word run natively (VoiceEngine.java), and Jarvis's brain, delivery copilot and navigation run here.
-import { kv, makeHttp, realFetch, nativeHttp, b64ToBytes } from './net.js';
+import { kv, makeHttp, realFetch, nativeHttp, b64ToBytes, httpRaw } from './net.js';
+import { BUILD } from './build_config.js';
 import { Registry } from './tools.js';
 import { Navigator } from './navlib.js';
 import { Copilot } from './delivery.js';
@@ -125,6 +126,25 @@ function setVoice(q) {
 
 // ---------------------------------------------------------------- faces (faces.js): which face goes with the voice
 W.__jvFaceFor = wantMale => faceFor(cfgStore, wantMale);
+
+// ---- updates (Settings > Updates): each build also goes to the Jarvis service (the GitHub repo is private), and
+//      Android's installer puts it on after one tap. state: '', downloading, installing, confirm, done, failed, permission
+const upd = { mine: 0, latest: 0, state: '', percent: 0, error: '' }, upBase = () => String(BUILD.apiBase || '').replace(/\/+$/, '');
+try { upd.mine = has('appBuild') ? Number(bridge().appBuild()) || 0 : 0; } catch {}
+const updChanged = () => { try { W.dispatchEvent(new Event('jv-update')); } catch {} };
+async function checkUpdate() {
+  if (!upBase() || !upd.mine) return upd;
+  const r = await httpRaw(upBase() + '/update', { headers: { 'X-Jarvis-Token': BUILD.appToken || '' } });
+  try { if (r.status === 200) upd.latest = Number(JSON.parse(r.text).build) || 0; } catch {}
+  upd.checked = r.status === 200; kv.set('update_checked', Date.now()); updChanged(); return upd;
+}
+function installUpdate() {
+  if (!(upd.latest > upd.mine) || !has('installUpdate')) return 'none';
+  const r = String(bridge().installUpdate(upBase() + '/update/apk', BUILD.appToken || ''));
+  Object.assign(upd, { state: r === 'started' ? 'downloading' : r, percent: 0, error: '' }); updChanged(); return r;
+}
+W.__jvUpdate = j => { try { Object.assign(upd, JSON.parse(j)); } catch {} updChanged(); };
+setTimeout(() => { if (Date.now() - Number(kv.get('update_checked', 0)) > 6 * 3600e3) checkUpdate(); }, 20000);   // a quiet look, at most every 6 hours
 function faceChanged() { try { W.dispatchEvent(new Event('jv-face')); } catch {} }
 const avatarReady = (ms = 5000) => new Promise(res => { const done = () => { W.removeEventListener('jv-avatar-ready', done); clearTimeout(t); setTimeout(res, 350); }; const t = setTimeout(done, ms); W.addEventListener('jv-avatar-ready', done); });
 /** "Use your female face", "use the orb": the face changes (with the voice that goes with it, if that changes too). */
@@ -355,7 +375,7 @@ if (W.JARVIS_IOS) reg.remove(IPHONE_CANT);                // after every tool is
 
 W.JARVIS = {
   wake: () => W.__jvWake(1, true), say: t => deliverTranscript(t), announce: t => broadcast('proactive:' + t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
-  kv, faces: FACES, chooseFace, refreshMemory: () => brain && brain.refreshPrompt(), earningsNow: () => earningsSummary(earningsInput(delivery)),
+  kv, faces: FACES, chooseFace, update: { info: () => upd, check: checkUpdate, install: installUpdate }, refreshMemory: () => brain && brain.refreshPrompt(), earningsNow: () => earningsSummary(earningsInput(delivery)),
   phone, interp, proactive, learner, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };

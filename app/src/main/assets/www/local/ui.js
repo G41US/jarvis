@@ -695,6 +695,8 @@ export function initUi() {
     toastTimer = setTimeout(() => toast.classList.remove('on'), Math.min(14000, 4000 + text.length * 60));
   }
   toast.onclick = () => { toast.classList.remove('on'); if (B.contains('st-muted')) toggleMute(); };
+  let toldUpdate = false;                          // once per session: a newer build is waiting in Settings > Updates
+  window.addEventListener('jv-update', () => { const u = J().update && J().update.info(); if (u && !toldUpdate && !u.state && u.latest > u.mine) { toldUpdate = true; showToast(`Build ${u.latest} of Jarvis is ready. Open Settings, then Updates.`); } });
   let cardTimer = 0;
   function paintCard() {
     const s = last;

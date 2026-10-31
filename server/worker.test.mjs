@@ -38,4 +38,21 @@ r = await call('/v1/ping', { headers: H }); globalThis.fetch = realFetch;
 check('ping answers at once, without calling Groq', r.status === 204 && groqHits === 0, r.status + ' ' + groqHits);
 r = await call('/v1/ping', { headers: { 'x-jarvis-token': 'wrong' } });
 check('ping still needs the app token', r.status === 403, r.status);
+// ---- updates: the newest APK, stored in parts, streamed back whole
+const ctx = { waitUntil: p => p };
+const store = { meta: JSON.stringify({ build: 52, size: 6, parts: 2 }), 'apk:52:0': 'PK', 'apk:52:1': 'ZZZZ' };
+const KV = { get: async (k, type) => store[k] == null ? null : type === 'json' ? JSON.parse(store[k]) : type === 'stream' ? new Blob([store[k]]).stream() : store[k] };
+const callU = (path, h = H, e = { ...env, UPDATES: KV }) => worker.fetch(new Request('https://jarvis.example.workers.dev' + path, { headers: h }), e, ctx);
+r = await callU('/v1/update');
+check('update: newest build number', r.status === 200 && (await r.json()).build === 52);
+r = await callU('/v1/update/apk');
+const apk = await r.text();
+check('update: the APK comes back whole, in order', r.status === 200 && apk === 'PKZZZZ' && r.headers.get('content-length') === '6' && r.headers.get('content-type') === 'application/vnd.android.package-archive', apk);
+r = await callU('/v1/update/apk', { 'x-jarvis-token': 'wrong' });
+check('update: needs the app token', r.status === 403, r.status);
+r = await callU('/v1/update', H, env);
+check('update: nothing stored yet means build 0', r.status === 200 && (await r.json()).build === 0);
+delete store['apk:52:1']; r = await callU('/v1/update/apk');
+let cut = false; try { await r.text(); } catch { cut = true; }
+check('update: a missing part cuts the download off (never a short APK that looks complete)', cut);
 console.log('FAILURES:', fails); process.exit(fails ? 1 : 0);
