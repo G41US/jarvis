@@ -83,6 +83,10 @@ public class Bridge {
         try {
             p = new PiperTts(new java.io.File(activity.getFilesDir(), "voices"), new PiperTts.Events() {
                 @Override public void onDone(long id, boolean ok) { synchronized (Bridge.this) { speaking = Math.max(0, speaking - 1); if (speaking == 0) abandonFocus(); } ttsEvent(id, ok ? "done" : "error"); }
+                @Override public void onFallback(long id, String text) {
+                    synchronized (Bridge.this) { speaking = Math.max(0, speaking - 1); }
+                    if (ttsReady && !ttsFailed) speakNow(id, text, 1.22f, 1f); else ttsEvent(id, "error");
+                }
                 @Override public void onStatus(String json) { js("window.__jvVoices&&window.__jvVoices(" + JSONObject.quote(json) + ")"); }
             });
         } catch (Throwable e) { Log.e(TAG, "PC voices unavailable", e); }
@@ -719,6 +723,8 @@ public class Bridge {
         double syl = Math.abs(Math.sin(Math.PI * t / Math.max(120, dur / Math.max(1, wordLen / 3))));   // a few openings across a long word
         return (float) (0.25 + 0.75 * syl * Math.sin(Math.PI * Math.min(1.0, (double) t / dur)));
     }
+    /** The natural voice (Orpheus via the Jarvis service, or Groq with the user's own key). An empty url turns it off. */
+    @JavascriptInterface public void setCloudVoice(String url, String headersJson, String voice) { if (piper != null) piper.setCloud(url, headersJson, voice); }
     /** How fast he talks: 1 normal, 1.15 a bit faster, 1.3 fast (both the PC voice and the phone's voice). */
     @JavascriptInterface public void setSpeechSpeed(float s) { speechSpeed = Math.max(0.6f, Math.min(1.6f, s)); if (piper != null) piper.setSpeed(speechSpeed); }
     /** This APK's build number (the GitHub Actions run that made it). 0 for a build made by hand. */

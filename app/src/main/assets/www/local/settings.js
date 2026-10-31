@@ -214,6 +214,7 @@ export function initSettings() {
   const choose = g => { gender = g; J().config.merge({ avatar_gender: g, voice: '' }); paintSeg(); fillVoices(); J().announceVoice(); J().ensurePcVoice(); paintPc(); };
   bMale.onclick = () => choose('male'); bFemale.onclick = () => choose('female');
   vsel.onchange = () => { J().config.set('voice', vsel.value); J().announceVoice(); };
+  add(sVoice, 'select', 'natural_voice', 'Natural voice', { def: 'true', options: [['true', 'On: sounds like a real person (needs internet; the PC voice fills in offline)'], ['false', 'Off: the PC voice or the phone\'s voice only']] });
   add(sVoice, 'select', 'speech_speed', 'How fast he talks', { def: '1.15', options: [['1', 'Normal'], ['1.15', 'A bit faster'], ['1.3', 'Fast'], ['1.45', 'Very fast']] });
   sVoice.append(el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { type: 'button', onclick: () => J().speakTest(gender === 'female' ? 'Hello. This is how I sound.' : 'Good evening. This is how I sound.') }, 'Hear it')));
 

@@ -211,7 +211,7 @@ BRIDGE = r"""
     tone(f, ms, v) { window.__native.tones++; },
     vibrate(k) { (window.__native.vib = window.__native.vib || []).push(k); },
     widget(j) { (window.__native.widget = window.__native.widget || []).push(JSON.parse(j)); }, pinWidget() { window.__native.pinned = 1; return 'asked'; }, widgetCount() { return 0; },
-    appBuild() { return 50; }, mouthLevel() { return window.__mouth == null ? 0 : window.__mouth; }, setSpeechSpeed(x) { window.__native.speed = x; }, installUpdate(url, token, size, parts) { window.__native.update = [url, token, size, parts]; return 'started'; },
+    appBuild() { return 50; }, mouthLevel() { return window.__mouth == null ? 0 : window.__mouth; }, setSpeechSpeed(x) { window.__native.speed = x; }, setCloudVoice(u, h, v) { window.__native.cloud = [u, JSON.parse(h), v]; }, installUpdate(url, token, size, parts) { window.__native.update = [url, token, size, parts]; return 'started'; },
     pcVoices() { return JSON.stringify(window.__pc); },
     pcVoiceDownload(n) { window.__native.pcDownloads.push(n); window.__pc[n] = 'downloading:40'; window.__jvVoices(JSON.stringify(window.__pc));
       setTimeout(() => { window.__pc[n] = 'ready'; window.__jvVoices(JSON.stringify(window.__pc)); }, 300); },
@@ -964,6 +964,8 @@ def main():
         ctx2.route(ORIGIN + '/**', asset2); ctx2.route('https://jarvis-proxy.example.workers.dev/**', proxy_handler)
         ctx2.route(re.compile(r'https://(?!appassets|jarvis-proxy).*'), other_handler)
         p2 = ctx2.new_page(); p2.goto(ORIGIN + '/index.html'); p2.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000); p2.wait_for_timeout(800)
+        cv = p2.evaluate("window.__native.cloud")
+        check('proxy build: the natural voice goes through the Jarvis service with its token (Daniel for the male face)', cv and cv[0] == 'https://jarvis-proxy.example.workers.dev/v1/audio/speech' and cv[1].get('X-Jarvis-Token') == 'tok123' and cv[2] == 'daniel', cv)
         check('proxy build: settings does not demand a key', p2.evaluate("!document.getElementById('jv-ov').classList.contains('on')") and p2.evaluate("JARVIS.api.mode()") == 'proxy')
         # ---- first run: the setup walkthrough opens by itself and takes the permissions one at a time
         p2.wait_for_selector('#jv-setup.on', timeout=5000)

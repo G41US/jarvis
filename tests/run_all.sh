@@ -14,6 +14,7 @@ node tests/home.test.mjs | tail -1                                 # smart home 
 node tests/proactive.test.mjs | tail -1                            # birthdays, time to leave, weather alert wording
 node tests/earnings.test.mjs | tail -1                             # earnings page: today, week, per hour/mile, best hours and areas
 node tests/mouth.test.mjs | tail -1                                # the mouth follows speech loudness
+JW=$(mktemp -d); javac -d "$JW" app/src/main/java/com/jarvis/assistant/Wav.java tests/java/WavCheck.java 2>/dev/null && java -cp "$JW" com.jarvis.assistant.WavCheck 2>/dev/null   # the natural voice's audio
 python3 tools/make_www.py >/dev/null
 python3 tests/e2e/e2e.py | tail -1                                 # the whole phone page, fake Android bridge, mocked services
 S=$(mktemp -d); python3 tests/android_stubs/gen_stubs.py "$S/src" >/dev/null; mkdir "$S/out"

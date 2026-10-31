@@ -25,6 +25,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 public final class PiperTts {
     public interface Events {
         void onDone(long id, boolean ok);
+        /** The natural voice couldn't be reached and no PC voice is downloaded: say it with the phone's voice. */
+        void onFallback(long id, String text);
         void onStatus(String json);
     }
 
@@ -71,7 +73,35 @@ public final class PiperTts {
     public boolean isReady(String name) { return name != null && !name.isEmpty() && VoicePack.isReady(root, name); }
     public String active() { return active; }
     /** True when the PC voice can speak right now; otherwise the phone's own voice is used. */
-    public boolean speaksNow() { return isReady(active) && !active.equals(failed); }
+    public boolean speaksNow() { return cloudOn() || (isReady(active) && !active.equals(failed)); }
+
+    // ---- the natural voice (Groq Orpheus, through the Jarvis service): each sentence is fetched as soon as it's queued, so the
+    //      next one is ready when the last finishes; it plays through the same speaker code (and mouth sync) as the PC voices
+    private volatile String cloudUrl = "", cloudHeaders = "{}", cloudVoice = "";
+    private final ExecutorService fetcher = Executors.newFixedThreadPool(2);
+    private final ConcurrentHashMap<Long, java.util.concurrent.Future<float[][]>> fetched = new ConcurrentHashMap<>();
+    private volatile long cloudPausedUntil = 0;                              // refused (terms not accepted, bad key): try again in a while
+    private boolean cloudOn() { return !cloudUrl.isEmpty() && !cloudVoice.isEmpty() && System.currentTimeMillis() > cloudPausedUntil; }
+    public void setCloud(String url, String headersJson, String voice) {
+        cloudUrl = url == null ? "" : url; cloudHeaders = headersJson == null ? "{}" : headersJson; cloudVoice = voice == null ? "" : voice;
+    }
+
+    /** One sentence from the natural voice: {samples, {sampleRate}}. */
+    private float[][] fetchCloud(String text) throws Exception {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(cloudUrl).openConnection();
+        c.setRequestMethod("POST"); c.setDoOutput(true); c.setConnectTimeout(8000); c.setReadTimeout(20000);
+        c.setRequestProperty("Content-Type", "application/json");
+        JSONObject h = new JSONObject(cloudHeaders); for (java.util.Iterator<String> k = h.keys(); k.hasNext(); ) { String n = k.next(); c.setRequestProperty(n, h.getString(n)); }
+        JSONObject body = new JSONObject().put("model", "canopylabs/orpheus-v1-english").put("voice", cloudVoice).put("input", text).put("response_format", "wav");
+        try (java.io.OutputStream o = c.getOutputStream()) { o.write(body.toString().getBytes("UTF-8")); }
+        int code = c.getResponseCode();
+        if (code == 400 || code == 401 || code == 403) cloudPausedUntil = System.currentTimeMillis() + 10 * 60000;   // no point asking every sentence
+        if (code != 200) throw new java.io.IOException("speech " + code);
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+        try (java.io.InputStream in = c.getInputStream()) { byte[] b = new byte[16384]; int n; while ((n = in.read(b)) > 0) bo.write(b, 0, n); }
+        return Wav.decode(bo.toByteArray());
+    }
+
 
     /** Pick the voice ("alan", "amy") or "" for the phone's own voice. Loads it in the background. */
     public void use(String name) {
@@ -114,6 +144,7 @@ public final class PiperTts {
 
     public void speak(long id, String text) {
         texts.put(id, text);
+        if (cloudOn()) { final String t = text; fetched.put(id, fetcher.submit(() -> fetchCloud(t))); }
         queue.offer(new long[]{id});
     }
 
@@ -121,7 +152,7 @@ public final class PiperTts {
     public void stop() {
         cancel = true;
         long[] j;
-        while ((j = queue.poll()) != null) if (j[0] >= 0) { texts.remove(j[0]); events.onDone(j[0], true); }
+        while ((j = queue.poll()) != null) if (j[0] >= 0) { texts.remove(j[0]); fetched.remove(j[0]); events.onDone(j[0], true); }
         AudioTrack t = track;
         if (t != null) { try { t.pause(); t.flush(); } catch (Exception ignored) { } }
     }
@@ -203,10 +234,14 @@ public final class PiperTts {
             String text = texts.remove(id);
             if (text == null) continue;
             cancel = false;
-            if (!ensureLoaded()) { events.onDone(id, false); continue; }
+            java.util.concurrent.Future<float[][]> f = fetched.remove(id);
+            float[][] cloud = null;
+            if (f != null) { try { cloud = f.get(25, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception e) { Log.w(TAG, "natural voice", e); } }
+            if (cancel) { events.onDone(id, true); continue; }
+            if (cloud == null && !ensureLoaded()) { if (f != null) events.onFallback(id, text); else events.onDone(id, false); continue; }
             boolean ok = true;
             try {
-                int sr = tts.sampleRate();
+                int sr = cloud != null ? (int) cloud[1][0] : tts.sampleRate();
                 if (track == null || track.getSampleRate() != sr) {
                     if (track != null) track.release();
                     int min = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT);
@@ -223,7 +258,13 @@ public final class PiperTts {
                 final long base = track.getPlaybackHeadPosition() & 0xffffffffL;
                 envLen = 0; envBase = base;
                 Sink sink = new Sink();
-                tts.generateWithCallback(text, 0, PC_SPEED * speed, sink);
+                if (cloud != null) {                                                 // the natural voice: faster without going squeaky
+                    try { track.setPlaybackParams(new android.media.PlaybackParams().setSpeed(speed).setPitch(1f)); } catch (Exception ignored) { }
+                    sink.invoke(cloud[0]);
+                } else {
+                    try { track.setPlaybackParams(new android.media.PlaybackParams().setSpeed(1f).setPitch(1f)); } catch (Exception ignored) { }
+                    tts.generateWithCallback(text, 0, PC_SPEED * speed, sink);
+                }
                 // wait for the speaker to finish what was written (the page waits for this "done" before listening again)
                 long deadline = System.currentTimeMillis() + 2000 + sink.written * 1000L / sr;
                 while (!cancel && System.currentTimeMillis() < deadline) {

@@ -90,6 +90,7 @@ function loadVoices() { if (!rawVoices.length && has('ttsVoices')) { try { rawVo
 function readPc() { if (has('pcVoices')) { try { pcState = JSON.parse(bridge().pcVoices() || '{}'); } catch { pcState = {}; } } return pcState; }
 const pcReady = name => readPc()[name] === 'ready';
 const gender = () => (cfgStore.get('avatar_gender', 'male') === 'female' ? 'f' : 'm');
+const NATURAL_VOICE = { m: 'daniel', f: 'hannah' };   // Orpheus voices
 const hint = g => (g === 'f' ? 'amy' : 'adam');                 // the page picks the face from these words in the voice id
 const described = () => describeVoices(loadVoices());
 const pcStateText = name => { const st = String(readPc()[name] || 'missing'); return st === 'ready' ? '' : st.startsWith('downloading') ? ` (downloading ${st.split(':')[1] || 0}%)` : ' (not downloaded)'; };
@@ -110,6 +111,10 @@ function chosenVoice() {
 function applyVoice() {
   const c = chosenVoice(); tts.pitchMul = c.pitch;
   try { if (has('pcVoiceUse')) bridge().pcVoiceUse(c.pc || ''); if (!c.pc && has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {}
+  try {                                                // the natural voice (Groq Orpheus) when online; the PC or phone voice otherwise
+    const on = String(cfgStore.get('natural_voice', 'true')) !== 'false' && api.ready();
+    if (has('setCloudVoice')) bridge().setCloudVoice(on ? api.base() + '/audio/speech' : '', JSON.stringify(api.headers()), NATURAL_VOICE[gender()]);
+  } catch {}
   return c;
 }
 function announceVoice() { const c = applyVoice(); broadcast(`voice_changed:${c.id}|${c.name}`); return c; }
