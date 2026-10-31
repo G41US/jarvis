@@ -297,8 +297,10 @@ function disposeAvatar(model) {
     }
   });
 }
+let particleFaceMaterial = null;
 function applyAvatarAlpha(a) {
   if (!avatarModel) return;
+  if (particleFaceMaterial) particleFaceMaterial.opacity = a;
   const wantsAlpha = a < 0.995;
   avatarModel.traverse((c) => {
     if (!c.material) return;
@@ -317,6 +319,62 @@ function applyAvatarAlpha(a) {
     avatarModel.scale.setScalar(avatarModel.userData._baseScale * (0.90 + 0.10 * a));
   }
 }
+// Turn the loaded head surface into a dense, glowing gold point cloud, matching the JARVIS particle-face reference.
+function makeGoldenParticleFace(model) {
+  const candidates = [], cumulative = [];
+  const invRoot = new THREE.Matrix4();
+  model.updateMatrixWorld(true);
+  invRoot.copy(model.matrixWorld).invert();
+  const pA = new THREE.Vector3(), pB = new THREE.Vector3(), pC = new THREE.Vector3();
+  const localA = new THREE.Vector3(), localB = new THREE.Vector3(), localC = new THREE.Vector3();
+  let totalArea = 0;
+  model.traverse(mesh => {
+    if (!(mesh.isMesh || mesh.isSkinnedMesh) || !mesh.geometry || !mesh.geometry.attributes.position) return;
+    const g = mesh.geometry, pos = g.attributes.position, idx = g.index;
+    mesh.updateMatrixWorld(true);
+    const triCount = idx ? Math.floor(idx.count / 3) : Math.floor(pos.count / 3);
+    for (let t = 0; t < triCount; t++) {
+      const ia = idx ? idx.getX(t * 3) : t * 3;
+      const ib = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
+      const ic = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+      pA.fromBufferAttribute(pos, ia).applyMatrix4(mesh.matrixWorld);
+      pB.fromBufferAttribute(pos, ib).applyMatrix4(mesh.matrixWorld);
+      pC.fromBufferAttribute(pos, ic).applyMatrix4(mesh.matrixWorld);
+      localA.copy(pA).applyMatrix4(invRoot); localB.copy(pB).applyMatrix4(invRoot); localC.copy(pC).applyMatrix4(invRoot);
+      const cy = (localA.y + localB.y + localC.y) / 3;
+      if (cy < 0.18) continue;
+      const area = localB.clone().sub(localA).cross(localC.clone().sub(localA)).length() * 0.5;
+      if (area < 1e-9) continue;
+      totalArea += area;
+      candidates.push([localA.clone(), localB.clone(), localC.clone()]);
+      cumulative.push(totalArea);
+    }
+  });
+  if (!candidates.length || totalArea <= 0) return null;
+  const count = 28000, points = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const target = Math.random() * totalArea;
+    let lo = 0, hi = cumulative.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cumulative[mid] < target) lo = mid + 1; else hi = mid; }
+    const tri = candidates[lo], u = Math.random(), v = Math.random(), su = Math.sqrt(u);
+    const wa = 1 - su, wb = su * (1 - v), wc = su * v;
+    points[i*3] = tri[0].x * wa + tri[1].x * wb + tri[2].x * wc;
+    points[i*3+1] = tri[0].y * wa + tri[1].y * wb + tri[2].y * wc;
+    points[i*3+2] = tri[0].z * wa + tri[1].z * wb + tri[2].z * wc;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
+  particleFaceMaterial = new THREE.PointsMaterial({
+    color: 0xffd783, size: 0.018, map: glowTex, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+  });
+  const cloud = new THREE.Points(geo, particleFaceMaterial);
+  cloud.frustumCulled = false;
+  model.traverse(mesh => { if (mesh.isMesh || mesh.isSkinnedMesh) mesh.visible = false; });
+  model.add(cloud);
+  return cloud;
+}
+
 function doSwap(url) {
   if (avatarModel) { faceGroup.remove(avatarModel); disposeAvatar(avatarModel); avatarModel = null; }
   for (const k in mouthMorphs) delete mouthMorphs[k];
@@ -369,6 +427,7 @@ function doSwap(url) {
       mats.forEach(m => { delete m.userData._baseOpacity; delete m.userData._baseTransparent; });
     });
     gidPlane.visible = false; faceGroup.add(avatarModel);
+    makeGoldenParticleFace(avatarModel);
     avatarAlpha = 0; applyAvatarAlpha(0);
   }, undefined, (err) => {
     if (myToken !== avatarLoadToken) return;
@@ -398,7 +457,7 @@ function syncAvatarToVoice() {
 loadAvatar(AVATAR_FEMALE);
 
 const headHalo = new THREE.Sprite(new THREE.SpriteMaterial({
-  map: glowTex, color: 0x8899aa, transparent: true, opacity: 0.05,
+  map: glowTex, color: 0xffd783, transparent: true, opacity: 0.12,
   blending: THREE.AdditiveBlending, depthWrite: false,
 }));
 headHalo.scale.setScalar(6.0); headHalo.position.set(0, 4.4, -2.5); faceGroup.add(headHalo);
@@ -414,7 +473,7 @@ for (let i = 0; i < particleCount; i++) {
 }
 const particleGeo = new THREE.BufferGeometry();
 particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
-const particleMat = new THREE.PointsMaterial({ color: 0x88aacc, size: 0.045, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true, map: glowTex });
+const particleMat = new THREE.PointsMaterial({ color: 0xffd783, size: 0.045, transparent: true, opacity: 0.38, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true, map: glowTex });
 const particles = new THREE.Points(particleGeo, particleMat); faceGroup.add(particles);
 
 const composer = new EffectComposer(renderer);
@@ -444,11 +503,11 @@ composer.addPass(new OutputPass());
 
 let appState = 'idle';
 const STATE_COLORS = {
-  idle: { cool: 0x0099dd, spinMul: 0.4 }, standby: { cool: 0x0099dd, spinMul: 0.5 },
-  listening: { cool: 0x00bb88, spinMul: 1.1 }, thinking: { cool: 0xcc8844, spinMul: 1.5 },
-  speaking: { cool: 0x00bbee, spinMul: 1.2 }, muted: { cool: 0x445566, spinMul: 0.2 },
+  idle: { cool: 0xffd783, spinMul: 0.4 }, standby: { cool: 0xffd783, spinMul: 0.5 },
+  listening: { cool: 0xffefb0, spinMul: 1.1 }, thinking: { cool: 0xffb84d, spinMul: 1.5 },
+  speaking: { cool: 0xffd783, spinMul: 1.2 }, muted: { cool: 0x66533a, spinMul: 0.2 },
 };
-const currentCool = new THREE.Color(0x0099dd);
+const currentCool = new THREE.Color(0xffd783);
 let currentSpinMul = 0.4, speakingAmount = 0;
 function lerpColors(t, dt) { const k = Math.min(1, dt * 2.0); currentCool.lerp(new THREE.Color(t.cool), k); currentSpinMul += (t.spinMul - currentSpinMul) * k; }
 function applyColors() {
