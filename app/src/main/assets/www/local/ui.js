@@ -15,7 +15,7 @@ const CSS = `
   --holo: #f5c97a; --live: #ffecbe; --amber: #ff9a3d; --danger: #ff5a67;   /* black and gold, like his face: gold waiting, bright champagne listening, deep amber thinking */
   --state: var(--holo); --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
   --ease: cubic-bezier(.2, .8, .2, 1); }
-body { background: radial-gradient(120% 70% at 50% 46%, #130d06 0%, #050302 50%, var(--abyss) 78%); }
+body { background: var(--abyss); }   /* plain black: only his gold dust, no disc behind him */
 body.st-session, body.st-listening { --state: var(--live); }
 body.st-thinking { --state: var(--amber); }
 body.st-muted { --state: var(--danger); }
@@ -41,7 +41,7 @@ body.jv-busy #jv-status { display: inline-flex; animation: jvIn .35s var(--ease)
 @keyframes jvIn { from { opacity: 0; transform: translateY(-6px); } }
 #jv-clock { pointer-events: none; font: 400 19px/1 'Saira', system-ui, sans-serif; font-stretch: 104%; color: var(--mist); font-variant-numeric: tabular-nums; letter-spacing: .02em;
   padding-left: 6px; transition: opacity .5s var(--ease); }
-body.jv-busy #jv-clock, body.jv-greet #jv-clock { display: none; }
+#jv-clock { display: none; }   /* the phone's status bar already shows the time */
 /* the little sign in the pill: a dot waiting, moving bars listening or talking, a spinning arc thinking */
 #jv-status .sig { position: relative; width: 14px; height: 14px; flex: none; display: grid; grid-auto-flow: column; align-items: center; justify-content: center; gap: 2px; }
 #jv-status .sig i { width: 2.5px; height: 4px; border-radius: 2px; background: var(--state); transition: background .4s, height .2s; }
@@ -382,11 +382,11 @@ function createAura(canvas) {
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
     const cx = W / 2, cy = H * 0.51, R = faceHalf(W, H) * 1.12;
-    // glow behind the head
+    if (!b.contains('jv-faceless')) return;                           // with a face, nothing behind it: just his gold dust in the dark
+    // glow behind the orb
     const g = ctx.createRadialGradient(cx, cy, R * 0.85, cx, cy, R * 2.4);
     g.addColorStop(0, rgba(0)); g.addColorStop(0.12, rgba(0.07 + energy * 0.12)); g.addColorStop(0.5, rgba(0.025 + energy * 0.04)); g.addColorStop(1, rgba(0));
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    if (!b.contains('jv-faceless')) return;                           // with a face, just the glow: his own gold dust does the rest
     drawOrb(t, cx, cy, R);                                            // no face: a ball of light that breathes and swirls with his voice
     ctx.lineCap = 'round';
     const spin = reduced() ? 0 : t * (st === 'think' ? 1.4 : 0.18);
