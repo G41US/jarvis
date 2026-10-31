@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { MeshSurfaceSampler } from 'three/addons/math/MeshSurfaceSampler.js';
 
-const COUNT = 16000, DOT_PX = 1.8;
+const COUNT = 32000, DOT_PX = 1.6, DUST = 700;
 const STATE = {                                     // [colour, glow] for each state (colour tints the gold a little)
   idle: [0xffd9a0, 0.55], standby: [0xffd9a0, 0.55], session: [0xbff7e4, 0.8], listening: [0xbff7e4, 0.85],
   thinking: [0xffcf7a, 1.7], speaking: [0xd8f1ff, 0.95], muted: [0xff9aa2, 0.3],
@@ -39,11 +39,15 @@ void main() {
   gl_FragColor = vec4(uColor * (0.6 + uEnergy * 0.7 + vHot), core * core * vAlpha * uOpacity * (0.45 + uEnergy * 0.5));
 }`;
 
-function glowTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
-  const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,230,180,0.7)'); r.addColorStop(1, 'rgba(255,200,120,0)');
-  g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+// a small bright glint with a soft sideways streak (an eye catching the light), not a big glowing ball
+function glintTexture() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d');
+  const streak = g.createLinearGradient(0, 0, 128, 0);
+  streak.addColorStop(0, 'rgba(255,210,140,0)'); streak.addColorStop(0.5, 'rgba(255,235,200,0.55)'); streak.addColorStop(1, 'rgba(255,210,140,0)');
+  g.fillStyle = streak; g.fillRect(24, 31, 80, 2);
+  const r = g.createRadialGradient(64, 32, 0, 64, 32, 18);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.3, 'rgba(255,236,200,0.8)'); r.addColorStop(1, 'rgba(255,200,120,0)');
+  g.fillStyle = r; g.fillRect(40, 8, 48, 48); return new THREE.CanvasTexture(c);
 }
 
 // reads a mesh's texture at a uv: [luminance, alpha] (hair is drawn on mostly transparent cards; skin is darker at the lips
@@ -83,27 +87,33 @@ export function particlize(model, { state = () => 'idle', level = () => 0, speak
     const n = idx ? idx.count : p.count; for (let i = 0; i < n; i += 3) { const i0 = idx ? idx.getX(i) : i, i1 = idx ? idx.getX(i + 1) : i + 1, i2 = idx ? idx.getX(i + 2) : i + 2;
       a.fromBufferAttribute(p, i0); b.fromBufferAttribute(p, i1); c.fromBufferAttribute(p, i2); s += b.sub(a).cross(c.sub(a)).length() / 2; } return s; };
   const areas = meshes.map(area), total = areas.reduce((x, y) => x + y, 0) || 1;
-  const pos = [], phase = [], fade = [], rim = [], v = new THREE.Vector3(), nrm = new THREE.Vector3(), col = new THREE.Color(), uv = new THREE.Vector2(), mat = new THREE.Matrix4();
+  const pos = [], phase = [], fade = [], v = new THREE.Vector3(), nrm = new THREE.Vector3(), col = new THREE.Color(), uv = new THREE.Vector2(), mat = new THREE.Matrix4();
   meshes.forEach((m, k) => {
     const s = new MeshSurfaceSampler(m).build(); mat.multiplyMatrices(toModel, m.matrixWorld);
-    const brow = /brow/i.test(m.name), want = Math.round(COUNT * 2.4 * areas[k] / total * (brow ? 5 : 1)), tex = texOf(m), mt = Array.isArray(m.material) ? m.material[0] : m.material;
-    const cards = !!(mt && (mt.alphaTest > 0 || mt.transparent));                 // hair, brows: see-through cards
+    const tex = texOf(m), mt = Array.isArray(m.material) ? m.material[0] : m.material;
+    const cards = !!(mt && (mt.alphaTest > 0 || mt.transparent)), brow = /brow/i.test(m.name);   // hair, brows: see-through cards
+    const want = Math.round(COUNT * 2.4 * areas[k] / total * (brow ? 1.5 : cards ? 0 : 1));   // no hair: a smooth head, like a sculpture of light
     let ref = 0; if (tex && !cards) { for (let i = 0; i < 400; i++) { s.sample(v, nrm, col, uv); ref += tex(uv)[0]; } ref /= 400; }   // the skin's usual tone
     for (let i = 0; i < want; i++) {
       s.sample(v, nrm, col, uv); v.applyMatrix4(mat); if (v.y < low) continue;
       const tx = tex ? tex(uv) : [ref, 1]; if (cards && tx[1] < 0.5) continue;   // skip see-through bits of hair cards
       nrm.transformDirection(mat);
       if (!cards && nrm.dot(d.subVectors(v, center)) < 0) continue;            // inside the mouth and nose: faces pointing inwards
-      const edge = Math.pow(1 - Math.abs(nrm.z), 2), tone = cards ? (brow ? 1.6 : 0.7) : Math.min(1.2, Math.max(0.6, tx[0] / (ref || 1)));
-      pos.push(v.x, v.y, v.z); phase.push(Math.random()); fade.push(tone * Math.min(1, Math.max(0.05, (v.y - low) / (span * 0.3)))); rim.push(edge);
+      if (!cards && Math.random() > 0.15 + 0.85 * Math.abs(nrm.z)) continue;   // surfaces seen edge-on pile dots up into bright creases: thin them
+      const tone = cards ? (brow ? 1.0 : 0.45) : Math.min(1.1, Math.max(0.85, tx[0] / (ref || 1)));
+      d.subVectors(v, center).setY(0).normalize(); const outline = Math.pow(1 - Math.abs(nrm.z), 2) * Math.max(0, nrm.x * d.x + nrm.z * d.z);   // the head's outer edge, not creases inside the face
+      pos.push(v.x, v.y, v.z); phase.push(Math.random()); fade.push(tone * (1 + outline) * Math.min(1, Math.max(0.05, (v.y - low) / (span * 0.3))));
     }
     m.visible = false;
   });
-  // what sticks out (nose, lips, brows, cheekbones, chin) glows brighter, like a depth map, and the outline glows too:
-  // that's what makes a face read from the front
+  // evenly lit, what sticks out a touch brighter (strong shading drew a dark muzzle and a bright outline: it looked like a skull)
   let zMax = -Infinity; for (let i = 2; i < pos.length; i += 3) zMax = Math.max(zMax, pos[i]);
   for (let i = 0; i < fade.length; i++) { const zf = Math.min(1, Math.max(0, (pos[i * 3 + 2] - zMax + span * 0.55) / (span * 0.55)));
-    fade[i] *= Math.min(1.5, 0.12 + 1.1 * Math.pow(zf, 3) + 0.55 * rim[i]); }
+    fade[i] *= 0.75 + 0.35 * zf; }
+  for (let i = 0; i < DUST; i++) {                                               // a few specks of dust floating around the head
+    const r = span * (0.75 + Math.random() * 0.7), t = Math.random() * Math.PI * 2, y = (Math.random() * 1.6 - 0.6) * span;
+    pos.push(center.x + Math.cos(t) * r, center.y + y, center.z + Math.sin(t) * r * 0.6); phase.push(Math.random()); fade.push(0.08 + Math.random() * 0.25);
+  }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('aPhase', new THREE.Float32BufferAttribute(phase, 1));
@@ -117,16 +127,16 @@ export function particlize(model, { state = () => 'idle', level = () => 0, speak
   };
   const pmat = new THREE.ShaderMaterial({ uniforms: u, vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const points = new THREE.Points(geo, pmat); points.frustumCulled = false; points.name = 'jv-particles';
-  model.add(points);
+  const pivot = new THREE.Group(); pivot.position.copy(center); points.position.copy(center).negate(); pivot.add(points); model.add(pivot);
 
   // the eyes: two soft lights
   const lights = [];
   if (eyes.length) {
     const eb = new THREE.Box3(); eyes.forEach(e => eb.expandByObject(e)); eb.applyMatrix4(toModel);
-    const c = eb.getCenter(new THREE.Vector3()), dx = (eb.max.x - eb.min.x) / 4, tex = glowTexture();
+    const c = eb.getCenter(new THREE.Vector3()), dx = (eb.max.x - eb.min.x) / 4, tex = glintTexture();
     for (const sx of [-1, 1]) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0xffe2b0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-      sp.position.set(c.x + sx * dx, c.y, eb.max.z + span * 0.02); sp.scale.setScalar(span * 0.07); model.add(sp); lights.push(sp);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0xffe2b0, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
+      sp.position.set(c.x + sx * dx - center.x, c.y - center.y, eb.max.z - center.z); sp.scale.set(span * 0.2, span * 0.1, 1); pivot.add(sp); lights.push(sp);
     }
   }
 
@@ -140,10 +150,12 @@ export function particlize(model, { state = () => 'idle', level = () => 0, speak
     const [col, glow] = STATE[state()] || STATE.idle, mic = Math.min(1, level());
     energy += (glow + mic * 0.4 - energy) * 0.08; swirl += ((state() === 'thinking' ? 1 : 0) - swirl) * 0.05;
     target.set(col); u.uColor.value.lerp(target, 0.08);
-    u.uTime.value = (performance.now() - t0) / 1000; u.uEnergy.value = energy; u.uSwirl.value = swirl;
+    u.uTime.value = (performance.now() - t0) / 1000;
+    pivot.rotation.y = 0.2 + 0.1 * Math.sin(u.uTime.value * 0.31) + 0.03 * Math.sin(u.uTime.value * 0.83);   // turned a little, slowly moving: it reads as a real head
+    pivot.rotation.x = 0.03 * Math.sin(u.uTime.value * 0.23); u.uEnergy.value = energy; u.uSwirl.value = swirl;
     u.uSpeak.value = speak(); u.uMic.value = state() === 'listening' || state() === 'session' ? mic : 0;
     u.uOpacity.value = pmat.opacity;                                              // the page fades faces in and out with .opacity
-    for (const l of lights) { l.material.opacity = pmat.opacity * (0.25 + energy * 0.35 + (state() === 'thinking' ? 0.35 + 0.2 * Math.sin(u.uTime.value * 6) : 0)); l.material.color.copy(u.uColor.value); }
+    for (const l of lights) { l.material.opacity = pmat.opacity * Math.min(1, 0.55 + energy * 0.3 + (state() === 'thinking' ? 0.2 * Math.sin(u.uTime.value * 6) : 0)); l.material.color.copy(u.uColor.value); }
   };
   return { points, count: pos.length / 3 };
 }
