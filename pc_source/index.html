@@ -233,10 +233,6 @@ const glowTex = makeGlowTexture();
 const flareTex = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d');
   const h = g.createLinearGradient(0, 0, 256, 0); h.addColorStop(0, 'rgba(255,200,120,0)'); h.addColorStop(0.5, 'rgba(255,240,210,1)'); h.addColorStop(1, 'rgba(255,200,120,0)');
   g.fillStyle = h; g.fillRect(0, 15, 256, 2); return new THREE.CanvasTexture(c); })();
-const rayTex = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 64; const g = c.getContext('2d');   // soft on every side; the sprite stretches it tall
-  const v = g.createRadialGradient(32, 32, 0, 32, 32, 32); v.addColorStop(0, 'rgba(255,225,170,1)'); v.addColorStop(1, 'rgba(255,200,120,0)');
-  g.fillStyle = v; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
-
 scene.add(new THREE.AmbientLight(0xffffff, 0.55));
 const keyLight = new THREE.DirectionalLight(0xfff2e0, 2.2); keyLight.position.set(3, 7, 6); scene.add(keyLight);
 const fillLight = new THREE.DirectionalLight(0xbcd4ff, 0.9); fillLight.position.set(-4, 5, 5); scene.add(fillLight);
@@ -333,7 +329,7 @@ function makeGoldenParticleFace(model) {
   const pA = new THREE.Vector3(), pB = new THREE.Vector3(), pC = new THREE.Vector3();
   const localA = new THREE.Vector3(), localB = new THREE.Vector3(), localC = new THREE.Vector3();
   let totalArea = 0;
-  const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [];
+  const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [], span = head ? head.top - head.neck : 1;
   const mid = head ? new THREE.Vector3(head.cx || 0, head.neck + (head.top - head.neck) * 0.55, head.cz || 0) : null, nrm = new THREE.Vector3(), toMid = new THREE.Vector3();
   model.traverse(mesh => {
     if (!(mesh.isMesh || mesh.isSkinnedMesh) || !mesh.geometry || !mesh.geometry.attributes.position) return;
@@ -352,6 +348,7 @@ function makeGoldenParticleFace(model) {
       localA.copy(pA).applyMatrix4(invRoot); localB.copy(pB).applyMatrix4(invRoot); localC.copy(pC).applyMatrix4(invRoot);
       const cy = (localA.y + localB.y + localC.y) / 3;
       if (cy < minY) continue;
+      if (head && cy < head.neck + span * 0.32 && (localA.z + localB.z + localC.z) / 3 < (head.cz || 0) + span * 0.18) continue;   // the neck (low and set back): just the head, down to the chin
       nrm.copy(localB).sub(localA).cross(toMid.copy(localC).sub(localA));
       const area = nrm.length() * 0.5;
       if (area < 1e-9) continue;
@@ -395,11 +392,11 @@ function makeGoldenParticleFace(model) {
       const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff1d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
       eye.position.copy(at); eye.scale.set(r * 1.2, r * 0.55, 1); model.add(eye);   // oval, like a human eye
       const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: flareTex, color: 0xffc66e, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-      flare.position.copy(at); flare.scale.set(r * 2.0, r * 0.4, 1); model.add(flare);   // a thin lens flare across each eye
+      flare.position.copy(at); flare.scale.set(r * 1.4, r * 0.35, 1)   /* short: two flares, never one line */; model.add(flare);   // a thin lens flare across each eye
     }
   }
-  if (head) {                                    // the epic part: sparkles on the face, orbiting gold dust, light falling through the dark
-    const span = head.top - head.neck, mid = new THREE.Vector3(cx, head.neck + span * 0.55, head.cz || 0), mat = (size, color) => new THREE.PointsMaterial({
+  if (head) {                                    // the epic part: sparkles on the face and orbiting gold dust
+    const mid = new THREE.Vector3(cx, head.neck + span * 0.55, head.cz || 0), mat = (size, color) => new THREE.PointsMaterial({
       color, size, map: glowTex, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
     const spark = [0, 1].map(() => { const n = 110, p = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) { const k = Math.floor(Math.random() * count) * 3; p[i*3] = points[k]; p[i*3+1] = points[k+1]; p[i*3+2] = points[k+2]; }
@@ -415,14 +412,7 @@ function makeGoldenParticleFace(model) {
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
       const ring = new THREE.Points(g, mat(0.014, 0xffcf7a)); ring.frustumCulled = false; ring.rotation.y = Math.random() * 6; orbit.add(ring);
     }
-    const rays = [];
-    for (let i = 0; i < 7; i++) {
-      const ray = new THREE.Sprite(new THREE.SpriteMaterial({ map: rayTex, color: 0xffc66e, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-      ray.userData.o = 0.15 + Math.random() * 0.3; ray.scale.set(span * 0.05, span * (0.25 + Math.random() * 0.3), 1);
-      ray.position.set(cx + (Math.random() < 0.5 ? -1 : 1) * span * (0.65 + Math.random() * 0.45), mid.y + (Math.random() * 3.2 - 1.6) * span, mid.z - Math.random() * span);
-      model.add(ray); rays.push(ray);
-    }
-    particleFx = { spark, orbit, rays, span, mid };
+    particleFx = { spark, orbit };
   }
   return cloud;
 }
@@ -575,7 +565,6 @@ function applyColors() {
     const t = performance.now() / 1000, f = particleFx;
     f.spark.forEach((o, i) => { o.material.opacity = avatarAlpha * (0.55 + 0.45 * Math.sin(t * 1.7 + i * 3.1)); });
     f.orbit.rotation.y = t * 0.12 * currentSpinMul * 2.5; f.orbit.rotation.z = 0.12 * Math.sin(t * 0.2);
-    for (const r of f.rays) { r.position.y -= f.span * 0.003; if (r.position.y < f.mid.y - f.span * 1.8) r.position.y = f.mid.y + f.span * 1.8; r.material.opacity = avatarAlpha * r.userData.o; }
   }
 }
 const _tmpQ = new THREE.Quaternion(), _tmpE = new THREE.Euler();

@@ -340,9 +340,10 @@ export function greeting(h) { return h < 5 ? 'Good night' : h < 12 ? 'Good morni
 
 /** How far to lift and shrink the face so it clears the answer card: { ty, s } in px and scale. */
 export function faceHalf(W, H) { return W < H ? 0.30 * W : 0.135 * H; }   // the 3D camera keeps the face ~0.6 of the width wide on a portrait phone
-export function stageFor({ H, W = H * 0.45, cardTop, safeTop = 0, cy = 0.51 }) {
+// the particle head (chin to crown) as measured at S21 size (360x756): ~0.47 of the width tall each side of its middle (0.5 leaves the sparse chin room), at 0.54 down
+export function stageFor({ H, W = H * 0.45, cardTop, safeTop = 0, cy = 0.54 }) {
   if (!cardTop || cardTop >= H) return { ty: 0, s: 1 };
-  const hh = faceHalf(W, H), topLimit = safeTop + 64, gap = 12;
+  const hh = W < H ? 0.5 * W : 0.21 * H, topLimit = safeTop + 64, gap = 14;
   const centre = s => H / 2 + (H * cy - H / 2) * s;                // the camera zooms about the middle of the screen
   let s = 0.88, ty = Math.min(0, (cardTop - gap) - (centre(s) + hh * s));
   if (centre(s) - hh * s + ty < topLimit) {                         // not enough room even lifted: shrink to fit between the top bar and the card

@@ -40,7 +40,7 @@ MOBILE_CSS = r"""
 FRAME_BY_HEAD = r"""
 // Finds the head (from the neck to the top) by the model's width, slice by slice from the top down: below the head the
 // width narrows to the neck, then grows at the shoulders (or jumps at outstretched arms). Added by make_www.py.
-const HEAD_UNITS = 1.05, HEAD_CENTER_Y = 4.37;      // where Adam's head has always been
+const HEAD_UNITS = 1.55, HEAD_CENTER_Y = 4.37;      // a big head: the particle face is the whole screen (measured at S21 size)
 function frameByHead(model) {
   try {
     const known = model.userData && model.userData.jvHead;                 // our own faces say where their head is (tools/faces)
