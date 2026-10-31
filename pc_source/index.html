@@ -355,6 +355,7 @@ function makeGoldenParticleFace(model) {
       const area = nrm.length() * 0.5;
       if (area < 1e-9) continue;
       if (mid && nrm.dot(toMid.set((localA.x + localB.x + localC.x) / 3, cy, (localA.z + localB.z + localC.z) / 3).sub(mid)) < 0) continue;   // facing into the head (inside the mouth, eye sockets): it'd shine through the face
+      if (head && nrm.z / (2 * area) < -0.15 && Math.abs((localA.x + localB.x + localC.x) / 3 - (head.cx || 0)) < span * 0.3) continue;   // the back of the skull showed through the top half (ears, at the sides, stay)
       const nz = Math.abs(nrm.z) / (2 * area), out = mid ? Math.max(0, (nrm.x * toMid.x + nrm.z * toMid.z) / (2 * area * Math.hypot(toMid.x, toMid.z) || 1)) : 1;
       totalArea += area * (nz > 0.5 || out > 0.6 ? 1 : 0.35);   // fewer dots in creases seen edge-on (they piled up into a frown); the outline keeps its dots
       candidates.push([localA.clone(), localB.clone(), localC.clone(), mi, ia, ib, ic, nrm.clone().divideScalar(2 * area)]);
