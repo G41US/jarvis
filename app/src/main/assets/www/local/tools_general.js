@@ -64,7 +64,9 @@ export function registerGeneralTools(ctx) {
   });
   T('get_weather', "Get current weather for a city. With no city it uses the user's location.", { city: { type: 'string' } }, [], async a => {
     let g = a.city ? await geo(a.city) : myPlace(); if (!g) g = myPlace(); if (!g) return a.city ? `I couldn't find ${a.city}.` : 'Tell me which city, or allow location so I know where you are.';
-    const f = ctx.delivery.units === 'miles';
+    // Fahrenheit only where people use it (the US), unless the user picked units: Abuja gets Celsius
+    const inUS = (y, x) => (y > 24 && y < 49.5 && x > -125 && x < -66.9) || (y > 51 && y < 72 && x > -170 && x < -129) || (y > 18 && y < 23 && x > -161 && x < -154);
+    const f = ctx.delivery._unitsFixed ? ctx.delivery.units === 'miles' : inUS(g.latitude, g.longitude);
     const d = await json('https://api.open-meteo.com/v1/forecast', { latitude: g.latitude, longitude: g.longitude, current: 'temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation',
       daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max', timezone: 'auto', temperature_unit: f ? 'fahrenheit' : 'celsius', wind_speed_unit: f ? 'mph' : 'kmh', forecast_days: 1 });
     if (!d || !d.current) return "I couldn't reach the weather service.";

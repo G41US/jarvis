@@ -1132,12 +1132,13 @@ function showDebug(text, kind) {
   debugTimer = setTimeout(() => debugEl.classList.remove('active'), 4000);
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function wordSet(s) { return new Set(cleanPunct(s).split(' ').filter(w => w.length > 2)); }
+const ECHO_STOP = new Set('the and you your for are was this that with now can let know like anything else what have not but its just'.split(' '));   // common words: a command that shares only these with his reply isn't an echo
+function wordSet(s) { return new Set(cleanPunct(s).split(' ').filter(w => w.length > 2 && !ECHO_STOP.has(w))); }
 function similarity(a, b) {
   const wa = wordSet(a), wb = wordSet(b);
   if (!wa.size || !wb.size) return 0;
   let o = 0; for (const w of wa) if (wb.has(w)) o++;
-  return o / Math.min(wa.size, wb.size);
+  return o / wa.size;   // how much of what was heard is in his reply: an echo is his words; a command shares a word or two at most
 }
 function isEcho(transcript) {
   const now = performance.now();
