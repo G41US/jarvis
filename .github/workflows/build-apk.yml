@@ -233,6 +233,7 @@ jobs:
           du -sh ios-web/*
 
       - uses: actions/upload-artifact@v4
+        continue-on-error: true   # a full artifact quota mustn't stop the release below
         if: steps.ioswant.outputs.ios == 'true'
         with:
           name: ios-web
@@ -263,6 +264,7 @@ jobs:
           echo "sha=$(sha256sum Jarvis.apk | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
+        continue-on-error: true   # a full artifact quota mustn't stop the release below
         with:
           retention-days: 3
           name: Jarvis-apk
@@ -286,6 +288,7 @@ jobs:
           cp app/build/outputs/bundle/release/app-release.aab Jarvis.aab
 
       - uses: actions/upload-artifact@v4
+        continue-on-error: true   # a full artifact quota mustn't stop the release below
         if: env.HAS_UPLOAD_PASSWORD == 'true'
         with:
           retention-days: 3
@@ -406,6 +409,7 @@ jobs:
           true
 
       - uses: actions/upload-artifact@v4
+        continue-on-error: true   # a full artifact quota mustn't stop the release below
         if: always()
         with:
           name: Jarvis-iphone-simulator
