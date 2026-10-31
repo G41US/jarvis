@@ -381,7 +381,6 @@ function makeGoldenParticleFace(model) {
       const area = nrm.length() * 0.5;
       if (area < 1e-9) continue;
       if (mid && nrm.dot(toMid.set((localA.x + localB.x + localC.x) / 3, cy, (localA.z + localB.z + localC.z) / 3).sub(mid)) < 0) continue;   // facing into the head (inside the mouth, eye sockets): it'd shine through the face
-      if (nrm.z / (2 * area) < -0.15) continue;   // the back of the head: it shone through and doubled the dots up top
       const nz = Math.abs(nrm.z) / (2 * area), out = mid ? Math.max(0, (nrm.x * toMid.x + nrm.z * toMid.z) / (2 * area * Math.hypot(toMid.x, toMid.z) || 1)) : 1;
       totalArea += area * (nz > 0.5 || out > 0.6 ? 1 : 0.35);   // fewer dots in creases seen edge-on (they piled up into a frown); the outline keeps its dots
       candidates.push([localA.clone(), localB.clone(), localC.clone()]);
@@ -441,52 +440,7 @@ function makeGoldenParticleFace(model) {
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
       const ring = new THREE.Points(g, mat(0.014, 0xffcf7a)); ring.frustumCulled = false; ring.rotation.y = Math.random() * 6; orbit.add(ring);
     }
-    // ---- a nose and a mouth you can see. The nose is the face's own ridge and tip, picked out brighter: at each height
-    //      between the mouth and the eyes, the dots nearest the front of the face. The mouth is two lips of light that part
-    //      as he talks, placed by the teeth inside the model (they sit right behind the lips).
-    const sample = out => { const tri = candidates[(() => { const target = Math.random() * totalArea; let lo = 0, hi = cumulative.length - 1;
-        while (lo < hi) { const m2 = (lo + hi) >> 1; if (cumulative[m2] < target) lo = m2 + 1; else hi = m2; } return lo; })()];
-      const u = Math.random(), v = Math.random(), su = Math.sqrt(u), wa = 1 - su, wb = su * (1 - v), wc = su * v;
-      out.set(tri[0].x * wa + tri[1].x * wb + tri[2].x * wc, tri[0].y * wa + tri[1].y * wb + tri[2].y * wc, tri[0].z * wa + tri[1].z * wb + tri[2].z * wc); return out; };
-    const eb2 = new THREE.Box3(), tb = new THREE.Box3();
-    eyeMeshes.forEach(e => eb2.expandByObject(e)); model.traverse(m => { if (m.isMesh && /teeth/i.test(m.name)) tb.expandByObject(m); });
-    const eyeY = eb2.isEmpty() ? mid.y : eb2.applyMatrix4(invRoot).getCenter(new THREE.Vector3()).y;
-    if (!tb.isEmpty()) tb.applyMatrix4(invRoot);
-    const my = tb.isEmpty() ? head.neck + span * 0.3 : tb.max.y - (tb.max.y - tb.min.y) * 0.25, mw = tb.isEmpty() ? span * 0.2 : (tb.max.x - tb.min.x);
-    const NB = 48, front = new Array(NB).fill(-Infinity), at = new Array(NB).fill(null), pts = [], q = new THREE.Vector3();
-    const bin = y => Math.floor((y - my) / (eyeY - my) * NB);
-    for (let i = 0; i < 60000; i++) {                  // a fine look at the face's shape (positions only, cheap)
-      sample(q); if (Math.abs(q.x - cx) > span * 0.13) continue;
-      const k = bin(q.y); if (k < 0 || k >= NB) continue; pts.push(q.x, q.y, q.z);
-      if (q.z > front[k]) { front[k] = q.z; at[k] = q.x; }
-    }
-    let lipZ = -Infinity; for (let i = 0; i < pts.length; i += 3) if (bin(pts[i + 1]) <= 1 && Math.abs(pts[i] - cx) < span * 0.05) lipZ = Math.max(lipZ, pts[i + 2]);
-    if (!Number.isFinite(lipZ)) lipZ = (head.cz || 0) + span * 0.4;
-    let tipK = 0; for (let k = 8; k < NB - 6; k++) if (front[k] > front[tipK] || tipK < 8) tipK = k;    // the nose tip: the most forward point above the lips
-    const nose = [];
-    for (let i = 0; i < pts.length && nose.length < 900 * 3; i += 3) {
-      const k = bin(pts[i + 1]); if (k < tipK - 4 || k > NB - 6) continue;
-      const wide = k <= tipK + 2 ? span * 0.08 : span * 0.026;                       // nostrils around the tip; a thin ridge above it
-      if (Math.abs(pts[i] - (at[k] ?? cx)) < wide && pts[i + 2] > front[k] - span * (k <= tipK + 2 ? 0.05 : 0.02)) nose.push(cx + (pts[i] - cx) * widen(pts[i + 1]), pts[i + 1], pts[i + 2] + span * 0.004);
-    }
-    const ng = new THREE.BufferGeometry(); ng.setAttribute('position', new THREE.Float32BufferAttribute(nose, 3));
-    const noseDots = new THREE.Points(ng, mat(0.017, 0xffe7b8)); noseDots.frustumCulled = false; model.add(noseDots);
-    const NL = 520, lipT = new Float32Array(NL), lipD = new Float32Array(NL), lp = new Float32Array(NL * 3);
-    for (let i = 0; i < NL; i++) { lipT[i] = Math.random() * 2 - 1; lipD[i] = Math.random(); }
-    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
-    const lips = new THREE.Points(lg, mat(0.018, 0xfff0cf)); lips.frustumCulled = false; model.add(lips);
-    const shapeLips = open => {                        // open: 0 closed .. 1 wide; upper and lower lip, meeting at the corners
-      const w = mw * 0.55 * widen(my) * (1 - 0.15 * open), gap = open * span * 0.085;
-      for (let i = 0; i < NL; i++) {
-        const t = lipT[i], c = 1 - t * t, up = i % 2 === 0, th = lipD[i] * Math.sqrt(c) * span * (up ? 0.02 : 0.028);
-        lp[i * 3] = cx + t * w;
-        lp[i * 3 + 1] = my + (up ? 1 : -1) * (gap * c * 0.5 + th) + (up ? span * 0.004 * Math.cos(t * 9) * c : 0);   // a hint of a cupid's bow
-        lp[i * 3 + 2] = lipZ + span * 0.01 - t * t * span * 0.07;
-      }
-      lg.attributes.position.needsUpdate = true;
-    };
-    shapeLips(0);
-    particleFx = { spark, orbit, shapeLips, open: 0 };
+    particleFx = { spark, orbit };
   }
   return cloud;
 }
@@ -690,8 +644,6 @@ function applyColors() {
   if (particleFx && avatarModel) {
     const t = performance.now() / 1000, f = particleFx;
     f.spark.forEach((o, i) => { o.material.opacity = avatarAlpha * (0.55 + 0.45 * Math.sin(t * 1.7 + i * 3.1)); });
-    const syll = Math.abs(Math.sin(t * 9.3) * Math.sin(t * 3.7 + 1.3)) * 0.75 + Math.abs(Math.sin(t * 15.1)) * 0.25;   // a speaking rhythm
-    f.open += (speakingAmount * (0.15 + 0.85 * syll) - f.open) * 0.35; f.shapeLips(f.open);
     f.orbit.rotation.y = t * 0.12 * currentSpinMul * 2.5; f.orbit.rotation.z = 0.12 * Math.sin(t * 0.2);
   }
 }
