@@ -121,5 +121,5 @@ export class SttPipeline {
       return '';
     }
   }
-  prompt() { const p = this.getConfig('stt_prompt', null); if (p != null) return p; return 'Hey Jarvis. ' + (this.getConfig('stt_words', 'DoorDash, Uber Eats, Grubhub, Dasher.') || ''); }
+  prompt() { const p = this.getConfig('stt_prompt', null); if (p != null) return p; return 'Hey Jarvis. Male voice, female voice. ' + (this.getConfig('stt_words', 'DoorDash, Uber Eats, Grubhub, Dasher.') || ''); }
 }
