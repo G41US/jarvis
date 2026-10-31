@@ -125,9 +125,6 @@ function setVoice(q) {
 
 // ---------------------------------------------------------------- faces (faces.js): which face goes with the voice
 W.__jvFaceFor = wantMale => faceFor(cfgStore, wantMale);
-let particlize = null; import('./particles.js').then(m => { particlize = m.particlize; }).catch(e => log('particles: ' + e));   // the 3D face is optional; the assistant isn't
-W.__jvParticlize = m => { try { W.__jvParticles = particlize && particlize(m, { state: () => (document.body.className.match(/\bst-(\S+)/) || [])[1] || 'idle',
-  level: () => Math.min(1, Math.sqrt(stats.rms || 0) / 40), speak: () => W.__jvSpeak || 0 }); } catch (e) { log('particles: ' + (e && e.stack || e)); } };
 function faceChanged() { try { W.dispatchEvent(new Event('jv-face')); } catch {} }
 const avatarReady = (ms = 5000) => new Promise(res => { const done = () => { W.removeEventListener('jv-avatar-ready', done); clearTimeout(t); setTimeout(res, 350); }; const t = setTimeout(done, ms); W.addEventListener('jv-avatar-ready', done); });
 /** "Use your female face", "use the orb": the face changes (with the voice that goes with it, if that changes too). */

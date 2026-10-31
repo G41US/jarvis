@@ -300,7 +300,6 @@ function disposeAvatar(model) {
 let particleFaceMaterial = null;
 function applyAvatarAlpha(a) {
   if (!avatarModel) return;
-  if (particleFaceMaterial) particleFaceMaterial.opacity = a;
   const wantsAlpha = a < 0.995;
   avatarModel.traverse((c) => {
     if (!c.material) return;
@@ -328,8 +327,12 @@ function makeGoldenParticleFace(model) {
   const pA = new THREE.Vector3(), pB = new THREE.Vector3(), pC = new THREE.Vector3();
   const localA = new THREE.Vector3(), localB = new THREE.Vector3(), localC = new THREE.Vector3();
   let totalArea = 0;
+  const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [];
+  const mid = head ? new THREE.Vector3(head.cx || 0, head.neck + (head.top - head.neck) * 0.55, head.cz || 0) : null, nrm = new THREE.Vector3(), toMid = new THREE.Vector3();
   model.traverse(mesh => {
     if (!(mesh.isMesh || mesh.isSkinnedMesh) || !mesh.geometry || !mesh.geometry.attributes.position) return;
+    if (/teeth|tongue/i.test(mesh.name)) return;   // inside the mouth: they'd shine through the face
+    if (/high-?poly|eyelash/i.test(mesh.name)) { if (/high-?poly/i.test(mesh.name)) eyeMeshes.push(mesh); return; }   // eyes get a glow instead of dots
     const g = mesh.geometry, pos = g.attributes.position, idx = g.index;
     mesh.updateMatrixWorld(true);
     const triCount = idx ? Math.floor(idx.count / 3) : Math.floor(pos.count / 3);
@@ -342,10 +345,13 @@ function makeGoldenParticleFace(model) {
       pC.fromBufferAttribute(pos, ic).applyMatrix4(mesh.matrixWorld);
       localA.copy(pA).applyMatrix4(invRoot); localB.copy(pB).applyMatrix4(invRoot); localC.copy(pC).applyMatrix4(invRoot);
       const cy = (localA.y + localB.y + localC.y) / 3;
-      if (cy < 0.18) continue;
-      const area = localB.clone().sub(localA).cross(localC.clone().sub(localA)).length() * 0.5;
+      if (cy < minY) continue;
+      nrm.copy(localB).sub(localA).cross(toMid.copy(localC).sub(localA));
+      const area = nrm.length() * 0.5;
       if (area < 1e-9) continue;
-      totalArea += area;
+      if (mid && nrm.dot(toMid.set((localA.x + localB.x + localC.x) / 3, cy, (localA.z + localB.z + localC.z) / 3).sub(mid)) < 0) continue;   // facing into the head (inside the mouth, eye sockets): it'd shine through the face
+      const nz = Math.abs(nrm.z) / (2 * area), out = mid ? Math.max(0, (nrm.x * toMid.x + nrm.z * toMid.z) / (2 * area * Math.hypot(toMid.x, toMid.z) || 1)) : 1;
+      totalArea += area * (nz > 0.5 || out > 0.6 ? 1 : 0.35);   // fewer dots in creases seen edge-on (they piled up into a frown); the outline keeps its dots
       candidates.push([localA.clone(), localB.clone(), localC.clone()]);
       cumulative.push(totalArea);
     }
@@ -365,13 +371,21 @@ function makeGoldenParticleFace(model) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
   particleFaceMaterial = new THREE.PointsMaterial({
-    color: 0xffd783, size: 0.018, map: glowTex, transparent: true, opacity: 0,
+    color: 0xffd783, size: 0.018, map: glowTex, transparent: true, opacity: 1,   // applyAvatarAlpha fades it from this base
     blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
   });
   const cloud = new THREE.Points(geo, particleFaceMaterial);
   cloud.frustumCulled = false;
   model.traverse(mesh => { if (mesh.isMesh || mesh.isSkinnedMesh) mesh.visible = false; });
   model.add(cloud);
+  if (eyeMeshes.length) {                       // two glowing eyes, like the reference
+    const eb = new THREE.Box3(); eyeMeshes.forEach(e => eb.expandByObject(e)); eb.applyMatrix4(invRoot);
+    const c = eb.getCenter(new THREE.Vector3()), dx = (eb.max.x - eb.min.x) / 4, r = (eb.max.y - eb.min.y) * 1.1;
+    for (const sx of [-1, 1]) {
+      const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff1d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      eye.position.set(c.x + sx * dx, c.y, eb.max.z); eye.scale.setScalar(r); model.add(eye);
+    }
+  }
   return cloud;
 }
 
@@ -516,6 +530,7 @@ function applyColors() {
   headHalo.material.color.copy(currentCool);
   particleMat.color.copy(currentCool).lerp(new THREE.Color(0xffffff), 0.25);
   bloomPass.strength = 0.10 + speakingAmount * 0.05;
+  if (particleFaceMaterial) { particleFaceMaterial.color.copy(currentCool); particleFaceMaterial.size = 0.018 * (1 + speakingAmount * 0.35); }
 }
 const _tmpQ = new THREE.Quaternion(), _tmpE = new THREE.Euler();
 function driveLipSync(t, amt) {
@@ -1471,4 +1486,4 @@ function renderRoute(plan) {
 
 </script>
 </body>
-</html>
+</html>

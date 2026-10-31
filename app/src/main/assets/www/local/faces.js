@@ -1,5 +1,5 @@
 // faces.js - the faces Jarvis can wear. Each goes with a voice: the male face speaks with a male voice, the female with a female one.
-// Both are glowing particle heads (local/particles.js) shaped from original, made-up people built from MakeHuman's CC0 assets
+// Both are glowing gold particle heads (makeGoldenParticleFace in the page) shaped from original, made-up people built from MakeHuman's CC0 assets
 // (tools/faces/make_faces.py). "Orb" is no face at all: a ball of light that moves with his voice (and saves battery).
 export const FACES = [
   { id: 'male', name: 'Male', gender: 'male', url: 'models/faces/kofi.glb', thumb: 'models/faces/male.jpg' },
