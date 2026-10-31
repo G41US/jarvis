@@ -173,7 +173,7 @@ BRIDGE = r"""
   const of = window.fetch.bind(window);
   const b64 = u8 => { let s = ''; for (const x of u8) s += String.fromCharCode(x); return btoa(s); };
   window.__pc = { alan: 'missing', amy: 'missing', active: '' }; window.__wifi = true;
-  window.__native = { pcDownloads: [], pcUse: [], listen: [], tts: [], ttsPitch: [], opened: [], stopped: 0, http: [], streams: [], media: [], voice: null, listening: [], speaking: [], tones: 0, mic: 0 };
+  window.__native = { prefetch: [], pcDownloads: [], pcUse: [], listen: [], tts: [], ttsPitch: [], opened: [], stopped: 0, http: [], streams: [], media: [], voice: null, listening: [], speaking: [], tones: 0, mic: 0 };
   window.__fakeVoices = [{ id: 'en-us-x-iom-local', label: 'English US', lang: 'en-US' }, { id: 'en-us-x-tpf-local', label: 'English US', lang: 'en-US' },
                          { id: 'en-gb-x-gbb-local', label: 'English UK', lang: 'en-GB' }, { id: 'en-us-x-sfg-network', label: 'English US', lang: 'en-US' }];
   window.AndroidBridge = {
@@ -194,6 +194,7 @@ BRIDGE = r"""
     httpAbort(id) {},
     ttsSpeak(id, text, rate, pitch) { window.__native.tts.push(text); window.__native.ttsPitch.push(pitch); setTimeout(() => window.__ttsEvent(id, 'done'), 15); },
     ttsStop() { window.__native.stopped++; },
+    ttsPrefetch(t) { window.__native.prefetch.push([t, window.__native.tts.length]); },
     ttsSpeakLang(id, text, rate, pitch, lang) { (window.__native.ttsLang = window.__native.ttsLang || []).push([lang, text]); window.__native.tts.push(text); setTimeout(() => window.__ttsEvent(id, 'done'), 15); },
     ttsLangAvailable(l) { return 1; },
     ttsVoices() { return JSON.stringify(window.__fakeVoices); },
@@ -264,7 +265,7 @@ BRIDGE = r"""
     press(w) { rec('press', w); return 'Done.'; },
     screenshot() { rec('screenshot'); return P.status.control ? '/9j/4AAQSkZJRgABAQ' : 'need-control'; },
     currentApp() { return 'com.whatsapp'; },
-    lastLocation() { return JSON.stringify(P.loc || {}); }, freshLocation(t) { rec('freshLocation', t); return JSON.stringify(P.loc || {}); },
+    lastLocation() { return JSON.stringify(P.loc || {}); }, locationReport() { return JSON.stringify({ precise: false, approximate: true, on: true, providers: 'passive,network,fused', last: P.loc || {} }); }, freshLocation(t) { rec('freshLocation', t); return JSON.stringify(P.loc || {}); },
     shiftStart() { rec('shiftStart'); P.shift = P.shift || { active: true, start: Date.now(), meters: 0 }; return JSON.stringify(P.shift); },
     shiftStatus() { return JSON.stringify(P.shift || { active: false }); },
     shiftEnd() { rec('shiftEnd'); if (!P.shift) return '{"error":"none"}'; const t = { start: Date.now() - 4 * 3600000, end: Date.now(), meters: 80 * 1609.344 }; P.trips = (P.trips || []).concat([t]); P.shift = null; return JSON.stringify(t); },
@@ -331,6 +332,18 @@ def main():
         check('back to male -> Alan (already downloaded)', ev('window.__native.pcUse')[-1] == 'alan')
         ev("JARVIS.config.merge({voice:'adam~en-gb-x-gbb-local'}); JARVIS.announceVoice()")
         check('picking a phone voice by hand turns the PC voice off', ev('window.__native.pcUse')[-1] == '' and ev('window.__native.voice') == 'en-gb-x-gbb-local')
+        # ---- the natural voice on the phone (Kokoro): free, no daily limit; Groq's voice first while its allowance lasts
+        ev("window.__pc.kokoro = 'missing'; window.__native.pcDownloads.length = 0; window.__wifi = true; JARVIS.ensurePcVoice()")
+        pg.wait_for_function("window.__pc.kokoro === 'ready'", timeout=3000); pg.wait_for_timeout(200)
+        check('natural voice on: on Wi-Fi the phone\'s natural voice downloads instead of the PC voice', ev('window.__native.pcDownloads') == ['kokoro'], ev('window.__native.pcDownloads'))
+        check('...then it is the voice under Groq\'s (Michael for the male face)', ev('window.__native.pcUse')[-1] == 'kokoro:6' and ev('window.__native.cloud')[0].endswith('/audio/speech'), (ev('window.__native.pcUse')[-3:], ev('window.__native.cloud')))
+        ev("JARVIS.config.set('natural_voice', 'phone'); JARVIS.announceVoice()")
+        check('"always the phone\'s natural voice": Groq\'s voice off', ev('window.__native.cloud')[0] == '' and ev('window.__native.pcUse')[-1] == 'kokoro:6', ev('window.__native.cloud'))
+        ev("JARVIS.config.merge({ natural_voice: 'phone', avatar_gender: 'female' }); JARVIS.announceVoice()")
+        check('female face -> Bella', ev('window.__native.pcUse')[-1] == 'kokoro:1')
+        ev("JARVIS.config.merge({ natural_voice: 'false', avatar_gender: 'male', voice: '' }); JARVIS.announceVoice()")
+        check('natural voice off -> the PC voice again', ev('window.__native.pcUse')[-1] == 'alan' and ev('window.__native.cloud')[0] == '', ev('window.__native.pcUse')[-3:])
+        ev("JARVIS.config.set('natural_voice', 'true')")
         ev("window.__pc = { alan: 'missing', amy: 'missing', active: '' }; JARVIS.config.merge({voice:''}); JARVIS.announceVoice(); window.__wifi = true")
 
         vl = ev("fetch('/voices').then(r=>r.json())")
@@ -363,6 +376,8 @@ def main():
         ev("JARVIS.wake()"); pg.wait_for_timeout(300); ev("JARVIS.say('how are you doing today')")
         pg.wait_for_function("window.__native.tts.join(' ').includes('All systems')", timeout=8000)
         check('plain streamed reply spoken in sentences', True)
+        pg.wait_for_timeout(600); spoken, pre = ev("window.__native.tts"), ev("window.__native.prefetch")
+        check('every sentence goes to the voice as soon as it is written, before its turn (no gaps)', len(spoken) >= 2 and all(any(p[0] == t for p in pre) for t in spoken) and pre[-1][1] < len(spoken), (spoken, pre))
 
         # ---- echo: Jarvis must never hear his own reply as a question
         ev("window.__native.listen.length=0; window.__native.tts.length=0; window.__ttsDoneAt=0"); pg.wait_for_timeout(1200)
@@ -948,6 +963,9 @@ def main():
         check('"Allow" asks Android for it', calls('request') == [['request', 'overlay']], calls('request'))
         ev("document.getElementById('jv-widget').click()")
         check('"Add the Jarvis widget" asks the home screen to place it', ev("window.__native.pinned") == 1 and 'tap Add' in ev("document.querySelector('[data-extra=widget]').textContent"))
+        ev("window.__phone.loc = { lat: 9.0765, lon: 7.3986, acc: 40, age_s: 12 }; document.getElementById('jv-loccheck').click()"); pg.wait_for_timeout(1500)
+        lc = ev("document.getElementById('jv-loccheck').parentElement.parentElement.textContent")
+        check('"Check my location" shows what Jarvis says and what Android reports', 'Jarvis says' in lc and 'approximate' in lc and 'fused' in lc and '40 m' in lc, lc)
         ev("document.getElementById('jv-powers').scrollIntoView()"); pg.wait_for_timeout(200)
         pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/powers.png'))
         ev("document.querySelector('#jv-ov .bar button').click()"); pg.wait_for_timeout(200)

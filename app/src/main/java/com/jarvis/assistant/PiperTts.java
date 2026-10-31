@@ -19,8 +19,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
- * Jarvis's PC voices (Piper "Alan" and "Amy") on the phone, through sherpa-onnx.
- * Sentences are generated and played as they come, so speech starts before the whole reply is synthesised.
+ * Jarvis's voices that play through the app itself: the natural voice online (Groq Orpheus), the natural voice on the phone
+ * (Kokoro) and the PC voices (Piper "Alan" and "Amy"), all through sherpa-onnx or the Jarvis service. Every sentence is
+ * prepared as soon as the reply is written (prefetch), so the next one is ready the moment the last one ends.
  */
 public final class PiperTts {
     public interface Events {
@@ -65,7 +66,7 @@ public final class PiperTts {
     public PiperTts(File root, Events events) {
         this.root = root;
         this.events = events;
-        for (String v : new String[]{"alan", "amy"}) state.put(v, VoicePack.isReady(root, v) ? "ready" : "missing");
+        for (String v : new String[]{"alan", "amy", "kokoro"}) state.put(v, VoicePack.isReady(root, v) ? "ready" : "missing");
         worker = new Thread(this::loop, "jarvis-piper");
         worker.start();
     }
@@ -79,7 +80,9 @@ public final class PiperTts {
     //      next one is ready when the last finishes; it plays through the same speaker code (and mouth sync) as the PC voices
     private volatile String cloudUrl = "", cloudHeaders = "{}", cloudVoice = "";
     private final ExecutorService fetcher = Executors.newFixedThreadPool(2);
-    private final ConcurrentHashMap<Long, java.util.concurrent.Future<float[][]>> fetched = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, java.util.concurrent.Future<float[][]>> ready = new ConcurrentHashMap<>();   // sentence -> its audio, being prepared
+    private final ExecutorService synth = Executors.newSingleThreadExecutor();   // the only thread that touches the on-phone voice (tts)
+    private volatile int kokoroSid = 6;                                          // which Kokoro speaker (6 Michael, 1 Bella, ...)
     private volatile long cloudPausedUntil = 0;                              // refused (terms not accepted, bad key): try again in a while
     private boolean cloudOn() { return !cloudUrl.isEmpty() && !cloudVoice.isEmpty() && System.currentTimeMillis() > cloudPausedUntil; }
     public void setCloud(String url, String headersJson, String voice) {
@@ -105,7 +108,7 @@ public final class PiperTts {
             float[][] w = fetchOne(p); rate = w[1][0];
             float[] joined = java.util.Arrays.copyOf(all, all.length + w[0].length); System.arraycopy(w[0], 0, joined, all.length, w[0].length); all = joined;
         }
-        return new float[][]{all, {rate}};
+        return new float[][]{all, {rate, 1}};                                  // 1: from the cloud (speed is applied when playing)
     }
 
     private float[][] fetchOne(String text) throws Exception {
@@ -131,16 +134,38 @@ public final class PiperTts {
     }
 
 
-    /** Pick the voice ("alan", "amy") or "" for the phone's own voice. Loads it in the background. */
+    /** Pick the voice ("alan", "amy", "kokoro:6") or "" for the phone's own voice. Loads it in the background. */
     public void use(String name) {
-        active = name == null ? "" : name;
-        if (isReady(active)) queue.offer(new long[]{-1});                          // preload
+        String n = name == null ? "" : name;
+        if (n.startsWith("kokoro:")) { try { kokoroSid = Integer.parseInt(n.substring(7)); } catch (Exception ignored) { } n = "kokoro"; }
+        if (!n.equals(active)) ready.clear();
+        active = n;
+        if (isReady(active)) synth.execute(this::ensureLoaded);                    // preload
+    }
+
+    /** The on-phone voice, one whole sentence: {samples, {rate, 0}}. */
+    private float[][] synthLocal(String text) throws Exception {
+        if (!ensureLoaded()) throw new java.io.IOException("no voice on the phone");
+        boolean kok = "kokoro".equals(loaded);
+        com.k2fsa.sherpa.onnx.GeneratedAudio a = tts.generate(text, kok ? kokoroSid : 0, kok ? speed : PC_SPEED * speed);
+        return new float[][]{Wav.trim(a.getSamples(), a.getSampleRate()), {a.getSampleRate(), 0}};
+    }
+
+    /** Starts preparing a sentence now (the page sends each one the moment the reply is written), so it plays without a gap. */
+    public void prefetch(final String text) {
+        if (text == null || text.trim().isEmpty() || ready.containsKey(text)) return;
+        final boolean local = isReady(active) && !active.equals(failed);
+        if (cloudOn()) ready.put(text, fetcher.submit(() -> {
+            try { return fetchCloud(text); }
+            catch (Exception e) { if (local) return synth.submit(() -> synthLocal(text)).get(); throw e; }   // offline or out of allowance
+        }));
+        else if (local) ready.put(text, synth.submit(() -> synthLocal(text)));
     }
 
     public String status() {
         JSONObject o = new JSONObject();
         try {
-            for (String v : new String[]{"alan", "amy"}) o.put(v, state.get(v));
+            for (String v : new String[]{"alan", "amy", "kokoro"}) o.put(v, state.get(v));
             o.put("active", active);
             o.put("loaded", loaded);
         } catch (Exception ignored) { }
@@ -161,7 +186,7 @@ public final class PiperTts {
                     if (pct != lastPct[0]) { lastPct[0] = pct; state.put(name, "downloading:" + pct); events.onStatus(status()); }
                 });
                 state.put(name, "ready");
-                if (name.equals(active)) queue.offer(new long[]{-1});
+                if (name.equals(active)) synth.execute(this::ensureLoaded);
             } catch (Throwable e) {
                 Log.w(TAG, "download " + name, e);
                 state.put(name, "error:" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
@@ -172,7 +197,7 @@ public final class PiperTts {
 
     public void speak(long id, String text) {
         texts.put(id, text);
-        if (cloudOn()) { final String t = text; fetched.put(id, fetcher.submit(() -> fetchCloud(t))); }
+        prefetch(text);
         queue.offer(new long[]{id});
     }
 
@@ -180,7 +205,8 @@ public final class PiperTts {
     public void stop() {
         cancel = true;
         long[] j;
-        while ((j = queue.poll()) != null) if (j[0] >= 0) { texts.remove(j[0]); fetched.remove(j[0]); events.onDone(j[0], true); }
+        while ((j = queue.poll()) != null) if (j[0] >= 0) { texts.remove(j[0]); events.onDone(j[0], true); }
+        ready.clear();
         AudioTrack t = track;
         if (t != null) { try { t.pause(); t.flush(); } catch (Exception ignored) { } }
     }
@@ -189,7 +215,7 @@ public final class PiperTts {
         running = false;
         stop();
         worker.interrupt();
-        downloads.shutdownNow();
+        downloads.shutdownNow(); synth.shutdownNow(); fetcher.shutdownNow();
     }
 
     // ------------------------------------------------------------------ worker
@@ -200,13 +226,20 @@ public final class PiperTts {
         try {
             if (tts != null) { tts.release(); tts = null; loaded = ""; }
             File d = new File(root, want);
-            OfflineTtsVitsModelConfig vits = new OfflineTtsVitsModelConfig();
-            vits.setModel(new File(d, "model.onnx").getAbsolutePath());
-            vits.setTokens(new File(d, "tokens.txt").getAbsolutePath());
-            vits.setDataDir(new File(root, "espeak-ng-data").getAbsolutePath());
             OfflineTtsModelConfig mc = new OfflineTtsModelConfig();
-            mc.setVits(vits);
-            mc.setNumThreads(Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() / 2)));
+            if ("kokoro".equals(want)) {
+                com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig k = new com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig();
+                k.setModel(new File(d, "model.onnx").getAbsolutePath()); k.setVoices(new File(d, "voices.bin").getAbsolutePath());
+                k.setTokens(new File(d, "tokens.txt").getAbsolutePath()); k.setDataDir(new File(root, "espeak-ng-data").getAbsolutePath());
+                mc.setKokoro(k);
+            } else {
+                OfflineTtsVitsModelConfig vits = new OfflineTtsVitsModelConfig();
+                vits.setModel(new File(d, "model.onnx").getAbsolutePath());
+                vits.setTokens(new File(d, "tokens.txt").getAbsolutePath());
+                vits.setDataDir(new File(root, "espeak-ng-data").getAbsolutePath());
+                mc.setVits(vits);
+            }
+            mc.setNumThreads(Math.max(1, Math.min("kokoro".equals(want) ? 6 : 4, Runtime.getRuntime().availableProcessors() - 2)));   // Kokoro is heavier: more of the phone's cores
             mc.setProvider("cpu");
             OfflineTtsConfig cfg = new OfflineTtsConfig();
             cfg.setModel(mc);
@@ -257,19 +290,20 @@ public final class PiperTts {
         while (running) {
             long[] job;
             try { job = queue.take(); } catch (InterruptedException e) { return; }
-            if (job[0] < 0) { ensureLoaded(); continue; }
+            if (job[0] < 0) continue;
             long id = job[0];
             String text = texts.remove(id);
             if (text == null) continue;
             cancel = false;
-            java.util.concurrent.Future<float[][]> f = fetched.remove(id);
-            float[][] cloud = null;
-            if (f != null) { try { cloud = f.get(25, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception e) { Log.w(TAG, "natural voice", e); } }
+            java.util.concurrent.Future<float[][]> f = ready.remove(text);
+            if (f == null) { prefetch(text); f = ready.remove(text); }
+            float[][] audio = null;
+            if (f != null) { try { audio = f.get(30, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception e) { Log.w(TAG, "voice", e); } }
             if (cancel) { events.onDone(id, true); continue; }
-            if (cloud == null && !ensureLoaded()) { if (f != null) events.onFallback(id, text); else events.onDone(id, false); continue; }
+            if (audio == null || audio[0].length == 0) { events.onFallback(id, text); continue; }   // the phone's own voice says it
             boolean ok = true;
             try {
-                int sr = cloud != null ? (int) cloud[1][0] : tts.sampleRate();
+                int sr = (int) audio[1][0];
                 if (track == null || track.getSampleRate() != sr) {
                     if (track != null) track.release();
                     int min = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT);
@@ -286,15 +320,11 @@ public final class PiperTts {
                 final long base = track.getPlaybackHeadPosition() & 0xffffffffL;
                 envLen = 0; envBase = base;
                 Sink sink = new Sink();
-                if (cloud != null) {                                                 // the natural voice: faster without going squeaky
-                    try { track.setPlaybackParams(new android.media.PlaybackParams().setSpeed(speed).setPitch(1f)); } catch (Exception ignored) { }
-                    sink.invoke(cloud[0]);
-                } else {
-                    try { track.setPlaybackParams(new android.media.PlaybackParams().setSpeed(1f).setPitch(1f)); } catch (Exception ignored) { }
-                    tts.generateWithCallback(text, 0, PC_SPEED * speed, sink);
-                }
+                float play = audio[1].length > 1 && audio[1][1] == 1 ? speed : 1f;   // the cloud voice is sped up while playing, without going squeaky
+                try { track.setPlaybackParams(new android.media.PlaybackParams().setSpeed(play).setPitch(1f)); } catch (Exception ignored) { }
+                sink.invoke(audio[0]);
                 // wait for the speaker to finish what was written (the page waits for this "done" before listening again)
-                long deadline = System.currentTimeMillis() + 2000 + sink.written * 1000L / sr;
+                long deadline = System.currentTimeMillis() + 2000 + (long) (sink.written * 1000.0 / sr / Math.min(1f, play));   // slowed down plays longer
                 while (!cancel && System.currentTimeMillis() < deadline) {
                     long played = (track.getPlaybackHeadPosition() & 0xffffffffL) - base;
                     if (played >= sink.written) break;

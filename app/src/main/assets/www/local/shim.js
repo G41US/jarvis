@@ -91,6 +91,8 @@ function readPc() { if (has('pcVoices')) { try { pcState = JSON.parse(bridge().p
 const pcReady = name => readPc()[name] === 'ready';
 const gender = () => (cfgStore.get('avatar_gender', 'male') === 'female' ? 'f' : 'm');
 const NATURAL_VOICE = { m: 'daniel', f: 'hannah' };   // Orpheus voices
+const KOKORO = { m: 6, f: 1 };                         // the natural voice on the phone (Kokoro speakers: 6 Michael, 1 Bella)
+const natural = () => String(cfgStore.get('natural_voice', 'true'));   // 'true' online first, 'phone' always on the phone, 'false' off
 const hint = g => (g === 'f' ? 'amy' : 'adam');                 // the page picks the face from these words in the voice id
 const described = () => describeVoices(loadVoices());
 const pcStateText = name => { const st = String(readPc()[name] || 'missing'); return st === 'ready' ? '' : st.startsWith('downloading') ? ` (downloading ${st.split(':')[1] || 0}%)` : ' (not downloaded)'; };
@@ -110,17 +112,19 @@ function chosenVoice() {
 }
 function applyVoice() {
   const c = chosenVoice(); tts.pitchMul = c.pitch;
-  try { if (has('pcVoiceUse')) bridge().pcVoiceUse(c.pc || ''); if (!c.pc && has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {}
-  try {                                                // the natural voice (Groq Orpheus) when online; the PC or phone voice otherwise
-    const on = String(cfgStore.get('natural_voice', 'true')) !== 'false' && api.ready();
+  const kok = natural() !== 'false' && pcReady('kokoro');   // the free natural voice on the phone, when downloaded
+  try { if (has('pcVoiceUse')) bridge().pcVoiceUse(kok ? `kokoro:${KOKORO[gender()]}` : (c.pc || '')); if (!c.pc && has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {}
+  try {                                                // the natural voice online (Groq Orpheus) until the day's free allowance runs out; then the phone's
+    const on = api.ready() && (natural() === 'true' || (natural() === 'phone' && !kok));
     if (has('setCloudVoice')) bridge().setCloudVoice(on ? api.base() + '/audio/speech' : '', JSON.stringify(api.headers()), NATURAL_VOICE[gender()]);
   } catch {}
   return c;
 }
 function announceVoice() { const c = applyVoice(); broadcast(`voice_changed:${c.id}|${c.name}`); return c; }
-/** Fetch the PC voice for the current face: automatically on Wi-Fi, or when asked (force). */
+/** Fetch the voice that plays on the phone (Kokoro, or the PC voice for this face): automatically on Wi-Fi, or when asked (force). */
+const wantedVoice = () => (natural() !== 'false' && 'kokoro' in readPc() ? 'kokoro' : PC[gender()].name);   // the natural phone voice (100 MB) or the PC voice
 function ensurePcVoice(force = false) {
-  if (!has('pcVoiceDownload')) return; const want = PC[gender()].name, st = String(readPc()[want] || '');
+  if (!has('pcVoiceDownload')) return; const want = wantedVoice(), st = String(readPc()[want] || '');
   if (st === 'ready' || st.startsWith('downloading')) return;
   let wifi = false; try { wifi = has('unmetered') && bridge().unmetered(); } catch {}
   if (force || wifi) bridge().pcVoiceDownload(want);
@@ -129,6 +133,7 @@ let pcWasReady = {};
 W.__jvVoices = json => {
   try { pcState = JSON.parse(json); } catch { return; }
   for (const n of ['alan', 'amy']) { const now = pcState[n] === 'ready'; if (now && !pcWasReady[n] && PC[gender()].name === n) announceVoice(); pcWasReady[n] = now; }
+  if (pcState.kokoro === 'ready' && !pcWasReady.kokoro) applyVoice(); pcWasReady.kokoro = pcState.kokoro === 'ready';
   if (W.JARVIS && W.JARVIS.onVoices) try { W.JARVIS.onVoices(pcState); } catch {}
 };
 function setVoice(q) {
@@ -291,7 +296,7 @@ export function applySettings({ voiceChanged = false } = {}) {
   Object.assign(delivery.cfg, deliveryConfig());
   const u = String(cfgStore.get('units', 'auto')).toLowerCase(); delivery._unitsFixed = ['miles', 'mi', 'km'].includes(u); if (delivery._unitsFixed) delivery.units = u === 'km' ? 'km' : 'miles';
   navigator_.cfg.units = cfgStore.get('units', 'auto'); navigator_.cfg.language = cfgStore.get('nav_language', 'en-US');
-  brain.refreshPrompt(); if (voiceChanged) announceVoice(); else applyVoice();
+  brain.refreshPrompt(); if (voiceChanged) announceVoice(); else applyVoice(); ensurePcVoice();
   faceChanged(); try { W.__jvSyncFace && W.__jvSyncFace(); } catch {}                     // a face picked in settings
   const th = Number(cfgStore.get('wake_sensitivity', 0.3)); if (has('setWakeThreshold') && th) bridge().setWakeThreshold(th);
   if (has('setSpeechSpeed')) bridge().setSpeechSpeed(Number(cfgStore.get('speech_speed', 1.15)) || 1.15);
@@ -389,14 +394,14 @@ setInterval(() => {                                      // follow the page: lis
 micStart();
 applySettings();
 proactive.start();
-setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady('amy') }; ensurePcVoice(); }, 1500);   // PC voice for this face (Wi-Fi only)
+setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady('amy'), kokoro: pcReady('kokoro') }; ensurePcVoice(); }, 1500);   // PC voice for this face (Wi-Fi only)
 
 if (W.JARVIS_IOS) reg.remove(IPHONE_CANT);                // after every tool is registered
 
 W.JARVIS = {
   wake: () => W.__jvWake(1, true), say: t => deliverTranscript(t), announce: t => broadcast('proactive:' + t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
   kv, faces: FACES, chooseFace, update: { info: () => upd, check: checkUpdate, install: installUpdate }, refreshMemory: () => brain && brain.refreshPrompt(), earningsNow: () => earningsSummary(earningsInput(delivery)),
-  phone, interp, proactive, learner, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
+  phone, interp, proactive, learner, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, wantedVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };
 
@@ -408,9 +413,21 @@ async function handle(method, path, query, body, signal) {
       const ctl = new AbortController(); if (signal) signal.addEventListener('abort', () => ctl.abort());
       const enc = new TextEncoder(), said = String((body && body.text) || '');
       const it = (interp.on ? interp.respond(said, lastHeardLang) : brain.chat(said, ctl.signal))[Symbol.asyncIterator]();
+      const pre = !interp.on && has('ttsPrefetch'); let gone = false;
       const stream = new ReadableStream({
-        async pull(c) { try { const { value, done } = await it.next(); if (done) { c.close(); return; } c.enqueue(enc.encode(`data: ${JSON.stringify(value)}\n\n`)); } catch (e) { c.error(e); } },
-        cancel() { ctl.abort(); try { it.return(); } catch {} } });
+        start(c) {   // read the whole reply as it's written (not as the page speaks it), so each sentence's voice is ready before its turn
+          (async () => {
+            try {
+              for (;;) {
+                const { value, done } = await it.next(); if (done || gone) break;
+                if (pre && value && value.type === 'sentence') try { bridge().ttsPrefetch(forSpeech(value.text)); } catch {}
+                c.enqueue(enc.encode(`data: ${JSON.stringify(value)}\n\n`));
+              }
+              if (!gone) c.close();
+            } catch (e) { if (!gone) try { c.error(e); } catch {} }
+          })();
+        },
+        cancel() { gone = true; ctl.abort(); try { it.return(); } catch {} } });
       return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' } });
     }
     case '/speak': return new Response(null, { status: 204 });                    // the page then speaks with Android's voice (browserSpeak)

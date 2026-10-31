@@ -27,12 +27,13 @@ public final class VoicePack {
     public static String packageFor(String name) {
         if ("alan".equals(name)) return "vits-piper-en_GB-alan-medium";
         if ("amy".equals(name)) return "vits-piper-en_US-amy-medium";
+        if ("kokoro".equals(name)) return "kokoro-int8-en-v0_19";            // natural voices on the phone (Apache-2.0), 100 MB
         return null;
     }
 
     public static boolean isReady(File root, String name) {
         File d = new File(root, name);
-        return new File(d, "model.onnx").length() > 1_000_000 && new File(d, "tokens.txt").isFile()
+        return new File(d, "model.onnx").length() > 1_000_000 && new File(d, "tokens.txt").isFile() && (!"kokoro".equals(name) || new File(d, "voices.bin").length() > 100_000)
                 && new File(new File(root, "espeak-ng-data"), "phontab").isFile();
     }
 
@@ -65,6 +66,7 @@ public final class VoicePack {
                 File out;
                 if (rel.endsWith(".onnx") && !rel.contains("/")) { out = new File(tmp, "model.onnx"); gotModel = true; }
                 else if (rel.equals("tokens.txt")) { out = new File(tmp, "tokens.txt"); gotTokens = true; }
+                else if (rel.equals("voices.bin")) out = new File(tmp, "voices.bin");                  // Kokoro's speakers
                 else if (rel.startsWith("espeak-ng-data/") && needEspeak) out = new File(espeakTmp, rel.substring("espeak-ng-data/".length()));
                 else continue;                                                       // model card, json, espeak data we already have
                 out.getParentFile().mkdirs();

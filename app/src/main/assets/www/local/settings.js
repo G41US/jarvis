@@ -183,10 +183,11 @@ export function initSettings() {
   pcRow.append(pcText, pcBtn); sVoice.append(pcRow);
   const paintPc = () => {
     const st = J().pcVoices ? J().pcVoices() : {}; if (!st || st.unavailable) { pcRow.style.display = 'none'; return; }
-    const name = gender === 'female' ? 'amy' : 'alan', who = name === 'amy' ? 'Amy' : 'Alan', s = String(st[name] || 'missing');
+    const name = J().wantedVoice ? J().wantedVoice() : gender === 'female' ? 'amy' : 'alan', s = String(st[name] || 'missing');
+    const who = name === 'kokoro' ? 'The natural voice for this phone (free, no daily limit, works offline)' : `${name === 'amy' ? 'Amy' : 'Alan'}, your PC voice,`;
     pcBtn.style.display = s === 'ready' || s.startsWith('downloading') ? 'none' : '';
-    pcText.textContent = s === 'ready' ? `${who}, your PC voice, is on this phone.` : s.startsWith('downloading') ? `Downloading ${who}, your PC voice… ${s.split(':')[1] || 0}%`
-      : s.startsWith('error') ? `${who} didn't download (${s.slice(6)}). Try again.` : `${who}, your PC voice, isn't on this phone yet (67 MB, once).`;
+    pcText.textContent = s === 'ready' ? `${who} is on this phone.` : s.startsWith('downloading') ? `Downloading: ${who.replace(/,$/, '')}… ${s.split(':')[1] || 0}%`
+      : s.startsWith('error') ? `It didn't download (${s.slice(6)}). Try again.` : `${who} isn't on this phone yet (${name === 'kokoro' ? '100' : '67'} MB, once; on Wi-Fi it downloads by itself).`;
   };
   pcBtn.onclick = () => { J().ensurePcVoice(true); setTimeout(paintPc, 200); };
   J().onVoices = () => { if (ov.classList.contains('on')) { paintPc(); fillVoices(); } };
@@ -214,13 +215,14 @@ export function initSettings() {
   const choose = g => { gender = g; J().config.merge({ avatar_gender: g, voice: '' }); paintSeg(); fillVoices(); J().announceVoice(); J().ensurePcVoice(); paintPc(); };
   bMale.onclick = () => choose('male'); bFemale.onclick = () => choose('female');
   vsel.onchange = () => { J().config.set('voice', vsel.value); J().announceVoice(); };
-  add(sVoice, 'select', 'natural_voice', 'Natural voice', { def: 'true', options: [['true', 'On: sounds like a real person (needs internet; the PC voice fills in offline)'], ['false', 'Off: the PC voice or the phone\'s voice only']] });
+  add(sVoice, 'select', 'natural_voice', 'Natural voice', { def: 'true', options: [['true', 'Online first: Groq\'s voice, then the phone\'s natural voice when the day\'s free allowance runs out'], ['phone', 'Always the phone\'s natural voice (free, no limit, works offline)'], ['false', 'Off: the PC voice or the phone\'s voice only']] });
   const cloudNote = el('p', { class: 'hint' }); sVoice.append(cloudNote);
   const paintCloud = () => {                         // why he's using the PC voice right now, if he is
     let st = 'ok'; try { st = window.AndroidBridge && window.AndroidBridge.cloudVoiceStatus ? String(window.AndroidBridge.cloudVoiceStatus()) : 'ok'; } catch {}
     const m = /^quota:(\d+)/.exec(st);
-    cloudNote.textContent = m ? `Today's free natural-voice allowance on your Groq account is used up, so he's using the PC voice for about ${m[1] >= 60 ? Math.round(m[1] / 60) + ' more hours' : m[1] + ' more minutes'}. To never run out, upgrade the Groq account to the Developer tier (pay as you go) at console.groq.com.`
-      : st === 'refused' ? 'Groq refused the natural voice (check that its terms are accepted at console.groq.com), so he is using the PC voice for now.' : '';
+    const local = (J().pcVoices && J().pcVoices().kokoro) === 'ready' ? "the phone's natural voice" : 'the PC voice';
+    cloudNote.textContent = m ? `Today's free allowance for Groq's voice is used up, so he's using ${local} for about ${m[1] >= 60 ? Math.round(m[1] / 60) + ' more hours' : m[1] + ' more minutes'}.`
+      : st === 'refused' ? `Groq refused its voice (check that its terms are accepted at console.groq.com), so he is using ${local} for now.` : '';
   };
   add(sVoice, 'select', 'speech_speed', 'How fast he talks', { def: '1.15', options: [['1', 'Normal'], ['1.15', 'A bit faster'], ['1.3', 'Fast'], ['1.45', 'Very fast']] });
   sVoice.append(el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { type: 'button', onclick: () => J().speakTest(gender === 'female' ? 'Hello. This is how I sound.' : 'Good evening. This is how I sound.') }, 'Hear it')));
@@ -304,6 +306,21 @@ export function initSettings() {
   }
   sPow.append(el('div', { class: 'row' }, el('button', { type: 'button', id: 'jv-setup-again', onclick: () => { close(); setTimeout(() => { if (J().setup && !J().setup.open(true)) { /* everything already on */ } }, 50); } }, 'Set up permissions, step by step')));
   sPow.append(powList);
+  if (!IOS && window.AndroidPhone && window.AndroidPhone.locationReport) {     // what Android actually tells Jarvis about location
+    const lMsg = el('p', { class: 'hint', 'aria-live': 'polite' });
+    const lBtn = el('button', { type: 'button', id: 'jv-loccheck', onclick: () => {
+      lMsg.textContent = 'Checking…';
+      setTimeout(async () => {
+        let r = {}; try { r = JSON.parse(window.AndroidPhone.locationReport()); } catch {}
+        const said = await J().reg.exec('where_am_i', '{}').catch(e => String(e));
+        let l = {}; try { l = JSON.parse(window.AndroidPhone.lastLocation()); } catch {}
+        lMsg.textContent = `Jarvis says: "${said}" Android: permission ${r.precise ? 'precise' : r.approximate ? 'approximate' : 'NOT allowed'}, location ${r.on ? 'on' : 'OFF'}, sources ${r.providers || 'none'}, `
+          + (Number.isFinite(l.lat) ? `last fix ${l.age_s}s old, accurate to ${l.acc} m.` : `no fix yet (${l.why || 'unknown'}).`);
+      }, 50);
+    } }, 'Check my location');
+    sPow.append(el('div', { class: 'pw', 'data-extra': 'location' }, el('div', { class: 'pw-t' }, el('b', {}, 'Location check'), el('span', { class: 'pw-st' }, '')),
+      el('p', { class: 'hint' }, 'If Jarvis says he doesn\'t know where you are, tap this and send me what it says.'), lBtn, lMsg));
+  }
   if (!window.JARVIS_IOS && window.AndroidBridge && typeof window.AndroidBridge.pinWidget === 'function') {     // the home-screen widget
     const wMsg = el('p', { class: 'hint' });
     const wBtn = el('button', { type: 'button', id: 'jv-widget', onclick: () => {

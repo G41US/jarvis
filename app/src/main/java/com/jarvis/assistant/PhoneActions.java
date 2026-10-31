@@ -747,6 +747,18 @@ public class PhoneActions {
     @JavascriptInterface public String shiftStatus() { return ShiftTracker.get(a).status(); }
     @JavascriptInterface public String trips() { return ShiftTracker.get(a).trips().toString(); }
     @JavascriptInterface public String lastLocation() { return ShiftTracker.get(a).lastLocation(); }
+    /** Everything Android says about location, for Settings > Phone powers > Check my location. */
+    @JavascriptInterface public String locationReport() {
+        JSONObject o = new JSONObject();
+        try {
+            android.location.LocationManager lm = (android.location.LocationManager) a.getSystemService(android.content.Context.LOCATION_SERVICE);
+            o.put("precise", has(Manifest.permission.ACCESS_FINE_LOCATION)); o.put("approximate", has(Manifest.permission.ACCESS_COARSE_LOCATION));
+            o.put("on", lm != null && (Build.VERSION.SDK_INT < 28 || lm.isLocationEnabled()));
+            o.put("providers", lm == null ? "" : String.join(",", lm.getProviders(true)));
+            o.put("last", new JSONObject(ShiftTracker.get(a).lastLocation()));
+        } catch (Exception e) { try { o.put("error", String.valueOf(e)); } catch (Exception ignored) { } }
+        return o.toString();
+    }
     /** Waits up to timeoutMs for a fresh GPS fix when the last one is stale. */
     @JavascriptInterface public String freshLocation(int timeoutMs) { return ShiftTracker.get(a).freshLocation(Math.max(1000, Math.min(timeoutMs, 15000))); }
 
