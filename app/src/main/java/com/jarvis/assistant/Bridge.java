@@ -620,6 +620,8 @@ public class Bridge {
     @JavascriptInterface public void pcVoiceDownload(String name) { if (piper != null) piper.download(name); }
     /** "alan", "amy", or "" to use the phone's own voices. */
     @JavascriptInterface public void pcVoiceUse(String name) { if (piper != null) piper.use(name); }
+    /** The page sends each sentence of a reply as soon as it is written, so its voice is ready before its turn (no gaps). */
+    @JavascriptInterface public void ttsPrefetch(String text) { if (piper != null && piper.speaksNow()) piper.prefetch(text); }
     /** True on Wi-Fi (or any network that isn't charged by the megabyte). */
     @JavascriptInterface public boolean unmetered() {
         try { ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE); return cm != null && !cm.isActiveNetworkMetered(); }
