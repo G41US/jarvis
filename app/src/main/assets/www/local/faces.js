@@ -2,7 +2,7 @@
 // Both are glowing gold particle heads (makeGoldenParticleFace in the page) shaped from original, made-up people built from MakeHuman's CC0 assets
 // (tools/faces/make_faces.py). "Orb" is no face at all: a ball of light that moves with his voice (and saves battery).
 export const FACES = [
-  { id: 'male', name: 'Male', gender: 'male', url: 'models/faces/kofi.glb', thumb: 'models/faces/male.jpg' },
+  { id: 'male', name: 'Male', gender: 'male', url: 'models/faces/lee.glb', thumb: 'models/faces/male.jpg' },
   { id: 'female', name: 'Female', gender: 'female', url: 'models/faces/nova.glb', thumb: 'models/faces/female.jpg' },
   { id: 'orb', name: 'Orb', gender: null, url: 'orb', thumb: '' },
 ];
