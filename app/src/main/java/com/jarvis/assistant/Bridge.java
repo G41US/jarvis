@@ -714,8 +714,8 @@ public class Bridge {
               return (int) Math.max(0, v - 100); } catch (Exception e) { return 0; }
     }
     /** Downloads the newer build and opens Android's "Update?" screen. Progress: window.__jvUpdate(json). */
-    @JavascriptInterface public String installUpdate(String url, String token) {
-        return Updater.start(activity, url, token, new Updater.Report() { public void send(String json) { js("window.__jvUpdate&&window.__jvUpdate(" + JSONObject.quote(json) + ")"); } });
+    @JavascriptInterface public String installUpdate(String url, String token, double size, int parts) {
+        return Updater.start(activity, url, token, (long) size, parts, new Updater.Report() { public void send(String json) { js("window.__jvUpdate&&window.__jvUpdate(" + JSONObject.quote(json) + ")"); } });
     }
 
     /** Lets the page keep the screen awake while it is on screen. */
