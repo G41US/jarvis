@@ -207,6 +207,7 @@ if (has('ttsSpeak')) {
       const timer = setTimeout(() => { log('tts watchdog released', id); finish(id, 'done'); }, 2500 + u.text.length * 95 / Math.max(0.5, rate));
       tts.active.set(id, { u, timer });
       const lang = langFor.get(u.text.trim()); if (lang) langFor.delete(u.text.trim());
+      try { W.dispatchEvent(new CustomEvent('jv-saying', { detail: u.text })); } catch {}   // the screen shows this sentence as a subtitle
       u.text = forSpeech(u.text) || ' ';                                  // never "asterisk", never emoji names
       try {
         u.onstart && u.onstart({});

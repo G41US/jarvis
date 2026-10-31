@@ -87,6 +87,14 @@ body:not(.jv-greet) #jv-hello, body.jv-talking #jv-hello, body[data-nav] #jv-hel
   border-radius: 24px; background: linear-gradient(180deg, rgba(50, 32, 16, .72), rgba(30, 18, 8, .78)); -webkit-backdrop-filter: blur(22px) saturate(140%); backdrop-filter: blur(22px) saturate(140%);
   border: 1px solid var(--glass-hi); box-shadow: 0 24px 60px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .06);
   opacity: 0; transform: translateY(18px) scale(.98); pointer-events: none; transition: opacity .45s var(--ease), transform .55s var(--ease); }
+/* subtitles: no box, just his words under the face, centred, readable over the gold (the delivery screen keeps its card) */
+body:not([data-nav="dash"]) #jv-card { background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; text-align: center; left: 20px; right: 20px; }
+body:not([data-nav="dash"]) #jv-card::before { display: none; }
+body:not([data-nav="dash"]) #jv-card .him, body:not([data-nav="dash"]) #jv-card .heard { font-size: 21px; text-shadow: 0 1px 2px #000, 0 2px 14px #000, 0 0 24px rgba(0, 0, 0, .8);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+body:not([data-nav="dash"]) #jv-card .you { padding: 0 8px 4px; text-shadow: 0 1px 8px #000; }
+body:not([data-nav="dash"]) #jv-card .wait { justify-content: center; } body:not([data-nav="dash"]) #jv-card .wait b { max-width: 140px; }
+body:not([data-nav="dash"]) #jv-card .scroll { overflow: hidden; padding: 6px 4px 10px; }
 #jv-card::before { content: ''; position: absolute; left: 22px; right: 22px; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--state), transparent); opacity: .8; transition: background .4s; }
 body.jv-talking #jv-card { opacity: 1; transform: none; pointer-events: auto; }
 #jv-card .you { padding: 16px 48px 0 18px; font: 400 14px/1.4 Roboto, system-ui, sans-serif; color: var(--mist); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -339,7 +347,7 @@ export const SUGGEST = {
 };
 
 /** How long things stay on screen. */
-export const TIMING = { greetMs: 6000, greetAgainAfterMs: 10 * 60000, answerMs: 10000, ideasMs: 12000, holdMs: 520, newUserUses: 8 };
+export const TIMING = { greetMs: 6000, greetAgainAfterMs: 10 * 60000, answerMs: 6000, ideasMs: 12000, holdMs: 520, newUserUses: 8 };
 
 /** "Good evening" for an hour of the day. */
 export function greeting(h) { return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; }
@@ -722,6 +730,8 @@ export function initUi() {
     clearTimeout(cardTimer); if (on && !busy) cardTimer = setTimeout(paintCard, Math.max(200, TIMING.answerMs - quietFor + 50));
     setTimeout(stage, 30);
   }
+  let fullHim = '', saying = '';
+  window.addEventListener('jv-saying', e => { saying = String(e.detail || '').trim(); syncCaps(); });
   const syncCaps = () => {
     if (!logEl) return;
     const msgs = [...logEl.querySelectorAll('.msg')];
@@ -730,11 +740,14 @@ export function initUi() {
     const order = m => (m ? msgs.indexOf(m) : -1);
     const body = m => (m.querySelector('.body') || m).textContent;
     const yt = u ? body(u) : '', ht = j && order(j) > order(u) ? body(j) : '';   // empty while Jarvis is working on your question
-    if (yt !== you.textContent || ht !== him.textContent) {
+    if (yt !== you.textContent || ht !== fullHim) {
       if (yt !== you.textContent) { follow = true; if (yt) countUse(); }
-      you.textContent = yt; him.textContent = ht; lastMsgAt = Date.now();
+      you.textContent = yt; fullHim = ht; lastMsgAt = Date.now();
       if (follow) requestAnimationFrame(() => { scroll.scrollTop = ht ? 0 : scroll.scrollHeight; });
     }
+    // subtitles, not a wall of text: only the sentence he's saying now (the whole reply is in the conversation)
+    const cap = !ht ? '' : saying && ht.includes(saying) ? saying : (ht.match(/^.+?[.!?](?=\s|$)/) || [ht])[0];
+    if (him.textContent !== cap) him.textContent = cap;
     const nt = p && order(p) > Math.max(order(u), order(j)) ? p.textContent : '';
     if (nt !== note.textContent) { note.textContent = nt; showToast(nt); }
     paintCard();

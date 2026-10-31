@@ -4,7 +4,9 @@ import { forSpeech } from './speech.js';
 
 export const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const SENTENCE_SPLIT = /(?<=[.!?])\s+/, CLAUSE_SPLIT = /(?<=[,;:])\s+/g;
-export const emitSentences = text => text.split(SENTENCE_SPLIT).map(s => s.trim()).filter(s => s.length >= 2);
+// sign-offs a person wouldn't say; the model sometimes adds them despite the prompt, so they're dropped before they're spoken
+export const FILLER = /^(let me know if|feel free to|is there anything else|anything else i can|hope (that|this) helps|happy to help|just let me know)\b/i;
+export const emitSentences = text => text.split(SENTENCE_SPLIT).map(s => s.trim()).filter(s => s.length >= 2 && !FILLER.test(s));
 
 // Small talk is the only thing answered without tools: anything else might need to DO something ("switch to the female
 // voice", "on my torchlight"), and a keyword list can never cover every way of saying it.
@@ -285,10 +287,10 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
           if (!m && !sent && buffer.length >= 60 && String(config.get('natural_voice', 'true')) === 'false') { CLAUSE_SPLIT.lastIndex = 30; m = CLAUSE_SPLIT.exec(buffer); }
           if (!m) break;
           const end = m.index + m[0].length, s = buffer.slice(0, end).trim(); buffer = buffer.slice(end);
-          if (s && s.length >= 4) { if (!sent) { const ms = Math.round(performance.now() - t0); log(`[LAT] first words ${ms} ms after your question (tools=${scratch.length ? 'yes' : 'no'}, sent ${tools.length})`); onTiming({ firstWordsMs: ms, tools: tools.length, toolRounds: scratch.filter(m => m.role === 'assistant').length }); } sent = true; yield { type: 'sentence', text: s }; }
+          if (s && s.length >= 4 && !FILLER.test(s)) { if (!sent) { const ms = Math.round(performance.now() - t0); log(`[LAT] first words ${ms} ms after your question (tools=${scratch.length ? 'yes' : 'no'}, sent ${tools.length})`); onTiming({ firstWordsMs: ms, tools: tools.length, toolRounds: scratch.filter(m => m.role === 'assistant').length }); } sent = true; yield { type: 'sentence', text: s }; }
         }
       }
-      if (buffer.trim()) { if (!sent) { const ms = Math.round(performance.now() - t0); log(`[LAT] first words ${ms} ms (tools=${scratch.length ? 'yes' : 'no'})`); onTiming({ firstWordsMs: ms, tools: tools.length, toolRounds: scratch.filter(m => m.role === 'assistant').length }); } yield { type: 'sentence', text: buffer.trim() }; }
+      if (buffer.trim() && !FILLER.test(buffer.trim())) { if (!sent) { const ms = Math.round(performance.now() - t0); log(`[LAT] first words ${ms} ms (tools=${scratch.length ? 'yes' : 'no'})`); onTiming({ firstWordsMs: ms, tools: tools.length, toolRounds: scratch.filter(m => m.role === 'assistant').length }); } yield { type: 'sentence', text: buffer.trim() }; }
       if (!full.trim() && !G.bad && !(signal && signal.aborted)) {      // the model came back empty (it happens after tools, or when it over-thinks)
         const lastTool = scratch.filter(m => m.role === 'tool').pop();
         if (lastTool && lastTool.content && lastTool.content.length < 400 && !/^[\[{]/.test(lastTool.content.trim())) full = lastTool.content;   // the tool's own words ("Flashlight off.")
