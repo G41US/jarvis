@@ -129,7 +129,7 @@ def main():
     # the faces ship inside the app (local/faces.js lists them; models/faces/*.glb are original, made from CC0 MakeHuman assets,
     # and are drawn as glowing gold particles by makeGoldenParticleFace in the page)
     html = sub_once(html, "const AVATAR_FEMALE = 'https://three.ws/avatars/default.glb';", "const AVATAR_FEMALE = 'models/faces/nova.glb';", 'local female face')
-    html = sub_once(html, "const AVATAR_MALE = 'models/adam.glb';", "const AVATAR_MALE = 'models/faces/kofi.glb';", 'local male face')
+    html = sub_once(html, "const AVATAR_MALE = 'models/adam.glb';", "const AVATAR_MALE = 'models/faces/lee.glb';", 'local male face')
 
     # ---- choice of faces: which face goes with the voice comes from the face you picked (local/faces.js); "orb" means no face
     html = sub_once(html, "  const want = isMaleVoice(currentVoice) ? AVATAR_MALE : AVATAR_FEMALE;\n",
