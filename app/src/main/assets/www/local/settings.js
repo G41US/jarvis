@@ -184,10 +184,10 @@ export function initSettings() {
   const paintPc = () => {
     const st = J().pcVoices ? J().pcVoices() : {}; if (!st || st.unavailable) { pcRow.style.display = 'none'; return; }
     const name = J().wantedVoice ? J().wantedVoice() : gender === 'female' ? 'amy' : 'alan', s = String(st[name] || 'missing');
-    const who = name === 'kokoro' ? 'The natural voice for this phone (free, no daily limit, works offline)' : `${name === 'amy' ? 'Amy' : 'Alan'}, your PC voice,`;
+    const who = name === 'kokoro' ? 'The free natural voice (no daily limit, works offline)' : `${name === 'amy' ? 'Amy' : 'Alan'}, your PC voice,`;
     pcBtn.style.display = s === 'ready' || s.startsWith('downloading') ? 'none' : '';
     pcText.textContent = s === 'ready' ? `${who} is on this phone.` : s.startsWith('downloading') ? `Downloading: ${who.replace(/,$/, '')}… ${s.split(':')[1] || 0}%`
-      : s.startsWith('error') ? `It didn't download (${s.slice(6)}). Try again.` : `${who} isn't on this phone yet (${name === 'kokoro' ? '100' : '67'} MB, once; on Wi-Fi it downloads by itself).`;
+      : s.startsWith('error') ? `It didn't download (${s.slice(6)}). Try again.` : `${who} isn't on this phone yet (${name === 'kokoro' ? '100' : '67'} MB, once; downloads by itself on Wi-Fi).`;
   };
   pcBtn.onclick = () => { J().ensurePcVoice(true); setTimeout(paintPc, 200); };
   J().onVoices = () => { if (ov.classList.contains('on')) { paintPc(); fillVoices(); } };
@@ -215,7 +215,7 @@ export function initSettings() {
   const choose = g => { gender = g; J().config.merge({ avatar_gender: g, voice: '' }); paintSeg(); fillVoices(); J().announceVoice(); J().ensurePcVoice(); paintPc(); };
   bMale.onclick = () => choose('male'); bFemale.onclick = () => choose('female');
   vsel.onchange = () => { J().config.set('voice', vsel.value); J().announceVoice(); };
-  add(sVoice, 'select', 'natural_voice', 'Natural voice', { def: 'true', options: [['true', 'Online first: Groq\'s voice, then the phone\'s natural voice when the day\'s free allowance runs out'], ['phone', 'Always the phone\'s natural voice (free, no limit, works offline)'], ['false', 'Off: the PC voice or the phone\'s voice only']] });
+  add(sVoice, 'select', 'natural_voice', 'Natural voice', { def: 'true', options: [['true', 'Groq first, then the phone\'s'], ['phone', 'Always the phone\'s (no limit)'], ['false', 'Off (PC voice)']] });
   const cloudNote = el('p', { class: 'hint' }); sVoice.append(cloudNote);
   const paintCloud = () => {                         // why he's using the PC voice right now, if he is
     let st = 'ok'; try { st = window.AndroidBridge && window.AndroidBridge.cloudVoiceStatus ? String(window.AndroidBridge.cloudVoiceStatus()) : 'ok'; } catch {}
