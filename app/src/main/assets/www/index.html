@@ -447,7 +447,7 @@ function makeGoldenParticleFace(model) {
     for (let i = 0; i < 7; i++) {
       const ray = new THREE.Sprite(new THREE.SpriteMaterial({ map: rayTex, color: 0xffc66e, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
       ray.userData.o = 0.15 + Math.random() * 0.3; ray.scale.set(span * 0.05, span * (0.25 + Math.random() * 0.3), 1);
-      ray.position.set(cx + (Math.random() < 0.5 ? -1 : 1) * span * (0.7 + Math.random() * 0.9), mid.y + (Math.random() * 3.2 - 1.6) * span, mid.z - Math.random() * span);
+      ray.position.set(cx + (Math.random() < 0.5 ? -1 : 1) * span * (0.65 + Math.random() * 0.45), mid.y + (Math.random() * 3.2 - 1.6) * span, mid.z - Math.random() * span);
       model.add(ray); rays.push(ray);
     }
     particleFx = { spark, orbit, rays, span, mid };

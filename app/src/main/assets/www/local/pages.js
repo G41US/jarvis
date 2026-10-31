@@ -16,63 +16,63 @@ const ic = (html, cls = '') => { const s = el('span', { class: 'ico ' + cls, 'ar
 const CSS = `
 body.jv-pane #three, body.jv-pane #jv-aura, body.jv-pane #jv-top, body.jv-pane #jv-card, body.jv-pane #jv-dock, body.jv-pane #jv-hello, body.jv-pane #jv-toast,
 body.jv-pane #jv-ideas, body.jv-pane #jv-hint, body.jv-pane #jv-drive, body.jv-pane #nav-frame, body.jv-pane #nav-orb, body.jv-pane #route-panel, body.jv-pane #log, body.jv-pane #jv-hist-head { visibility: hidden !important; }
-#jv-pane { position: fixed; inset: 0; z-index: 70; overflow-y: auto; overscroll-behavior: contain; display: none; color: #eaf6ff;
-  background: radial-gradient(90% 40% at 50% 0%, #0d2136 0%, #050b14 60%, #03070c 100%) fixed; font: 15px/1.45 Roboto, system-ui, sans-serif; }
+#jv-pane { position: fixed; inset: 0; z-index: 70; overflow-y: auto; overscroll-behavior: contain; display: none; color: #fff6e8;
+  background: radial-gradient(90% 40% at 50% 0%, #36210d 0%, #140b05 60%, #0c0703 100%) fixed; font: 15px/1.45 Roboto, system-ui, sans-serif; }
 #jv-pane.on { display: block; animation: jvPaneIn .3s cubic-bezier(.2, .8, .2, 1); }
 @keyframes jvPaneIn { from { opacity: 0; transform: translateY(14px); } }
 #jv-pane .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px; padding: calc(env(safe-area-inset-top, 0px) + 10px) 10px 10px;
-  background: rgba(4, 10, 18, .84); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-bottom: 1px solid rgba(160, 215, 255, .08); }
+  background: rgba(18, 10, 4, .84); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-bottom: 1px solid rgba(255, 214, 150, .08); }
 #jv-pane .bar .t { flex: 1; font: 600 19px/1.2 'Saira', system-ui, sans-serif; font-stretch: 96%; padding-left: 4px; }
 #jv-pane button { font-family: Roboto, system-ui, sans-serif; text-transform: none; letter-spacing: normal; text-shadow: none; -webkit-tap-highlight-color: transparent; }
-#jv-pane .bar .back { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #9db3c6; display: grid; place-items: center; }
+#jv-pane .bar .back { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #cdbb9f; display: grid; place-items: center; }
 #jv-pane .bar .back svg { width: 22px; height: 22px; }
 #jv-pane .box { max-width: 560px; margin: 0 auto; padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 40px); }
 #jv-pane h3 { margin: 26px 4px 10px; font: 500 13px/1 Roboto, sans-serif; color: #8aa1b5; }
-#jv-pane .seg { display: flex; padding: 4px; gap: 4px; border-radius: 16px; background: rgba(10, 22, 38, .9); border: 1px solid rgba(160, 215, 255, .12); }
-#jv-pane .seg button { flex: 1; border: 0; border-radius: 12px; background: transparent; color: #9db3c6; padding: 11px; font-size: 15px; font-weight: 500; }
-#jv-pane .seg button[aria-pressed=true] { background: #16324c; color: #eaf6ff; box-shadow: 0 0 0 1px rgba(127, 216, 255, .35); }
+#jv-pane .seg { display: flex; padding: 4px; gap: 4px; border-radius: 16px; background: rgba(38, 22, 10, .9); border: 1px solid rgba(255, 214, 150, .12); }
+#jv-pane .seg button { flex: 1; border: 0; border-radius: 12px; background: transparent; color: #cdbb9f; padding: 11px; font-size: 15px; font-weight: 500; }
+#jv-pane .seg button[aria-pressed=true] { background: #4c3216; color: #fff6e8; box-shadow: 0 0 0 1px rgba(245, 201, 122, .35); }
 #jv-pane .hero { margin: 22px 4px 4px; font: 600 54px/1 'Saira', system-ui, sans-serif; font-stretch: 100%; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
-#jv-pane .hero-sub { margin: 6px 4px 0; color: #9db3c6; font-size: 15px; }
+#jv-pane .hero-sub { margin: 6px 4px 0; color: #cdbb9f; font-size: 15px; }
 #jv-pane .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 18px; }
-#jv-pane .tile { padding: 14px 12px; border-radius: 18px; background: rgba(14, 28, 44, .62); border: 1px solid rgba(160, 215, 255, .08); }
+#jv-pane .tile { padding: 14px 12px; border-radius: 18px; background: rgba(44, 28, 14, .62); border: 1px solid rgba(255, 214, 150, .08); }
 #jv-pane .tile b { display: block; font: 600 22px/1.1 'Saira', sans-serif; font-stretch: 92%; font-variant-numeric: tabular-nums; }
 #jv-pane .tile span { display: block; margin-top: 4px; font-size: 12px; color: #8aa1b5; }
-#jv-pane .tile.na b { color: #61798d; }
-#jv-pane .card { border-radius: 20px; background: rgba(14, 28, 44, .62); border: 1px solid rgba(160, 215, 255, .08); overflow: hidden; }
+#jv-pane .tile.na b { color: #8c7a62; }
+#jv-pane .card { border-radius: 20px; background: rgba(44, 28, 14, .62); border: 1px solid rgba(255, 214, 150, .08); overflow: hidden; }
 /* last 7 days: one series, bars from a shared baseline, rounded tops, labels only on today and the best day */
 #jv-pane .chart { padding: 14px 14px 10px; }
 #jv-pane .chart .cap { min-height: 20px; font-size: 14px; color: #c3d7e8; margin: 0 2px 10px; font-variant-numeric: tabular-nums; }
-#jv-pane .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; height: 140px; align-items: end; border-bottom: 1px solid rgba(160, 215, 255, .16); }
+#jv-pane .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; height: 140px; align-items: end; border-bottom: 1px solid rgba(255, 214, 150, .16); }
 #jv-pane .bars button { position: relative; height: 100%; border: 0; padding: 0 3px; background: transparent; display: flex; align-items: flex-end; justify-content: center; }
 #jv-pane .bars i { display: block; width: 100%; max-width: 30px; min-height: 2px; border-radius: 4px 4px 0 0; background: #ffb24c; }
-#jv-pane .bars button.zero i { background: rgba(160, 215, 255, .14); }
-#jv-pane .bars button.sel i { box-shadow: 0 0 0 2px #03070c, 0 0 0 3px #eaf6ff; }
+#jv-pane .bars button.zero i { background: rgba(255, 214, 150, .14); }
+#jv-pane .bars button.sel i { box-shadow: 0 0 0 2px #0c0703, 0 0 0 3px #fff6e8; }
 #jv-pane .bars small { position: absolute; left: 0; right: 0; text-align: center; font-size: 11px; color: #c3d7e8; font-variant-numeric: tabular-nums; }
 #jv-pane .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-top: 6px; }
 #jv-pane .days span { text-align: center; font-size: 12px; color: #8aa1b5; }
-#jv-pane .days span.today { color: #eaf6ff; font-weight: 600; }
+#jv-pane .days span.today { color: #fff6e8; font-weight: 600; }
 #jv-pane .row { display: flex; align-items: center; gap: 12px; padding: 13px 14px; }
-#jv-pane .row + .row { border-top: 1px solid rgba(160, 215, 255, .07); }
+#jv-pane .row + .row { border-top: 1px solid rgba(255, 214, 150, .07); }
 #jv-pane .row .tx { flex: 1; min-width: 0; }
 #jv-pane .row .tx b { display: block; font-weight: 500; font-size: 15px; overflow-wrap: anywhere; }
 #jv-pane .row .tx span { display: block; font-size: 13px; color: #8aa1b5; margin-top: 1px; }
 #jv-pane .row .val { font: 600 17px/1 'Saira', sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
-#jv-pane .row .rank { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 600; color: #03121f; background: #7fd8ff; }
-#jv-pane .row .ico { width: 34px; height: 34px; border-radius: 11px; flex: none; display: grid; place-items: center; background: rgba(127, 216, 255, .12); color: #7fd8ff; }
+#jv-pane .row .rank { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 600; color: #1f1203; background: #f5c97a; }
+#jv-pane .row .ico { width: 34px; height: 34px; border-radius: 11px; flex: none; display: grid; place-items: center; background: rgba(245, 201, 122, .12); color: #f5c97a; }
 #jv-pane .row .ico svg { width: 19px; height: 19px; }
-#jv-pane .row .del { width: 40px; height: 40px; flex: none; border: 0; border-radius: 50%; padding: 0; background: transparent; color: #61798d; display: grid; place-items: center; }
+#jv-pane .row .del { width: 40px; height: 40px; flex: none; border: 0; border-radius: 50%; padding: 0; background: transparent; color: #8c7a62; display: grid; place-items: center; }
 #jv-pane .row .del svg { width: 18px; height: 18px; }
 #jv-pane .row .del:active { color: #ff7a85; background: rgba(255, 90, 103, .1); }
 #jv-pane .empty { padding: 18px 16px; color: #8aa1b5; font-size: 14px; }
 #jv-pane .note { margin: 14px 4px 0; font-size: 13px; color: #7f97ab; }
-#jv-pane .lead { margin: 4px 4px 6px; color: #9db3c6; font-size: 14px; }
+#jv-pane .lead { margin: 4px 4px 6px; color: #cdbb9f; font-size: 14px; }
 #jv-pane .sw { display: flex; align-items: center; gap: 12px; padding: 14px; }
 #jv-pane .sw .tx { flex: 1; }
-#jv-pane .toggle { width: 52px; height: 32px; border-radius: 16px; border: 0; padding: 0; position: relative; background: #1d3249; flex: none; transition: background .2s; }
-#jv-pane .toggle::after { content: ''; position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%; background: #9db3c6; transition: transform .2s, background .2s; }
-#jv-pane .toggle[aria-checked=true] { background: #2c6c8c; } #jv-pane .toggle[aria-checked=true]::after { transform: translateX(20px); background: #eaf6ff; }
+#jv-pane .toggle { width: 52px; height: 32px; border-radius: 16px; border: 0; padding: 0; position: relative; background: #49321d; flex: none; transition: background .2s; }
+#jv-pane .toggle::after { content: ''; position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%; background: #cdbb9f; transition: transform .2s, background .2s; }
+#jv-pane .toggle[aria-checked=true] { background: #2c6c8c; } #jv-pane .toggle[aria-checked=true]::after { transform: translateX(20px); background: #fff6e8; }
 #jv-pane .danger { width: 100%; margin-top: 18px; padding: 14px; border-radius: 16px; border: 1px solid rgba(255, 90, 103, .35); background: rgba(255, 90, 103, .08); color: #ff9aa2; font-size: 15px; font-weight: 500; }
-#jv-pane button:focus-visible { outline: 2px solid #7fd8ff; outline-offset: 2px; }
+#jv-pane button:focus-visible { outline: 2px solid #f5c97a; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { #jv-pane.on { animation: none; } }
 `;
 
