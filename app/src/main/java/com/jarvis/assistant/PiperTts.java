@@ -99,7 +99,7 @@ public final class PiperTts {
         if (code != 200) throw new java.io.IOException("speech " + code);
         java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
         try (java.io.InputStream in = c.getInputStream()) { byte[] b = new byte[16384]; int n; while ((n = in.read(b)) > 0) bo.write(b, 0, n); }
-        return Wav.decode(bo.toByteArray());
+        float[][] w = Wav.decode(bo.toByteArray()); w[0] = Wav.trim(w[0], (int) w[1][0]); return w;
     }
 
 

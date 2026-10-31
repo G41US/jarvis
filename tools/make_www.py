@@ -256,9 +256,12 @@ def main():
     nav = sub_once(nav, """    const D = Math.round(clamp(H * 0.18, 110, 170)), R = 0.36 * H, sc = D / (2 * R);
     const cx = 28 + D / 2, cy = H - 40 - D / 2;""", """    const dash = S.view === 'dash';
     const D = Math.round(dash ? clamp(H * 0.15, 96, 132) : clamp(H * 0.18, 110, 170)), R = Math.min(0.36 * H, 0.44 * W), sc = D / (2 * R);   // portrait: the circle fits the face, not the screen
-    const low = dash ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dash-orb-bottom')) || 120) : 40;
-    const fy = W < H ? 0.5 : 0.45; document.documentElement.style.setProperty('--orb-fy', (fy * 100) + '%');
-    const cx = dash ? W - 16 - D / 2 : 28 + D / 2, cy = H - low - D / 2;""", 'dash orb corner')
+    // on a phone the head sits in the bottom-right corner, just above the trip numbers (arrive / left / distance)
+    const ne = document.querySelector('.ne'), neBox = ne && ne.getBoundingClientRect(), portrait = W < H;
+    const low = dash ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dash-orb-bottom')) || 120)
+      : portrait ? (neBox && neBox.height ? H - neBox.top + 12 : 110) : 40;
+    const fy = portrait ? 0.5 : 0.45; document.documentElement.style.setProperty('--orb-fy', (fy * 100) + '%');
+    const cx = dash || portrait ? W - 16 - D / 2 : 28 + D / 2, cy = H - low - D / 2;""", 'dash orb corner')
     nav = sub_once(nav, "    r.setProperty('--orb-tx', (cx - sc * 0.5 * W) + 'px'); r.setProperty('--orb-ty', (cy - sc * 0.45 * H) + 'px');",
                    "    r.setProperty('--orb-tx', (cx - sc * 0.5 * W) + 'px'); r.setProperty('--orb-ty', (cy - sc * fy * H) + 'px');", 'orb face centre')
     nav = sub_once(nav, "transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% 45%); }",

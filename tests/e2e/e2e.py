@@ -582,6 +582,10 @@ def main():
         check('"Hey Jarvis" buzzes', 'wake' in (ev("window.__native.vib") or []))
         ev("window.__native.vib = []; JARVIS.wake()"); pg.wait_for_timeout(200)
         check('...a tap on the button does not buzz', 'wake' not in (ev("window.__native.vib") or []))
+        # ---- location: the phone's own GPS, even with the map closed (it used to say "I don't know where you are")
+        ev("JARVIS.navsvc.state.pos = null; window.__phone.loc = { lat: 9.0765, lon: 7.4986, acc: 15, age_s: 4 }")
+        check('Jarvis knows where you are from the phone\'s GPS with the map closed', ev("JSON.stringify(JARVIS.navsvc.origin())") == '[9.0765,7.4986]', ev("JSON.stringify(JARVIS.navsvc.origin())"))
+        ev("JARVIS.navsvc.state.pos = null; window.__phone.loc = {}")
         # ---- talking: speaking speed and a mouth that follows the voice's loudness
         check('he talks a bit faster by default (both voices get the speed)', ev("window.__native.speed") == 1.15, ev("window.__native.speed"))
         ev("window.__mouth = 0.2"); [ev("window.__jvMouthLevel()") for _ in range(5)]

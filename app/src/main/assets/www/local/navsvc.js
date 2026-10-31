@@ -14,9 +14,23 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   const cfgOut = () => ({ provider: config.get('map_provider', 'jarvis'), theme: config.get('map_theme', 'auto'), units: delivery.units, use_gps: config.get('use_gps', true),
     google_key: keys().google, apple_token: keys().apple });
 
+  // the phone's own GPS (Android): the map only feeds S.pos while it's open, so without this Jarvis didn't know where you were
+  function phoneFix(fresh) {
+    try {
+      const P = typeof window !== 'undefined' && window.AndroidPhone; if (!P || !P.lastLocation) return null;
+      const l = JSON.parse(fresh && P.freshLocation ? P.freshLocation(7000) : P.lastLocation());
+      if (!l || !Number.isFinite(l.lat) || (l.age_s ?? 0) > 900 || (l.acc ?? 0) > 3000) return null;
+      S.pos = { lat: l.lat, lon: l.lon, acc: l.acc || 50, ts: Date.now() / 1000 - (l.age_s || 0), speed: null };
+      if (l.acc <= 200 && config.get('use_gps', true)) syncLocation(l.lat, l.lon).catch(() => {});
+      return [l.lat, l.lon];
+    } catch { return null; }
+  }
+  /** Where you are now, waiting a few seconds for a GPS fix if the phone hasn't had one lately. */
+  async function originNow() { return origin() || phoneFix(true); }
   function origin() {
     const p = S.pos;
     if (p && Date.now() / 1000 - p.ts < 300 && p.acc <= 200) return [p.lat, p.lon];
+    const g = phoneFix(false); if (g) return g;
     const loc = delivery._getState('loc'); if (loc) return [loc.lat, loc.lon];
     if (p && p.acc <= 5000) return [p.lat, p.lon];
     return null;
@@ -103,7 +117,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return [r, stops[0].label];
   }
   async function startDelivery() {
-    const org = origin(); if (!org) return NO_ORIGIN;
+    const org = await originNow(); if (!org) return NO_ORIGIN;
     const [r, info] = await buildDelivery(org); if (r === null) return info;
     const wps = r.waypoints;
     Object.assign(S, { active: true, route: r, label: info, mode: 'auto', delivery: true, progress: null, view: 'full', dest: wps.slice(1).map(w => [w.lat, w.lon, w.label]) });
@@ -133,12 +147,16 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if (p) return { lat: p.lat, lon: p.lon, short: key.replace(/\b\w/g, c => c.toUpperCase()), display: p.address || key, country_code: p.cc || '', distance_km: null };
     return NAV.geocode(text, org);
   }
-  async function start(destText, mode = 'auto') {
-    const org = origin(); if (!org) return NO_ORIGIN;
+  async function start(destText, mode = 'auto', fromText = '') {
+    let org = await originNow(), from = null;
+    if (fromText && !/^(here|my location|where i am|me)$/i.test(fromText.trim())) {   // "from Wuse 2 to Jabi": the route starts there
+      from = await resolve(fromText, org); if (!from) return `I couldn't find ${fromText}. Try the street and the town.`; org = [from.lat, from.lon];
+    }
+    if (!org) return NO_ORIGIN;
     const g = await resolve(destText, org); if (!g) return `I couldn't find ${destText}. Try the street and the town.`;
     const r = await route([org, [g.lat, g.lon]], mode); if (!r.ok) return r.error;
     const label = (g.short || destText).trim() || destText;
-    r.waypoints = [{ lat: org[0], lon: org[1], label: 'You', kind: 'stop' }, { lat: g.lat, lon: g.lon, label, kind: 'drop' }];
+    r.waypoints = [{ lat: org[0], lon: org[1], label: from ? (from.short || fromText) : 'You', kind: 'stop' }, { lat: g.lat, lon: g.lon, label, kind: 'drop' }];
     Object.assign(S, { active: true, route: r, label, mode, delivery: false, progress: null, view: 'full', dest: [[g.lat, g.lon, label]] });
     cmd('route', { route: r, meta: { label, delivery: false } });
     let txt = Navigator.spokenSummary(r, label);
@@ -238,7 +256,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return `Saved ${key}.`;
   }
   async function whereAmI() {
-    const o = origin(); if (!o) return NO_ORIGIN;
+    const o = await originNow(); if (!o) return NO_ORIGIN;
     const info = await NAV.reverse(o[0], o[1]); if (!info) return "I have your position but can't name the street right now.";
     const weak = (!S.pos || S.pos.acc > 200) ? ' My location is only approximate.' : '';
     return `You're near ${info.short}, ${info.area}.`.replace(', .', '.') + weak;
@@ -246,9 +264,9 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
 
   // ---- tools
   const T = (n, d, p, r, f) => reg.add(n, d, p, r, f);
-  T('navigate_to', "Start turn-by-turn navigation to any address, place, business or landmark anywhere in the world. The screen turns into a map. Use for 'navigate to', 'take me to', 'directions to', 'drive to', 'walk to'.",
-    { destination: { type: 'string', description: 'address, place name or saved place like home or work' }, mode: { type: 'string', enum: ['driving', 'walking', 'cycling', 'scooter'], description: 'default driving' } }, ['destination'],
-    a => start(a.destination, { walking: 'pedestrian', cycling: 'bicycle', scooter: 'motor_scooter' }[(a.mode || '').toLowerCase()] || 'auto'));
+  T('navigate_to', "Start turn-by-turn navigation to any address, place, business or landmark anywhere in the world. The screen turns into a map. Use for 'navigate to', 'take me to', 'directions to', 'directions from A to B', 'drive to', 'walk to'. Never answer directions with a link or a description of a map: call this.",
+    { destination: { type: 'string', description: 'address, place name or saved place like home or work' }, from: { type: 'string', description: "only when they name a different starting point ('from Wuse 2'); otherwise leave out: it starts where they are" }, mode: { type: 'string', enum: ['driving', 'walking', 'cycling', 'scooter'], description: 'default driving' } }, ['destination'],
+    a => start(a.destination, { walking: 'pedestrian', cycling: 'bicycle', scooter: 'motor_scooter' }[(a.mode || '').toLowerCase()] || 'auto', a.from || ''));
   T('start_delivery_navigation', 'Start turn-by-turn navigation through every stop of the current delivery stack, in the best order.', {}, [], () => startDelivery());
   T('stop_navigation', 'End turn-by-turn navigation and bring the face back.', {}, [], () => stop());
   T('navigation_status', 'How far, how long, when you arrive, and the next turn, during navigation.', {}, [], () => status());
@@ -263,7 +281,8 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   // ---- spoken commands that skip the AI (instant, and they work without the network brain)
   const R = {
     stop: /\b(stop|cancel|end|exit|quit|abort|finish)\b.{0,20}\b(navigat\w*|directions|guidance|route|trip)\b|\bnavigation off\b/i,
-    to: /^(?:(?:ok(?:ay)?|please|jarvis|hey|can you|could you)[, ]+)*(?:(?:navigate|drive|route|head|take me|bring me|guide me|walk|cycle|bike|ride)\s+(?:me\s+)?(?:to|towards?)|(?:get|give) me directions to|directions to|(?:i )?(?:need|want) (?:to get|directions) to|let'?s drive to|navigate)\s+(.+?)[.!?]*$/i,
+    fromTo: /^(?:(?:ok(?:ay)?|please|jarvis|hey|can you|could you)[, ]+)*(?:(?:get|give|show) me )?(?:the )?(?:directions?|route|the way|way|navigate|drive|take me)\s+from\s+(.+?)\s+to\s+(.+?)[.!?]*$/i,
+    to: /^(?:(?:ok(?:ay)?|please|jarvis|hey|can you|could you)[, ]+)*(?:(?:navigate|drive|route|head|take me|bring me|guide me|walk|cycle|bike|ride)\s+(?:me\s+)?(?:to|towards?)|(?:get|give) me directions to|directions to|how (?:do|can|would) i get to|(?:i )?(?:need|want) (?:to get|directions) to|let'?s drive to|navigate)\s+(.+?)[.!?]*$/i,
     deliv: /\b(next stop|my (?:next )?(?:stops?|route|deliver\w*|orders?)|the (?:stack|route)|(?:next )?(?:pick.?up|drop.?off|delivery|customer|restaurant)s?)\b/i,
     startDeliv: /^(?:please )?(?:start|begin|resume)\s+(?:the |my )?(?:delivery |route |stack )?(?:navigation|route|run|deliveries)[.!?]*$/i,
     show: /^(?:please )?(?:show|open|bring up|display|pull up|turn on)(?: me)?(?: the| a| your)? (?:map|navigation|map view)[.!?]*$|^map (?:view|mode)[.!?]*$/i,
@@ -296,6 +315,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if ((m = R.ext.exec(t))) return openInMaps(m[1]);
     if ((m = R.prov.exec(t))) { const w = (m[1] || m[2] || '').toLowerCase(); return mapControl(w === 'google' ? 'use_google' : w === 'apple' ? 'use_apple' : 'use_jarvis_map'); }
     if (R.startDeliv.test(t)) return startDelivery();
+    if ((m = R.fromTo.exec(t))) return start(m[2].trim().replace(/[, ]+(please|thanks|thank you|now|jarvis)$/i, ''), modeOf(t), m[1].trim());
     if ((m = R.to.exec(t))) {
       const dest = m[1].trim().replace(/[, ]+(please|thanks|thank you|now|jarvis)$/i, '').trim();
       if (R.deliv.test(dest) && !/\d/.test(dest)) return delivery.hasActive() ? startDelivery() : 'You have no orders in the stack to navigate to.';

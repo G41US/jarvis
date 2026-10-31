@@ -281,7 +281,8 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
         full += tok; buffer += tok;
         for (;;) {
           let m = SENTENCE_SPLIT.exec(buffer);
-          if (!m && !sent && buffer.length >= 60) { CLAUSE_SPLIT.lastIndex = 30; m = CLAUSE_SPLIT.exec(buffer); }
+          // the phone's voice starts sooner if the first long sentence is cut at a comma; the natural voice says whole sentences (a cut is a pause)
+          if (!m && !sent && buffer.length >= 60 && String(config.get('natural_voice', 'true')) === 'false') { CLAUSE_SPLIT.lastIndex = 30; m = CLAUSE_SPLIT.exec(buffer); }
           if (!m) break;
           const end = m.index + m[0].length, s = buffer.slice(0, end).trim(); buffer = buffer.slice(end);
           if (s && s.length >= 4) { if (!sent) { const ms = Math.round(performance.now() - t0); log(`[LAT] first words ${ms} ms after your question (tools=${scratch.length ? 'yes' : 'no'}, sent ${tools.length})`); onTiming({ firstWordsMs: ms, tools: tools.length, toolRounds: scratch.filter(m => m.role === 'assistant').length }); } sent = true; yield { type: 'sentence', text: s }; }
