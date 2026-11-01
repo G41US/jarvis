@@ -14,6 +14,7 @@ import { registerExtraTools } from './tools_extras.js';
 import { registerDrivingTools } from './tools_driving.js';
 import { registerHomeTools } from './tools_home.js';
 import { registerUiTools, earningsInput } from './tools_ui.js';
+import { registerHandoff } from './handoff.js';
 import { summary as earningsSummary } from './earnings.js';
 import { FACES, faceById, faceFor, faceForGender, DEFAULT_FACE } from './faces.js';
 import { createProactive, registerProactiveTools } from './proactive.js';
@@ -253,6 +254,7 @@ registerExtraTools(gctx);                                // camera extras, expen
 registerDrivingTools(gctx);                              // parking, gas, shifts and mileage, SOS
 registerHomeTools(gctx);                                 // Home Assistant, Philips Hue
 registerUiTools(gctx);                                   // Earnings page, what Jarvis knows, driving mode
+const handoff = registerHandoff({ reg, kv, api });       // carry a conversation over to the PC Jarvis and back
 const proactive = createProactive({ ...gctx, log });   // briefing, weather, birthdays, time to leave, battery, breaks
 registerProactiveTools(gctx, proactive);
 const briefingFast = async text => (/\b(morning briefing|brief me|briefing|what.?s my day|what.?s on today)\b/i.test(text) ? (await gctx.briefingText())[0] : null);
@@ -280,7 +282,7 @@ brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, 
   pickTools: text => { const r = router.pick(reg.schemas, text); stats.lastTools = r.tools.length; return r.tools; },
   instant, onTiming: t => { stats.lat = { ...(stats.lat || {}), ...t, at: Date.now() }; },
   onTool: name => W.dispatchEvent(new CustomEvent('jv-activity', { detail: name })),
-  onTurn: (user, said) => learner && learner.observe(user, said) });
+  onTurn: (user, said) => { if (learner) learner.observe(user, said); handoff.push(brain.conversation); } });
 const learner = createLearner({ groqJson: b => brain.groqJson(b), kv, log, enabled: () => cfgStore.get('learn', true) !== false && brain.usable(), onChange: () => brain.refreshPrompt() });
 const interp = createInterpreter({ api, broadcast, langFor, log, bridge }); interpObj = interp;
 reg.add('start_interpreter', "Live interpreter between the user and someone who speaks another language: from now on everything either of them says is translated into the other language and spoken aloud, with face-to-face captions. language: the other person's language. my_language: the user's (default English).",

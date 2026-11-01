@@ -43,6 +43,7 @@ export const GROUPS = {
   alerts: [/\b(alert|alerts|notify me|proactive|briefing (at|every)|every morning|weather warning|storm|birthday|birthdays|leave (now|by)|time to leave)/,
     ['set_proactive', 'proactive_status', 'birthdays']],
   offer: [/\b(that offer|the offer|worth it|take it|should i (take|accept))/, ['screen_offer', 'evaluate_delivery_offer']],
+  handoff: [/\b(link|unlink|linked|my (pc|computer|laptop)|on (the|my) (pc|computer|laptop)|continue|carry on|pick up where|left off)/, ['link_pc', 'continue_from_pc', 'unlink_pc']],
 };
 
 /** Which groups a sentence touches. */

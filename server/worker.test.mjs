@@ -67,4 +67,32 @@ check('update: nothing stored yet means build 0', r.status === 200 && (await r.j
 delete store['apk:52:1']; r = await callU('/v1/update/apk');
 let cut = false; try { await r.text(); } catch { cut = true; }
 check('update: a missing part cuts the download off (never a short APK that looks complete)', cut);
+// ---- phone <-> PC handoff
+const hstore = new Map();
+const HKV = { get: async (k, type) => { const v = hstore.get(k); return v == null ? null : type === 'json' ? JSON.parse(v) : v; },
+  put: async (k, v) => { hstore.set(k, v); }, delete: async k => { hstore.delete(k); } };
+const envH = { ...env, UPDATES: HKV };
+r = await call('/v1/link/new', { method: 'POST', headers: { 'x-jarvis-token': 'wrong' } }, envH);
+check('link code needs the app token', r.status === 403);
+r = await call('/v1/link/new', { method: 'POST', headers: H }, envH);
+const L = await r.json();
+check('phone gets a 6-digit code and a secret', r.status === 200 && /^\d{6}$/.test(L.code) && /^[0-9a-f]{32}$/.test(L.pair));
+r = await call('/v1/link/claim', { method: 'POST', body: JSON.stringify({ code: '000000' }) }, envH);
+check('wrong code refused', r.status === 404);
+r = await call('/v1/link/claim', { method: 'POST', body: JSON.stringify({ code: L.code.split('').join(' ') }) }, envH);
+check('PC claims the code without the app token (spoken with spaces is fine)', r.status === 200 && (await r.json()).pair === L.pair);
+r = await call('/v1/link/claim', { method: 'POST', body: JSON.stringify({ code: L.code }) }, envH);
+check('a code works once', r.status === 404);
+r = await call(`/v1/hand/${L.pair}?from=phone`, { method: 'PUT', body: JSON.stringify({ at: 1, messages: [{ role: 'user', content: 'book a table' }] }) }, envH);
+check('phone keeps its lines', r.status === 200);
+r = await call(`/v1/hand/${L.pair}?from=phone`, {}, envH);
+check('PC reads the phone lines', r.status === 200 && (await r.json()).messages[0].content === 'book a table');
+r = await call(`/v1/hand/${L.pair}?from=pc`, {}, envH);
+check('nothing from the PC yet: empty, not an error', r.status === 200 && (await r.json()).messages.length === 0);
+r = await call(`/v1/hand/${'f'.repeat(32)}?from=pc`, { method: 'PUT', body: '{}' }, envH);
+check('an unknown secret is refused', r.status === 404);
+r = await call(`/v1/hand/${L.pair}?from=pc`, { method: 'PUT', body: 'x'.repeat(20000) }, envH);
+check('too much is refused', r.status === 413);
+r = await call('/v1/link/new', { method: 'POST', headers: H }, env);
+check('no storage: says so', r.status === 503);
 console.log('FAILURES:', fails); process.exit(fails ? 1 : 0);
