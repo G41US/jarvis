@@ -13,7 +13,7 @@ const GROQ = 'https://api.groq.com/openai/v1';
 const DEFAULT_MODELS = 'openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b';   // qwen: Jarvis's eyes (camera / screen), if it sees images
 const MAX_AUDIO = 4 * 1024 * 1024, MAX_TOKENS = 4096;   // reasoning models count their thinking in this
 
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-jarvis-token, x-jarvis-device', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-jarvis-token, x-jarvis-device', 'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS' };
 const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json', ...CORS } });
 const fail = (status, message) => json({ error: { message } }, status);
 
@@ -46,13 +46,55 @@ async function update(route, url, env, ctx) {
     'content-disposition': `attachment; filename="Jarvis-build-${meta.build}.apk"`, 'cache-control': 'no-store', ...CORS } });
 }
 
+// Phone <-> PC handoff, so a conversation can carry on from one to the other. The phone makes a one-time 6-digit code
+// (/link/new, needs the app token) and says it; the user says it to the PC, which trades it for the pair's secret (/link/claim).
+// Then each side keeps its last few lines at /hand/<secret>?from=phone|pc and reads the other side's. Kept in the UPDATES store.
+const CODE_TTL = 600, PAIR_TTL = 180 * 86400, HAND_TTL = 7 * 86400, MAX_HAND = 16 * 1024;
+const hex = n => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => b.toString(16).padStart(2, '0')).join('');
+async function handoff(route, req, env) {
+  if (!env.UPDATES) return fail(503, 'This service has no storage for handoff.');
+  const url = new URL(req.url), kv = env.UPDATES;
+  if (route === '/link/new' && req.method === 'POST') {
+    const pair = hex(16), code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    await kv.put(`pair:${pair}`, '1', { expirationTtl: PAIR_TTL });
+    await kv.put(`link:${code}`, pair, { expirationTtl: CODE_TTL });
+    return json({ code, pair }, 200);
+  }
+  if (route === '/link/claim' && req.method === 'POST') {
+    let j; try { j = await req.json(); } catch { return fail(400, 'Bad JSON.'); }
+    const code = String(j.code || '').replace(/\D/g, '');
+    const pair = /^\d{6}$/.test(code) ? await kv.get(`link:${code}`) : null;
+    if (!pair) return fail(404, 'That code is wrong or has expired.');
+    await kv.delete(`link:${code}`);                         // one use only
+    return json({ pair }, 200);
+  }
+  const m = /^\/hand\/([0-9a-f]{32})$/.exec(route), from = url.searchParams.get('from');
+  if (!m || !['phone', 'pc'].includes(from)) return fail(404, 'Not found.');
+  if (!(await kv.get(`pair:${m[1]}`))) return fail(404, 'Not linked.');
+  if (req.method === 'PUT') {
+    const body = await req.text();
+    if (body.length > MAX_HAND) return fail(413, 'Too much to keep.');
+    try { JSON.parse(body); } catch { return fail(400, 'Bad JSON.'); }
+    await kv.put(`hand:${m[1]}:${from}`, body, { expirationTtl: HAND_TTL });
+    return json({ ok: true }, 200);
+  }
+  if (req.method === 'GET') return json((await kv.get(`hand:${m[1]}:${from}`, 'json')) || { messages: [] }, 200);
+  return fail(405, 'Use GET or PUT.');
+}
+
 export default {
   async fetch(req, env, ctx) {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (!env.GROQ_API_KEY) return fail(500, 'The proxy has no GROQ_API_KEY set.');
-    if (env.APP_TOKEN && req.headers.get('x-jarvis-token') !== env.APP_TOKEN) return fail(403, 'Unknown app.');
-
     const route = new URL(req.url).pathname.replace(/^\/v1(?=\/)/, '');
+    // the PC has no app token: it proves itself with the one-time code, then with the pair's secret
+    if (route === '/link/claim' || route.startsWith('/hand/')) {
+      if (env.LIMITER) { const { success } = await env.LIMITER.limit({ key: 'hand:' + (req.headers.get('cf-connecting-ip') || 'x') }); if (!success) return fail(429, 'Too many requests. Try again in a minute.'); }
+      return handoff(route, req, env);
+    }
+    if (env.APP_TOKEN && req.headers.get('x-jarvis-token') !== env.APP_TOKEN) return fail(403, 'Unknown app.');
+    if (route === '/link/new') return handoff(route, req, env);
+
     if (route === '/update' || route === '/update/apk') return update(route, new URL(req.url), env, ctx);
     if (route === '/ping') return new Response(null, { status: 204, headers: CORS });   // the app warms its connection on "Hey Jarvis"
     const device = (req.headers.get('x-jarvis-device') || 'anonymous').slice(0, 64);
