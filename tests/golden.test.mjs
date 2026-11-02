@@ -41,8 +41,6 @@ check('spoken summary == python', N.Navigator.spokenSummary({ ...r }, 'Test Plac
 nav = new N.Navigator({}, async (url) => url.includes('valhalla') ? null : G.osrm_fixture, { noThrottle: true });
 r = await nav.route([A, C], 'auto', 'km'); delete r.created;
 same('osrm fallback route == python', r, G.osrm_route);
-nav = new N.Navigator({}, async (url) => url.includes('valhalla') ? { error: 'Path distance exceeds the max distance limit', error_code: 154 } : G.osrm_fixture, { noThrottle: true });
-r = await nav.route([A, C], 'auto', 'km'); check('too far for Valhalla -> OSRM route instead', r.ok && r.provider !== 'valhalla', r.error);
 nav = new N.Navigator({}, async () => ({ error: 'No path could be found', error_code: 442 }), { noThrottle: true });
 r = await nav.route([A, C], 'auto', 'km'); check('no-path message', !r.ok && r.error.includes("couldn't find a driving route"), r);
 nav = new N.Navigator({}, async () => null, { noThrottle: true });

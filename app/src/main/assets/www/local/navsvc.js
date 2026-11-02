@@ -39,9 +39,9 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return NO_ORIGIN;
   }
   /** Where you are now, waiting a few seconds for a GPS fix if the phone hasn't had one lately. */
-  /** Where the route starts: the map's live position, else the phone's GPS right now, and only then a spot saved earlier
-   *  (the last delivery address or "I'm at ..."), which can be anywhere. */
-  async function originNow() { const p = S.pos; if (p && Date.now() / 1000 - p.ts < 120 && p.acc <= 200) return [p.lat, p.lon]; return phoneFix(true) || origin(); }
+  // "from my current location" means from here: map searches turn phrases like that into a random place abroad ("too far")
+  const HERE = /^(?:right )?here$|^(?:from )?(?:my|our|the)? ?(?:current |present |live |gps |exact )?(?:location|position|place|spot|gps)(?: now| right now)?$|^where (?:i am|we are)(?: now| right now)?$|^me$|^current$/i;
+  async function originNow() { return origin() || phoneFix(true); }
   function origin() {
     const p = S.pos;
     if (p && Date.now() / 1000 - p.ts < 300 && p.acc <= 200) return [p.lat, p.lon];
@@ -164,7 +164,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   }
   async function start(destText, mode = 'auto', fromText = '') {
     let org = await originNow(), from = null;
-    if (fromText && !/^(here|my location|where i am|me)$/i.test(fromText.trim())) {   // "from Wuse 2 to Jabi": the route starts there
+    if (fromText && !HERE.test(fromText.trim())) {   // "from Wuse 2 to Jabi": the route starts there
       from = await resolve(fromText, org); if (!from) return `I couldn't find ${fromText}. Try the street and the town.`; org = [from.lat, from.lon];
     }
     if (!org) return noOrigin();
@@ -349,5 +349,5 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if ((m = R.gps.exec(t))) return mapControl(m[1].toLowerCase() === 'on' ? 'gps_on' : 'gps_off');
     return null;
   }
-  return { state: S, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, originNow, stop, status, mapControl, openInMaps, externalUrl };
+  return { state: S, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, stop, status, mapControl, openInMaps, externalUrl };
 }
