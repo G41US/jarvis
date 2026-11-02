@@ -150,6 +150,9 @@ body.jv-talking #jv-hint, body[data-nav] #jv-hint, body.st-muted #jv-hint, body.
 #jv-dock { position: fixed; z-index: 9; left: 0; right: 0; bottom: calc(var(--safe-b) + 22px); height: 72px; pointer-events: none; }
 #jv-dock > * { pointer-events: auto; }
 #jv-dock #jv-hist { position: absolute; right: 18px; top: 14px; }
+#jv-mapback { position: absolute; left: 18px; top: 14px; display: none; align-items: center; gap: 6px; height: 44px; padding: 0 16px; border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--state) 45%, transparent); background: rgba(10, 7, 3, .78); color: var(--ice); font: 600 14px/1 Roboto, sans-serif; }
+body.jv-trip-hidden #jv-mapback { display: inline-flex; }   /* a trip is running behind the face: one tap back to the map */
 #jv-orb { position: absolute; left: 50%; top: 0; margin-left: -36px; width: 72px; height: 72px; border-radius: 50%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer;
   background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--state) 24%, #15100a), #060402 72%); color: var(--ice);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--state) 55%, transparent), 0 0 calc(14px + var(--lvl, 0) * 46px) color-mix(in srgb, var(--state) 60%, transparent), 0 10px 26px rgba(0, 0, 0, .5);
@@ -234,6 +237,7 @@ body[data-nav="full"] #jv-orb { left: auto; right: 12px; margin: 0; width: 58px;
 @media (orientation: portrait) {   /* phone: his head is in the bottom-right corner, so the talk button goes bottom-left */
   body[data-nav="full"] #jv-orb { left: 16px; right: auto; }
   body[data-nav="full"] #jv-toast { top: calc(var(--nb-b, 182px) + 50px); }   /* under the turn banner and its "Then" row, not over them */
+  body[data-nav="full"] #nav-orb { pointer-events: auto; cursor: pointer; }   /* tap his head: back to the face (the trip keeps going) */
   body[data-nav="full"] .nb-then { left: 12px !important; top: calc(var(--nb-b, 182px) + 8px) !important; }   /* the PC put it at a fixed 118px, inside the phone's taller banner */
   body[data-nav="full"] #nav-caption { left: 12px; right: 12px; transform: none; max-width: none; bottom: auto; top: auto;
     bottom: calc(100% - var(--orb-cy) + var(--orb-d) / 2 + 12px); }   /* what he's saying sits above his head, not over it */
@@ -535,7 +539,9 @@ export function initUi() {
   const dock = el('div'); dock.id = 'jv-dock';
   const orb = el('button'); orb.id = 'jv-orb'; orb.setAttribute('aria-label', 'Talk to Jarvis. Hold to mute. Swipe up for ideas.'); orb.innerHTML = ICON.mic;
   const hist = el('button', 'jv-ic'); hist.id = 'jv-hist'; hist.setAttribute('aria-label', 'Conversation and settings'); hist.innerHTML = ICON.hist;
-  dock.append(orb, hist);
+  const mapBack = el('button', '', 'Map'); mapBack.id = 'jv-mapback'; mapBack.type = 'button'; mapBack.setAttribute('aria-label', 'Back to the map');
+  mapBack.onclick = () => { try { window.JARVIS.navsvc.mapControl('show_map'); } catch {} };
+  dock.append(orb, hist, mapBack);
 
   // ---- conversation sheet: Clear, Settings, Done
   const hh = el('div'); hh.id = 'jv-hist-head';
@@ -674,6 +680,10 @@ export function initUi() {
   // the bottom of the turn banner (long street names wrap it to more lines): the "Then" row and the toast go under it
   let nbSeen = null;
   const nbLayout = nb => { if (nb.offsetHeight) document.documentElement.style.setProperty('--nb-b', Math.round(nb.getBoundingClientRect().bottom) + 'px'); };
+  document.addEventListener('click', e => {   // his head in the corner of the map: back to the face
+    if (e.target.closest && e.target.closest('#nav-orb') && document.body.getAttribute('data-nav') === 'full') { try { window.JARVIS.navsvc.mapControl('hide_map'); } catch {} }
+  });
+  setInterval(() => { const N = window.JARVIS && window.JARVIS.navsvc; B.toggle('jv-trip-hidden', !!(N && N.state.active && !N.state.delivery && N.state.view === 'off')); }, 700);
   setInterval(() => { const nb = document.querySelector('.nb'); if (!nb || nb === nbSeen || !window.ResizeObserver) return; nbSeen = nb; new ResizeObserver(() => nbLayout(nb)).observe(nb); nbLayout(nb); }, 1000);
 
   // the face makes room for the answer card

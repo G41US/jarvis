@@ -253,9 +253,10 @@ def main():
     nav = sub_once(nav, "'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css'", "'./vendor/maplibre/maplibre-gl.css'", 'maplibre css')
     # ---- phone "dash" view for deliveries: route card on top, a small map with directions under it, the face as an orb
     #      in the bottom-right corner (ui.js has the layout). Starts by itself while there are orders.
+    # (a phone gets a small head so the map has the room)
     nav = sub_once(nav, """    const D = Math.round(clamp(H * 0.18, 110, 170)), R = 0.36 * H, sc = D / (2 * R);
     const cx = 28 + D / 2, cy = H - 40 - D / 2;""", """    const dash = S.view === 'dash';
-    const D = Math.round(dash ? clamp(H * 0.15, 96, 132) : clamp(H * 0.18, 110, 170)), R = Math.min(0.36 * H, 0.44 * W), sc = D / (2 * R);   // portrait: the circle fits the face, not the screen
+    const D = Math.round(dash || W < H ? clamp(H * 0.13, 88, 116) : clamp(H * 0.18, 110, 170)), R = Math.min(0.36 * H, 0.44 * W), sc = D / (2 * R);   // portrait: the circle fits the face, not the screen
     // on a phone the head sits in the bottom-right corner, just above the trip numbers (arrive / left / distance)
     const ne = document.querySelector('.ne'), neBox = ne && ne.getBoundingClientRect(), portrait = W < H;
     const low = dash ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dash-orb-bottom')) || 120)
