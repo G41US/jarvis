@@ -220,7 +220,7 @@ export class Navigator {
     const r = await this._valhalla(pts, mode, units, lang, avoid);
     if (r.ok) return r;
     const err = r.error || '';
-    if (r.hard && !r.far) return { ok: false, error: err };              // too far for Valhalla: OSRM has no distance limit
+    if (r.hard) return { ok: false, error: err };
     const o = await this._osrm(pts, mode, units, avoid);
     if (o.ok) return o;
     return { ok: false, error: err || o.error || "The routing service isn't reachable right now." };
@@ -239,7 +239,7 @@ export class Navigator {
     if (!('trip' in data)) {
       const msg = String(data.error || ''), code = data.error_code;
       if (code === 154 || code === 153 || msg.toLowerCase().includes('exceeds'))
-        return { ok: false, hard: true, far: true, error: "That's farther than the free routing service allows. I can open it in Google or Apple Maps instead." };
+        return { ok: false, hard: true, error: "That's farther than the free routing service allows. I can open it in Google or Apple Maps instead." };
       if ([442, 443, 171, 170].includes(code) || msg.toLowerCase().includes('no path') || msg.toLowerCase().includes('no suitable edges'))
         return { ok: false, hard: true, error: `I couldn't find a ${Navigator.modeWord(mode)} route between those places.` };
       return { ok: false, error: '' };

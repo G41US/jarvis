@@ -136,6 +136,7 @@ def other_handler(route):
     state['http'].append(url.split('?')[0])
     if 'nominatim' in url and '/search' in url:
         q = re.search(r'[?&]q=([^&]*)', url); from urllib.parse import unquote_plus
+        state.setdefault('geo', []).append(unquote_plus(q.group(1)) if q else '')
         return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps(nominatim(unquote_plus(q.group(1)) if q else '')))
     if 'nominatim' in url and '/reverse' in url:
         return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'lat': str(A[0]), 'lon': str(A[1]), 'display_name': '1 Washington St, Phoenix, Arizona', 'address': {'house_number': '1', 'road': 'Washington St', 'city': 'Phoenix', 'state': 'Arizona', 'country_code': 'us'}}))
@@ -600,8 +601,10 @@ def main():
         # ---- location: the phone's own GPS, even with the map closed (it used to say "I don't know where you are")
         ev("JARVIS.navsvc.state.pos = null; window.__phone.loc = { lat: 9.0765, lon: 7.4986, acc: 15, age_s: 4 }")
         check('Jarvis knows where you are from the phone\'s GPS with the map closed', ev("JSON.stringify(JARVIS.navsvc.origin())") == '[9.0765,7.4986]', ev("JSON.stringify(JARVIS.navsvc.origin())"))
-        ev("JARVIS.navsvc.state.pos = null; JARVIS.delivery._setState('loc', { lat: 33.42, lon: -111.94, label: 'old delivery' }); window.__phone.loc = { lat: 9.18, lon: 7.18, acc: 30, age_s: 2400 }")
-        check('a route starts from the phone\'s GPS, not a spot saved long ago (it was routing from another continent)', ev("JARVIS.navsvc.originNow().then(JSON.stringify)") == '[9.18,7.18]', ev("JARVIS.navsvc.originNow().then(JSON.stringify)"))
+        n0 = len(state.get('geo', []))
+        r = ev("JARVIS.reg.exec('navigate_to', JSON.stringify({ destination: 'Jabi Lake Mall', from: 'my current location' }))")
+        check('"from my current location" starts from the GPS (it used to look that phrase up as a place abroad: "too far")', not any('current location' in q for q in state.get('geo', [])[n0:]) and 'too far' not in r.lower() and 'farther' not in r.lower(), (r, state.get('geo', [])[n0:]))
+        ev("JARVIS.reg.exec('stop_navigation', '{}')")
         ev("JARVIS.navsvc.state.pos = null; window.__phone.loc = {}")
         # ---- talking: speaking speed and a mouth that follows the voice's loudness
         check('he talks a bit faster by default (both voices get the speed)', ev("window.__native.speed") == 1.15, ev("window.__native.speed"))
