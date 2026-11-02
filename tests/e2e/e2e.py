@@ -540,7 +540,7 @@ def main():
         HOLD = "(() => { const o = document.getElementById('jv-orb'), r = o.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;"
         HOLD += " o.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 7, button: 0 }));"
         HOLD += " return new Promise(res => setTimeout(() => { o.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y, pointerId: 7 })); res(1); }, 700)); })()"
-        check('the main screen has no mute or settings buttons any more (just talk + conversation)', not ev("!!document.getElementById('jv-mute')") and ev("document.querySelectorAll('#jv-dock button').length") == 2
+        check('the main screen has no mute or settings buttons any more (just talk + conversation)', not ev("!!document.getElementById('jv-mute')") and ev("[...document.querySelectorAll('#jv-dock button')].filter(b => b.offsetParent).length") == 2
               and ev("!!document.querySelector('#jv-hist-head #jv-gear')"))
         ev(HOLD); pg.wait_for_timeout(200)
         check('holding the talk button mutes, with a buzz', ev("window.__jv.state().muted") is True and ev("document.querySelector('#jv-status').textContent").startswith('Muted')
