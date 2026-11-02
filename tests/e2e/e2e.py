@@ -605,6 +605,11 @@ def main():
         r = ev("JARVIS.reg.exec('navigate_to', JSON.stringify({ destination: 'Jabi Lake Mall', from: 'my current location' }))")
         check('"from my current location" starts from the GPS (it used to look that phrase up as a place abroad: "too far")', not any('current location' in q for q in state.get('geo', [])[n0:]) and 'too far' not in r.lower() and 'farther' not in r.lower(), (r, state.get('geo', [])[n0:]))
         ev("JARVIS.reg.exec('stop_navigation', '{}')")
+        n0 = len(state.get('geo', []))
+        r = ev("JARVIS.navsvc.fastpath ? JARVIS.navsvc.fastpath('give me directions to Jabi Lake Mall from where I am') : null")
+        geo = state.get('geo', [])[n0:]
+        check('"directions to X from where I am" (the start said last) goes to X from the GPS', r and geo and all('where' not in q.lower() for q in geo) and any('Jabi Lake Mall' == q for q in geo), (r, geo))
+        ev("JARVIS.reg.exec('stop_navigation', '{}')")
         ev("JARVIS.navsvc.state.pos = null; window.__phone.loc = {}")
         # ---- talking: speaking speed and a mouth that follows the voice's loudness
         check('he talks a bit faster by default (both voices get the speed)', ev("window.__native.speed") == 1.15, ev("window.__native.speed"))

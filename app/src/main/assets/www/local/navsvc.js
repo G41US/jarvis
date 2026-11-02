@@ -40,7 +40,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   }
   /** Where you are now, waiting a few seconds for a GPS fix if the phone hasn't had one lately. */
   // "from my current location" means from here: map searches turn phrases like that into a random place abroad ("too far")
-  const HERE = /^(?:right )?here$|^(?:from )?(?:my|our|the)? ?(?:current |present |live |gps |exact )?(?:location|position|place|spot|gps)(?: now| right now)?$|^where (?:i am|we are)(?: now| right now)?$|^me$|^current$/i;
+  const HERE = { test: t => t.length <= 45 && (/^(?:me|current|gps)$/i.test(t) || /\b(?:here|where (?:i|we)(?:'m| am| are|'re| is)|(?:my|our|the|this|me) (?:current |present |exact |live |actual |gps )?(?:location|position|spot|area|gps|coordinates|address now)|current (?:location|position|place|spot|address)|gps)\b/i.test(t)) };
   async function originNow() { return origin() || phoneFix(true); }
   function origin() {
     const p = S.pos;
@@ -163,6 +163,8 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return NAV.geocode(text, org);
   }
   async function start(destText, mode = 'auto', fromText = '') {
+    const tail = /^(.+?)\s+(?:starting\s+)?from\s+(.+)$/i.exec(String(destText || '').trim());   // "to Jabi Lake Mall from where I am"
+    if (tail && !fromText && (HERE.test(tail[2].trim()) || tail[2].trim().split(/\s+/).length <= 6)) { destText = tail[1]; fromText = tail[2]; }
     let org = await originNow(), from = null;
     if (fromText && !HERE.test(fromText.trim())) {   // "from Wuse 2 to Jabi": the route starts there
       from = await resolve(fromText, org); if (!from) return `I couldn't find ${fromText}. Try the street and the town.`; org = [from.lat, from.lon];

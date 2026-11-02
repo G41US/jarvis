@@ -233,7 +233,10 @@ body[data-nav="full"] #jv-dock { bottom: calc(var(--safe-b) + 110px); }
 body[data-nav="full"] #jv-orb { left: auto; right: 12px; margin: 0; width: 58px; height: 58px; }
 @media (orientation: portrait) {   /* phone: his head is in the bottom-right corner, so the talk button goes bottom-left */
   body[data-nav="full"] #jv-orb { left: 16px; right: auto; }
-  body[data-nav="full"] #jv-toast { top: calc(var(--safe-t) + 178px); }   /* under the turn banner, not over it */
+  body[data-nav="full"] #jv-toast { top: calc(var(--nb-b, 182px) + 50px); }   /* under the turn banner and its "Then" row, not over them */
+  body[data-nav="full"] .nb-then { left: 12px !important; top: calc(var(--nb-b, 182px) + 8px) !important; }   /* the PC put it at a fixed 118px, inside the phone's taller banner */
+  body[data-nav="full"] #nav-caption { left: 12px; right: 12px; transform: none; max-width: none; bottom: auto; top: auto;
+    bottom: calc(100% - var(--orb-cy) + var(--orb-d) / 2 + 12px); }   /* what he's saying sits above his head, not over it */
   body[data-nav] .nav-note, body[data-nav] #nav-badge { display: none !important; }   /* map-provider and GPS labels printed over the trip numbers */
 }
 #nav-orb { border-color: color-mix(in srgb, var(--state) 70%, transparent) !important; box-shadow: 0 0 22px color-mix(in srgb, var(--state) 45%, transparent) !important; }   /* gold, like the rest */
@@ -668,6 +671,10 @@ export function initUi() {
   if (rp && window.ResizeObserver) new ResizeObserver(() => { dashLayout(); stage(); }).observe(rp);
   window.addEventListener('resize', () => setTimeout(dashLayout, 50));
   setInterval(dashLayout, 1500);
+  // the bottom of the turn banner (long street names wrap it to more lines): the "Then" row and the toast go under it
+  let nbSeen = null;
+  const nbLayout = nb => { if (nb.offsetHeight) document.documentElement.style.setProperty('--nb-b', Math.round(nb.getBoundingClientRect().bottom) + 'px'); };
+  setInterval(() => { const nb = document.querySelector('.nb'); if (!nb || nb === nbSeen || !window.ResizeObserver) return; nbSeen = nb; new ResizeObserver(() => nbLayout(nb)).observe(nb); nbLayout(nb); }, 1000);
 
   // the face makes room for the answer card
   let stageKey = '';
