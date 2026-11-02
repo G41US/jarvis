@@ -267,6 +267,8 @@ def main():
     nav = sub_once(nav, "transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% 45%); }",
                    "transform: translate(var(--orb-tx), var(--orb-ty)) scale(var(--orb-s)); clip-path: circle(var(--orb-r) at 50% var(--orb-fy, 45%)); }", 'orb clip centre')
     nav = sub_once(nav, "      document.body.setAttribute('data-nav', mode);\n", "      document.body.setAttribute('data-nav', mode);\n      startGps();\n", 'map view starts gps')
+    # 3D: the camera tilts further and comes closer while following, so streets and buildings stand up like a 3D sat-nav
+    nav = sub_once(nav, "bearing: f.heading || 0, pitch: 55, zoom: f.zoom,", "bearing: f.heading || 0, pitch: 65, zoom: f.zoom + 0.5,", 'map 3d follow')
     nav = sub_once(nav, "case 'view': if (m.mode === 'full' || m.mode === 'mini')", "case 'view': if (m.mode === 'full' || m.mode === 'mini' || m.mode === 'dash')", 'dash view message')
     nav = sub_once(nav, "    if (meta.view !== 'keep') setView(S.view === 'mini' ? 'mini' : 'full');", "    if (meta.view !== 'keep') setView(meta.view === 'dash' ? 'dash' : S.view === 'mini' ? 'mini' : 'full');", 'dash route view')
     # MapLibre's stylesheet (loaded later) sets .maplibregl-map { position: relative }, which collapsed the map box to zero

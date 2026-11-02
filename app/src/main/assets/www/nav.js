@@ -270,7 +270,7 @@ export class MapLibreAdapter {
   }
   follow(f) {
     const H = this.layer.clientHeight || 600;
-    this.map.easeTo({ center: [f.lon, f.lat], bearing: f.heading || 0, pitch: 55, zoom: f.zoom, duration: 950, easing: t => t, essential: true,
+    this.map.easeTo({ center: [f.lon, f.lat], bearing: f.heading || 0, pitch: 65, zoom: f.zoom + 0.5, duration: 950, easing: t => t, essential: true,
       padding: { top: Math.round(H * 0.36), bottom: 0, left: 0, right: 0 } });
   }
   overview(b) {
