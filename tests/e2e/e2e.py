@@ -600,6 +600,8 @@ def main():
         # ---- location: the phone's own GPS, even with the map closed (it used to say "I don't know where you are")
         ev("JARVIS.navsvc.state.pos = null; window.__phone.loc = { lat: 9.0765, lon: 7.4986, acc: 15, age_s: 4 }")
         check('Jarvis knows where you are from the phone\'s GPS with the map closed', ev("JSON.stringify(JARVIS.navsvc.origin())") == '[9.0765,7.4986]', ev("JSON.stringify(JARVIS.navsvc.origin())"))
+        ev("JARVIS.navsvc.state.pos = null; JARVIS.delivery._setState('loc', { lat: 33.42, lon: -111.94, label: 'old delivery' }); window.__phone.loc = { lat: 9.18, lon: 7.18, acc: 30, age_s: 2400 }")
+        check('a route starts from the phone\'s GPS, not a spot saved long ago (it was routing from another continent)', ev("JARVIS.navsvc.originNow().then(JSON.stringify)") == '[9.18,7.18]', ev("JARVIS.navsvc.originNow().then(JSON.stringify)"))
         ev("JARVIS.navsvc.state.pos = null; window.__phone.loc = {}")
         # ---- talking: speaking speed and a mouth that follows the voice's loudness
         check('he talks a bit faster by default (both voices get the speed)', ev("window.__native.speed") == 1.15, ev("window.__native.speed"))
