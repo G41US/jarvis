@@ -269,7 +269,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return `Saved ${key}.`;
   }
   async function whereAmI() {
-    const o = await originNow(); if (!o) return noOrigin();
+    const o = phoneFix(true) || await originNow(); if (!o) return noOrigin();   // asked outright: a fix from now, not one from minutes ago
     const info = await NAV.reverse(o[0], o[1]); if (!info) return "I have your position but can't name the street right now.";
     const weak = (!S.pos || S.pos.acc > 200) ? ' My location is only approximate.' : '';
     return `You're near ${info.short}, ${info.area}.`.replace(', .', '.') + weak;
