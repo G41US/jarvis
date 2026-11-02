@@ -39,7 +39,9 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return NO_ORIGIN;
   }
   /** Where you are now, waiting a few seconds for a GPS fix if the phone hasn't had one lately. */
-  async function originNow() { return origin() || phoneFix(true); }
+  /** Where the route starts: the map's live position, else the phone's GPS right now, and only then a spot saved earlier
+   *  (the last delivery address or "I'm at ..."), which can be anywhere. */
+  async function originNow() { const p = S.pos; if (p && Date.now() / 1000 - p.ts < 120 && p.acc <= 200) return [p.lat, p.lon]; return phoneFix(true) || origin(); }
   function origin() {
     const p = S.pos;
     if (p && Date.now() / 1000 - p.ts < 300 && p.acc <= 200) return [p.lat, p.lon];
@@ -269,7 +271,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return `Saved ${key}.`;
   }
   async function whereAmI() {
-    const o = phoneFix(true) || await originNow(); if (!o) return noOrigin();   // asked outright: a fix from now, not one from minutes ago
+    const o = await originNow(); if (!o) return noOrigin();
     const info = await NAV.reverse(o[0], o[1]); if (!info) return "I have your position but can't name the street right now.";
     const weak = (!S.pos || S.pos.acc > 200) ? ' My location is only approximate.' : '';
     return `You're near ${info.short}, ${info.area}.`.replace(', .', '.') + weak;
@@ -347,5 +349,5 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if ((m = R.gps.exec(t))) return mapControl(m[1].toLowerCase() === 'on' ? 'gps_on' : 'gps_off');
     return null;
   }
-  return { state: S, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, stop, status, mapControl, openInMaps, externalUrl };
+  return { state: S, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, originNow, stop, status, mapControl, openInMaps, externalUrl };
 }
