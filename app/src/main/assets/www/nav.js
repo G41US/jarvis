@@ -486,7 +486,7 @@ export function createNav(env = {}) {
   function layoutOrb() {
     const W = window.innerWidth, H = window.innerHeight;
     const dash = S.view === 'dash';
-    const D = Math.round(dash ? clamp(H * 0.15, 96, 132) : clamp(H * 0.18, 110, 170)), R = Math.min(0.36 * H, 0.44 * W), sc = D / (2 * R);   // portrait: the circle fits the face, not the screen
+    const D = Math.round(dash || W < H ? clamp(H * 0.13, 88, 116) : clamp(H * 0.18, 110, 170)), R = Math.min(0.36 * H, 0.44 * W), sc = D / (2 * R);   // portrait: the circle fits the face, not the screen
     // on a phone the head sits in the bottom-right corner, just above the trip numbers (arrive / left / distance)
     const ne = document.querySelector('.ne'), neBox = ne && ne.getBoundingClientRect(), portrait = W < H;
     const low = dash ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dash-orb-bottom')) || 120)
