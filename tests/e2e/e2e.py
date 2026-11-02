@@ -571,7 +571,7 @@ def main():
         check('the page has the week total, 7 bars, best areas', ev("document.querySelectorAll('#jv-pane .bars button').length") == 7 and 'Best-paying areas' in txt and 'Tempe, AZ' in txt, txt[:300])
         ev("document.querySelector('#jv-pane .seg button').click()"); pg.wait_for_timeout(100)
         today = ev("'$' + JARVIS.earningsNow().today.earned.toFixed(2)")
-        check('Today shows today only (incl. the two just now)', today == ev("document.querySelector('#jv-pane .hero').textContent") and ev("JARVIS.earningsNow().today.orders") >= 2 and ev("JARVIS.earningsNow().week.earned") > ev("JARVIS.earningsNow().today.earned"), [today, ev("document.querySelector('#jv-pane .hero').textContent")])
+        check('Today shows today only (incl. the two just now; on a Monday the week is just today)', today == ev("document.querySelector('#jv-pane .hero').textContent") and ev("JARVIS.earningsNow().today.orders") >= 2 and ev("JARVIS.earningsNow().week.earned") >= ev("JARVIS.earningsNow().today.earned"), [today, ev("document.querySelector('#jv-pane .hero').textContent")])
         check('the face stops while it is open', ev("window.__jvPaused") is True)
         ev("document.querySelector('#jv-pane .back').click()"); pg.wait_for_timeout(100)
         check('closing it brings the face back', ev("window.__jvPaused") is False and not ev("document.body.classList.contains('jv-pane')"))
