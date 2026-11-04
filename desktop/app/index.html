@@ -1108,7 +1108,7 @@ async function loadVoices() {
   try {
     const r = await fetch('/voices'); const voices = await r.json();
     voiceSelect.innerHTML = '';
-    if (!voices.length) { const o = document.createElement('option'); o.value = ''; o.textContent = '(none)'; voiceSelect.appendChild(o); return; }
+    if (!voices.length) { const o = document.createElement('option'); o.value = ''; o.textContent = '(none)'; voiceSelect.appendChild(o); setTimeout(loadVoices, 10000); return; }   // first start: voices still downloading
     voices.forEach(v => {
       const o = document.createElement('option');
       if (typeof v === 'string') { o.value = v; o.textContent = v; } else { o.value = v.id; o.textContent = v.name; }
