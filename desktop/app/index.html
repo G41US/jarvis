@@ -1,0 +1,1878 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JARVIS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><circle cx=%228%22 cy=%228%22 r=%226%22 fill=%22%2300aaff%22/></svg>">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #05060a;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace; color: #e8dcc0; }
+  #bg-base { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 40%, #17120a 0%, #0e0b07 30%, #070508 60%, #020203 100%); }
+  #bg-rings { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden;
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, black 15%, black 55%, transparent 92%);
+    mask-image: radial-gradient(circle at 50% 50%, black 15%, black 55%, transparent 92%); }
+  .ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    border-radius: 50%; border: 1px solid rgba(200, 150, 70, 0.20);
+    box-shadow: 0 0 22px rgba(200, 150, 70, 0.20), 0 0 50px rgba(200, 150, 70, 0.08);
+    animation: ringPulse 8s ease-in-out infinite; pointer-events: none; }
+  .ring.dashed { border-style: dashed; border-color: rgba(220, 170, 90, 0.26); }
+  .ring.warm { border-color: rgba(200, 120, 50, 0.16);
+    box-shadow: 0 0 20px rgba(200, 120, 50, 0.20), 0 0 50px rgba(200, 120, 50, 0.06); }
+  .ring.warm.dashed { border-color: rgba(200, 130, 60, 0.22); }
+  .r1 { width: 260px; height: 260px; animation-delay: 0s; }
+  .r2 { width: 380px; height: 380px; animation-delay: 0.7s; }
+  .r3 { width: 520px; height: 520px; animation-delay: 1.4s; }
+  .r4 { width: 680px; height: 680px; animation-delay: 2.1s; }
+  .r5 { width: 860px; height: 860px; animation-delay: 2.8s; }
+  .r6 { width: 1060px; height: 1060px; animation-delay: 3.5s; }
+  .r7 { width: 1280px; height: 1280px; animation-delay: 4.2s; }
+  .r8 { width: 1520px; height: 1520px; animation-delay: 4.9s; }
+  @keyframes ringPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.9; } }
+  #bg-halo { position: fixed; top: 50%; left: 50%; width: 1100px; height: 1100px;
+    transform: translate(-50%, -52%);
+    background: radial-gradient(ellipse at center, rgba(150, 110, 40, 0.10) 0%, rgba(110, 80, 30, 0.05) 30%, rgba(60, 40, 15, 0.02) 55%, transparent 80%);
+    z-index: 1; pointer-events: none; filter: blur(30px); }
+  #bg-floor { position: fixed; bottom: 0; left: 50%; width: 90vw; height: 45vh; transform: translateX(-50%);
+    background: radial-gradient(ellipse at 50% 100%, rgba(150, 110, 40, 0.10) 0%, rgba(110, 80, 30, 0.04) 40%, transparent 75%);
+    z-index: 1; pointer-events: none; filter: blur(30px); }
+  #three { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }
+  #three canvas { display: block; }
+  #hud { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
+  #voice-panel { position: absolute; top: 36px; right: 44px; pointer-events: auto; opacity: 0.7; }
+  #voice-panel:hover { opacity: 1; }
+  #voice-panel select { background: transparent; color: #ffd783; border: none; padding: 4px 22px 4px 0;
+    font-family: inherit; font-size: 11px; letter-spacing: 4px; text-transform: uppercase; cursor: pointer;
+    outline: none; appearance: none; -webkit-appearance: none; text-align: right;
+    text-shadow: 0 0 8px rgba(255, 215, 131, 0.5);
+    background-image: linear-gradient(45deg, transparent 50%, #ffd783 50%), linear-gradient(135deg, #ffd783 50%, transparent 50%);
+    background-position: calc(100% - 10px) 50%, calc(100% - 5px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+  #voice-panel select option { background: #0a1828; color: #ffd783; }
+  #log { position: absolute; bottom: 130px; left: 44px; width: 400px; max-height: 45vh; overflow-y: auto;
+    font-size: 12px; line-height: 1.7; scrollbar-width: none; padding-right: 6px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 18%, black 100%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 18%, black 100%); }
+  #log::-webkit-scrollbar { display: none; }
+  .msg { margin: 12px 0; }
+  .msg .who { font-size: 9px; letter-spacing: 4px; display: block; margin-bottom: 3px; opacity: 0.75; }
+  .msg.user .who { color: #ffd783; } .msg.jarvis .who { color: #ffefb0; }
+  .msg.user .body { color: #e6e0d4; } .msg.jarvis .body { color: #fff1d6; }
+  .msg.sys { color: #8a7a5a; font-style: italic; font-size: 11px; opacity: 0.65; }
+  .msg.proactive { color: #ddbb88; font-style: italic; font-size: 11px; opacity: 0.85; }
+  #state { position: absolute; bottom: 82px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; letter-spacing: 14px; color: #ffd783; text-transform: uppercase;
+    text-shadow: 0 0 18px currentColor; transition: color 0.4s; white-space: nowrap; padding-left: 14px; opacity: 0.9; }
+  #state.listening { color: #ffefb0; } #state.thinking { color: #ddbb88; }
+  #state.speaking { color: #ffe7b0; } #state.session { color: #ffefb0; } #state.muted { color: #aa7777; }
+  #partial-text { position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%);
+    font-size: 13px; letter-spacing: 2px; color: #ffd783; opacity: 0; transition: opacity 0.3s;
+    font-style: italic; white-space: nowrap; max-width: 80vw; overflow: hidden;
+    text-overflow: ellipsis; pointer-events: none; }
+  #partial-text.active { opacity: 0.7; }
+  #controls { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); display: flex; gap: 44px; pointer-events: auto; }
+  button { background: transparent; border: none; color: rgba(255, 225, 170, 0.55); font-family: inherit;
+    font-size: 10px; letter-spacing: 5px; text-transform: uppercase; cursor: pointer; padding: 8px 2px;
+    transition: color 0.3s; text-shadow: 0 0 8px rgba(255, 215, 131, 0.45); }
+  button:hover { color: #fff1d6; text-shadow: 0 0 14px #ffd783; }
+  #initBtn { display: none; } #muteBtn.active { color: #cc7777; }
+  #debug { position: absolute; bottom: 36px; right: 44px; font-size: 10px; letter-spacing: 2px;
+    color: #6a90a8; text-align: right; max-width: 360px; text-transform: uppercase; font-style: italic;
+    opacity: 0; transition: opacity 0.6s ease; }
+  #debug.active { opacity: 0.8; }
+  #debug .heard { color: #ffd783; } #debug .rejected { color: #aa7a4a; } #debug .echo { color: #aa7070; }
+  #mic-level { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+    width: 90px; height: 2px; background: rgba(90, 70, 30, 0.4); overflow: hidden; opacity: 0.55; }
+  #mic-level-fill { height: 100%; width: 0%; background: #ffd783; transition: width 0.08s linear;
+    box-shadow: 0 0 6px #ffd783; }
+  #mic-level.hot #mic-level-fill { background: #ffefb0; box-shadow: 0 0 8px #ffefb0; }
+  #hidden { display: none; }
+  #diag { position: absolute; top: 40px; left: 44px; font-size: 11px; letter-spacing: 1px;
+    color: #88ccee; text-transform: uppercase; line-height: 1.7; pointer-events: none;
+    text-shadow: 0 0 4px rgba(90, 160, 200, 0.4); opacity: 0.85; }
+  #diag .v { color: #88ffbb; } #diag .u { color: #ffdd88; }
+  #cam-indicator { position: absolute; top: 44px; right: 44px; font-size: 10px; letter-spacing: 3px;
+    color: #ff7777; text-transform: uppercase; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+  #cam-indicator.active { opacity: 0.9; }
+  #activate { position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%); display: none;
+    font-size: 11px; letter-spacing: 5px; color: #ddbb88; text-transform: uppercase; white-space: nowrap;
+    text-shadow: 0 0 12px rgba(221, 187, 136, 0.6); pointer-events: none; animation: actPulse 1.6s ease-in-out infinite; }
+  #activate.show { display: block; }
+  @keyframes actPulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+  /* ---- PC: speech only, so no mouse controls or debug readouts (INITIALIZE still appears if the mic needs allowing) ---- */
+  #diag, #voice-panel, #debug, #muteBtn, #clearBtn, #cam-indicator { display: none !important; }
+  .msg.user .who { color: #a9b4bd; } .msg.jarvis .who { color: #ffd783; }
+  #state.thinking { color: #ffb84d; } #state.muted { color: #aa7777; }
+  @media (max-width: 1180px) { #log { width: 30vw; } }
+  #activate { top: 34px; bottom: auto; }   /* at the bottom it sat on the chin */
+  /* ===================== PC HUD: the phone app's look, laid out for a desktop ===================== */
+  @font-face { font-family: 'Saira'; src: url('models/fonts/Saira.ttf') format('truetype'); font-weight: 100 900; font-stretch: 50% 125%; font-display: swap; }
+  :root { --ice: #fff6e8; --mist: #cdbb9f; --dim: #8c7a62; --holo: #f5c97a; --live: #ffecbe; --amber: #ff9a3d;
+    --glass: rgba(24, 18, 10, .62); --glass-hi: rgba(255, 214, 150, .16); --state: var(--holo); --ease: cubic-bezier(.2, .8, .2, 1); }
+  body.st-session, body.st-listening { --state: var(--live); }
+  body.st-thinking { --state: var(--amber); }
+  body.st-muted { --state: #8c6a62; }
+  html, body { background: #000; font-family: 'Saira', system-ui, sans-serif; }
+  #bg-base { background: radial-gradient(ellipse at 50% 42%, #140f08 0%, #080604 45%, #000 80%); }
+  #bg-rings, #bg-halo, #bg-floor { opacity: .45; }
+  #log, #state, #mic-level, #partial-text, #debug { display: none !important; }
+
+  #pc-hello { position: absolute; top: 40px; left: 48px; pointer-events: none; }
+  #pc-hello .g { font: 300 22px/1.1 'Saira', system-ui, sans-serif; font-stretch: 118%; color: var(--mist); letter-spacing: .01em; }
+  #pc-hello .n { font: 600 40px/1.05 'Saira', system-ui, sans-serif; font-stretch: 112%; margin-top: 4px; letter-spacing: -.005em;
+    background: linear-gradient(100deg, var(--ice) 30%, color-mix(in srgb, var(--state) 80%, var(--ice))); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #pc-clock { position: absolute; top: 40px; right: 48px; text-align: right; pointer-events: none; }
+  #pc-clock .t { font: 300 40px/1.05 'Saira', system-ui, sans-serif; font-stretch: 104%; color: var(--ice); font-variant-numeric: tabular-nums; }
+  #pc-clock .d { font: 400 15px/1.4 'Saira', system-ui, sans-serif; font-stretch: 100%; color: var(--mist); margin-top: 6px; }
+
+  #pc-subs { position: absolute; left: 50%; bottom: 98px; transform: translate(-50%, 10px); width: min(820px, 84vw); text-align: center; pointer-events: none;
+    opacity: 0; transition: opacity .45s var(--ease), transform .55s var(--ease); }
+  #pc-subs.on { opacity: 1; transform: translate(-50%, 0); }
+  #pc-subs .you { font: 400 16px/1.4 'Saira', system-ui, sans-serif; font-stretch: 100%; color: var(--mist); margin-bottom: 8px; text-shadow: 0 1px 10px #000;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  #pc-subs .you:empty, #pc-subs .him:empty { display: none; }
+  #pc-subs .him { font: 500 25px/1.38 'Saira', system-ui, sans-serif; font-stretch: 96%; color: var(--ice); text-wrap: pretty;
+    text-shadow: 0 1px 2px #000, 0 2px 14px #000, 0 0 28px rgba(0, 0, 0, .85); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #pc-note { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); font: 400 14px/1.4 'Saira', system-ui, sans-serif; color: var(--dim);
+    white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .5s var(--ease); }
+  #pc-note.on { opacity: 1; }
+  #pc-subs.on ~ #pc-note { opacity: 0; }
+
+  #pc-pill { position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 11px; height: 42px; padding: 0 18px 0 15px;
+    border-radius: 999px; background: var(--glass); border: 1px solid color-mix(in srgb, var(--state) 38%, transparent);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); font: 600 15px/1 'Saira', system-ui, sans-serif; font-stretch: 88%; color: var(--ice);
+    white-space: nowrap; pointer-events: none; transition: border-color .4s; }
+  #pc-pill .sig { position: relative; display: inline-flex; align-items: center; gap: 3px; height: 16px; }
+  #pc-pill .sig i { display: block; width: 3px; height: 16px; border-radius: 2px; background: var(--state); transform: scaleY(.25); transition: background .4s; }
+  body.st-standby #pc-pill .sig i, body.st-idle #pc-pill .sig i, body.st-muted #pc-pill .sig i { transform: scaleY(.25); }
+  body.st-thinking #pc-pill .sig i { opacity: 0; }
+  body.st-thinking #pc-pill .sig::before { content: ''; position: absolute; left: 50%; top: 50%; width: 13px; height: 13px; margin: -7.5px 0 0 -7.5px; border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--state) 25%, transparent); border-top-color: var(--state); animation: pcSpin .9s linear infinite; }
+  @keyframes pcSpin { to { transform: rotate(360deg); } }
+
+  #activate { top: 36px; bottom: auto; padding: 10px 18px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-hi);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); font: 500 14px/1 'Saira', system-ui, sans-serif; letter-spacing: normal; text-transform: none;
+    color: var(--live); text-shadow: none; animation: none; }
+  #controls { bottom: 86px; }
+  #initBtn { font: 600 15px/1 'Saira', system-ui, sans-serif; letter-spacing: normal; text-transform: none; color: var(--ice); padding: 12px 20px; border-radius: 999px;
+    background: var(--glass); border: 1px solid var(--glass-hi); text-shadow: none; }
+  @media (max-width: 900px) { #pc-hello .n, #pc-clock .t { font-size: 30px; } #pc-hello, #pc-clock { top: 26px; } #pc-hello { left: 24px; } #pc-clock { right: 24px; } }
+  @media (prefers-reduced-motion: reduce) { #pc-subs, #pc-note { transition: opacity .2s; } body.st-thinking #pc-pill .sig::before { animation-duration: 2.4s; } }
+  /* corner card under the clock: weather here, and what Spotify is playing */
+  #pc-ambient { margin-top: 18px; display: grid; gap: 10px; justify-items: end; }
+  #pc-ambient .wx { display: flex; align-items: baseline; gap: 10px; }
+  #pc-ambient .wx b { font: 300 28px/1 'Saira', system-ui, sans-serif; font-stretch: 104%; color: var(--ice); font-variant-numeric: tabular-nums; }
+  #pc-ambient .wx span { font: 400 15px/1.2 'Saira', system-ui, sans-serif; color: var(--mist); }
+  #pc-ambient .np { display: flex; align-items: center; gap: 10px; max-width: 300px; }
+  #pc-ambient .np .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+  #pc-ambient .np .eq i { width: 2px; height: 12px; background: var(--holo); border-radius: 1px; transform-origin: bottom; animation: pcEq 1s ease-in-out infinite; }
+  #pc-ambient .np .eq i:nth-child(2) { animation-delay: -.35s; } #pc-ambient .np .eq i:nth-child(3) { animation-delay: -.7s; }
+  @keyframes pcEq { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+  #pc-ambient .np div { text-align: right; min-width: 0; }
+  #pc-ambient .np .t { font: 500 15px/1.25 'Saira', system-ui, sans-serif; color: var(--ice); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pc-ambient .np .a { font: 400 13px/1.25 'Saira', system-ui, sans-serif; color: var(--mist); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pc-ambient [hidden] { display: none; }
+
+  /* the morning briefing, on a card while he reads it */
+  #pc-brief { position: absolute; left: 48px; top: 150px; width: min(380px, 28vw); max-height: calc(100vh - 270px); overflow: hidden; padding: 22px 24px;
+    border-radius: 22px; background: linear-gradient(180deg, rgba(50, 32, 16, .62), rgba(24, 16, 8, .7)); border: 1px solid var(--glass-hi);
+    -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
+    opacity: 0; transform: translateX(-12px); pointer-events: none; transition: opacity .5s var(--ease), transform .6s var(--ease); }
+  #pc-brief.on { opacity: 1; transform: none; }
+  #pc-brief h2 { margin: 0 0 12px; font: 600 19px/1.2 'Saira', system-ui, sans-serif; font-stretch: 100%; color: var(--ice); }
+  #pc-brief p { margin: 0; font: 400 15px/1.6 'Saira', system-ui, sans-serif; color: var(--mist); white-space: pre-wrap; }
+
+  /* quiet for a few minutes: everything dims until something happens */
+  #three, #pc-hello, #pc-clock, #pc-pill { transition: opacity 2.5s var(--ease); }
+  body.pc-idle #three { opacity: .4; }
+  body.pc-idle #pc-hello, body.pc-idle #pc-clock { opacity: .45; }
+  body.pc-idle #pc-pill { opacity: .6; }
+
+  /* a newer Jarvis tab took over */
+  #pc-retired { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, .9);
+    font: 400 18px/1.5 'Saira', system-ui, sans-serif; color: var(--mist); text-align: center; padding: 24px; }
+  body.pc-retired #pc-retired { display: flex; }
+  @media (max-width: 900px) { #pc-brief { display: none; } #pc-ambient .np { max-width: 200px; } }
+</style>
+</head>
+<body>
+  <div id="bg-base"></div>
+  <div id="bg-rings">
+    <div class="ring r1"></div><div class="ring dashed r2"></div>
+    <div class="ring r3"></div><div class="ring warm r4"></div>
+    <div class="ring dashed r5"></div><div class="ring r6"></div>
+    <div class="ring warm dashed r7"></div><div class="ring r8"></div>
+  </div>
+  <div id="bg-halo"></div>
+  <div id="bg-floor"></div>
+  <div id="three"></div>
+
+  <div id="hud">
+    <div id="diag">
+      MODEL: <span class="v" id="d-model">loading…</span><br>
+      MORPHS MATCHED: <span class="v" id="d-morphs">0</span><br>
+      TOTAL MORPHS ON MESH: <span class="v" id="d-total">0</span><br>
+      JAW BONE: <span class="v" id="d-bones">NO</span><br>
+      SPEAK LEVEL: <span class="v" id="d-speak">0.00</span><br>
+      USER: <span class="u" id="d-user">unknown</span>
+    </div>
+    <div id="voice-panel"><select id="voiceSelect"></select></div>
+    <div id="cam-indicator">● CAM</div>
+    <div id="pc-hello"><div class="g">Good evening,</div><div class="n">Sir</div></div>
+    <div id="pc-clock"><div class="t"></div><div class="d"></div>
+      <div id="pc-ambient"><div class="wx" hidden><b></b><span></span></div>
+        <div class="np" hidden><span class="eq"><i></i><i></i><i></i></span><div><div class="t"></div><div class="a"></div></div></div></div></div>
+    <div id="pc-brief"><h2>Morning briefing</h2><p></p></div>
+    <div id="pc-retired">Jarvis is running in your newer tab. You can close this one.</div>
+    <div id="pc-subs"><div class="you"></div><div class="him"></div></div>
+    <div id="pc-note"></div>
+    <div id="pc-pill"><span class="sig"><i></i><i></i><i></i></span><span class="lbl">Starting up</span></div>
+    <div id="log"></div>
+    <div id="mic-level"><div id="mic-level-fill"></div></div>
+    <div id="state">BOOTING</div>
+    <div id="partial-text"></div>
+    <div id="controls">
+      <button id="initBtn">INITIALIZE</button>
+      <button id="muteBtn">MUTE</button>
+      <button id="clearBtn">CLEAR</button>
+    </div>
+    <div id="debug"></div>
+    <div id="hidden">
+      <span id="session-id"></span><span id="uptime"></span>
+      <span id="mode-readout"></span><span id="link-status"></span>
+      <span id="audio-status"></span><span id="tts-status"></span>
+      <span id="latency"></span>
+    </div>
+  </div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+console.log('[JARVIS] v24 — speech-only, fast speech queue, quiet-voice friendly');
+
+const TTS_RATE = 1.22, TTS_PITCH = 1.0;
+const AVATAR_FEMALE = 'models/faces/nova.glb';
+const AVATAR_MALE = 'models/faces/kofi.glb';
+const FADE_OUT_RATE = 5.0, FADE_IN_RATE = 3.0;
+
+const container = document.getElementById('three');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? ((navigator.deviceMemory || 4) <= 4 ? 1 : 1.25) : 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setClearColor(0x000000, 0);
+renderer.localClippingEnabled = true;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
+const CAM_LOOK = new THREE.Vector3(0, 4.4, 0);
+const CAM_BASE = new THREE.Vector3(0, 4.4, 1.8);
+camera.position.copy(CAM_BASE);
+camera.lookAt(CAM_LOOK);
+
+// pull the camera back so the whole head fits above the status text and buttons (1.85 on wide PC screens)
+let camFit = 1;
+function fitCamera() {
+  const a = window.innerWidth / Math.max(1, window.innerHeight);
+  camFit = a >= 1 ? 1.85 : Math.min(3.2, Math.max(1, (0.85 / (0.4663 * a)) / CAM_BASE.z));
+}
+fitCamera();
+
+window.addEventListener('resize', () => {
+  fitCamera();
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+let mouseNormX = 0, mouseNormY = 0;
+window.addEventListener('mousemove', (e) => {
+  mouseNormX = (e.clientX / window.innerWidth) * 2 - 1;
+  mouseNormY = -(e.clientY / window.innerHeight) * 2 + 1;
+});
+
+const hud = new THREE.Group(); scene.add(hud);
+function makeGlowTexture(size = 256) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  g.addColorStop(0.0, 'rgba(255,255,255,1)'); g.addColorStop(0.2, 'rgba(255,255,255,0.7)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.1)'); g.addColorStop(1.0, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const glowTex = makeGlowTexture();
+const flareTex = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d');
+  const h = g.createLinearGradient(0, 0, 256, 0); h.addColorStop(0, 'rgba(255,200,120,0)'); h.addColorStop(0.5, 'rgba(255,240,210,1)'); h.addColorStop(1, 'rgba(255,200,120,0)');
+  g.fillStyle = h; g.fillRect(0, 15, 256, 2); return new THREE.CanvasTexture(c); })();
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const keyLight = new THREE.DirectionalLight(0xfff2e0, 2.2); keyLight.position.set(3, 7, 6); scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xbcd4ff, 0.9); fillLight.position.set(-4, 5, 5); scene.add(fillLight);
+const rimLight = new THREE.DirectionalLight(0xddeaff, 1.5); rimLight.position.set(-2, 6, -6); scene.add(rimLight);
+const bounceLight = new THREE.DirectionalLight(0x8899aa, 0.35); bounceLight.position.set(2, -1, -3); scene.add(bounceLight);
+
+const CLIP_Y = 3.9;
+const bodyClipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -CLIP_Y);
+const faceGroup = new THREE.Group(); hud.add(faceGroup);
+
+const sharedUniforms = {
+  uTime: { value: 0 }, uColor: { value: new THREE.Color(0x0099dd) },
+  uAccent: { value: new THREE.Color(0x78d0f0) }, uOpacity: { value: 0.95 },
+  uSpeaking: { value: 0.0 }, uMouthY: { value: 0.44 }, uMouthX: { value: 0.50 },
+};
+const GID_VERT = `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const GID_FRAG = `
+uniform sampler2D uTex; uniform float uTime; uniform vec3 uColor; uniform vec3 uAccent;
+uniform float uOpacity; uniform float uSpeaking; uniform float uMouthY; uniform float uMouthX;
+varying vec2 vUv;
+void main() {
+  vec2 mouthUV = vec2(uMouthX, uMouthY); vec2 d = (vUv - mouthUV); d.x *= 1.5;
+  float mouthMask = smoothstep(0.20, 0.05, length(d)) * uSpeaking;
+  float lipOpen = ((sin(uTime * 17.0) * 0.5 + 0.5) * 0.7 + (sin(uTime * 23.0 + 1.7) * 0.5 + 0.5) * 0.3) * 0.028 * mouthMask;
+  vec2 uv = vUv; uv.y -= lipOpen * mouthMask;
+  vec4 tex = texture2D(uTex, uv);
+  if (tex.a < 0.04) discard;
+  float lum = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
+  float shaped = pow(smoothstep(0.18, 0.92, lum), 0.85);
+  vec3 tint = uColor * shaped;
+  tint = mix(tint, uAccent, smoothstep(0.88, 1.0, lum) * 0.4);
+  tint += uAccent * mouthMask * 0.4;
+  gl_FragColor = vec4(tint, tex.a * uOpacity * (0.72 + shaped * 0.28));
+}`;
+const gidMat = new THREE.ShaderMaterial({ uniforms: { ...sharedUniforms, uTex: { value: null } },
+  vertexShader: GID_VERT, fragmentShader: GID_FRAG, transparent: true,
+  blending: THREE.NormalBlending, depthWrite: false, side: THREE.DoubleSide });
+const gidPlane = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), gidMat);
+gidPlane.position.y = -0.3; faceGroup.add(gidPlane);
+new THREE.TextureLoader().load('models/gideon.png', (t) => {
+  t.colorSpace = THREE.SRGBColorSpace; gidMat.uniforms.uTex.value = t;
+}, undefined, () => {});
+
+const avatarLoader = new GLTFLoader();
+avatarLoader.setMeshoptDecoder(MeshoptDecoder);
+let avatarModel = null;
+const mouthMorphs = {};
+let jawBone = null, jawBoneRestQuat = null;
+let currentAvatarUrl = null, avatarLoadToken = 0;
+let avatarAlpha = 1, pendingSwapUrl = null;
+
+const MOUTH_MORPH_NAMES = ['jawOpen','mouthOpen','mouthClose','viseme_sil','viseme_PP','viseme_FF','viseme_TH','viseme_DD','viseme_kk','viseme_CH','viseme_SS','viseme_nn','viseme_RR','viseme_aa','viseme_E','viseme_I','viseme_O','viseme_U','A','I','U','E','O','aa','ih','ou','ee','oh','MouthOpen','Mouth_A','Mouth_I','Mouth_U','Mouth_E','Mouth_O','mouth_open'];
+
+function disposeAvatar(model) {
+  if (!model) return;
+  model.traverse((c) => {
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) {
+      const mats = Array.isArray(c.material) ? c.material : [c.material];
+      mats.forEach(m => {
+        for (const k in m) { const v = m[k]; if (v && v.isTexture) v.dispose(); }
+        m.dispose && m.dispose();
+      });
+    }
+  });
+}
+let particleFaceMaterial = null, particleFx = null;   // particleFx: the sparkles, orbiting dust and light streaks around the face
+function applyAvatarAlpha(a) {
+  if (!avatarModel) return;
+  const wantsAlpha = a < 0.995;
+  avatarModel.traverse((c) => {
+    if (!c.material) return;
+    const mats = Array.isArray(c.material) ? c.material : [c.material];
+    mats.forEach(m => {
+      if (m.userData._baseOpacity === undefined) {
+        m.userData._baseOpacity = (m.opacity !== undefined) ? m.opacity : 1;
+        m.userData._baseTransparent = m.transparent === true;
+      }
+      m.opacity = m.userData._baseOpacity * a;
+      const t = wantsAlpha || m.userData._baseTransparent;
+      if (m.transparent !== t) { m.transparent = t; m.needsUpdate = true; }
+    });
+  });
+  if (avatarModel.userData._baseScale !== undefined) {
+    avatarModel.scale.setScalar(avatarModel.userData._baseScale * (0.90 + 0.10 * a));
+  }
+}
+// Turn the loaded head surface into a dense, glowing gold point cloud, matching the JARVIS particle-face reference.
+function makeGoldenParticleFace(model) {
+  const candidates = [], cumulative = [];
+  const invRoot = new THREE.Matrix4();
+  model.updateMatrixWorld(true);
+  invRoot.copy(model.matrixWorld).invert();
+  const pA = new THREE.Vector3(), pB = new THREE.Vector3(), pC = new THREE.Vector3();
+  const localA = new THREE.Vector3(), localB = new THREE.Vector3(), localC = new THREE.Vector3();
+  let totalArea = 0;
+  const srcMeshes = [];
+  const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [], span = head ? head.top - head.neck : 1;
+  const mid = head ? new THREE.Vector3(head.cx || 0, head.neck + (head.top - head.neck) * 0.55, head.cz || 0) : null, nrm = new THREE.Vector3(), toMid = new THREE.Vector3();
+  model.traverse(mesh => {
+    if (!(mesh.isMesh || mesh.isSkinnedMesh) || !mesh.geometry || !mesh.geometry.attributes.position) return;
+    if (/teeth|tongue/i.test(mesh.name)) return;   // inside the mouth: they'd shine through the face
+    if (/high-?poly|eyelash/i.test(mesh.name)) { if (/high-?poly/i.test(mesh.name)) eyeMeshes.push(mesh); return; }   // eyes get a glow instead of dots
+    const g = mesh.geometry, pos = g.attributes.position, idx = g.index;
+    mesh.updateMatrixWorld(true);
+    const mi = srcMeshes.push({ mesh, pos, m: new THREE.Matrix4().multiplyMatrices(invRoot, mesh.matrixWorld), morph: (g.morphAttributes && g.morphAttributes.position) || [], rel: g.morphTargetsRelative }) - 1;
+    const triCount = idx ? Math.floor(idx.count / 3) : Math.floor(pos.count / 3);
+    for (let t = 0; t < triCount; t++) {
+      const ia = idx ? idx.getX(t * 3) : t * 3;
+      const ib = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
+      const ic = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+      pA.fromBufferAttribute(pos, ia).applyMatrix4(mesh.matrixWorld);
+      pB.fromBufferAttribute(pos, ib).applyMatrix4(mesh.matrixWorld);
+      pC.fromBufferAttribute(pos, ic).applyMatrix4(mesh.matrixWorld);
+      localA.copy(pA).applyMatrix4(invRoot); localB.copy(pB).applyMatrix4(invRoot); localC.copy(pC).applyMatrix4(invRoot);
+      const cy = (localA.y + localB.y + localC.y) / 3;
+      if (cy < minY) continue;
+      if (head && cy < head.neck + span * 0.32 && (localA.z + localB.z + localC.z) / 3 < (head.cz || 0) + span * 0.18) continue;   // the neck (low and set back): just the head, down to the chin
+      nrm.copy(localB).sub(localA).cross(toMid.copy(localC).sub(localA));
+      const area = nrm.length() * 0.5;
+      if (area < 1e-9) continue;
+      if (mid && nrm.dot(toMid.set((localA.x + localB.x + localC.x) / 3, cy, (localA.z + localB.z + localC.z) / 3).sub(mid)) < 0) continue;   // facing into the head (inside the mouth, eye sockets): it'd shine through the face
+      if (head && nrm.z / (2 * area) < -0.15 && Math.abs((localA.x + localB.x + localC.x) / 3 - (head.cx || 0)) < span * 0.3) continue;   // the back of the skull showed through the top half (ears, at the sides, stay)
+      const nz = Math.abs(nrm.z) / (2 * area), out = mid ? Math.max(0, (nrm.x * toMid.x + nrm.z * toMid.z) / (2 * area * Math.hypot(toMid.x, toMid.z) || 1)) : 1;
+      totalArea += area * (nz > 0.5 || out > 0.6 ? 1 : 0.35);   // fewer dots in creases seen edge-on (they piled up into a frown); the outline keeps its dots
+      candidates.push([localA.clone(), localB.clone(), localC.clone(), mi, ia, ib, ic, nrm.clone().divideScalar(2 * area)]);
+      cumulative.push(totalArea);
+    }
+  });
+  if (!candidates.length || totalArea <= 0) return null;
+  // a human head: fuller at the temples and cranium, slimming down to the jaw and chin
+  const cx = head ? head.cx || 0 : 0, widen = y => { if (!head) return 1; const t = Math.min(1, Math.max(0, (y - head.neck) / (head.top - head.neck)));
+    const k = Math.min(1, Math.max(0, (t - 0.12) / 0.5)); return 0.94 + 0.18 * k * k * (3 - 2 * k); };
+  const count = 9000, points = new Float32Array(count * 3), colors = new Float32Array(count * 3), moving = [];   // fewer, crisper dots: the face reads as light, not sand
+  const LIGHT = new THREE.Vector3(-0.45, 0.5, 0.74).normalize();
+  for (let i = 0; i < count; i++) {
+    const target = Math.random() * totalArea;
+    let lo = 0, hi = cumulative.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cumulative[mid] < target) lo = mid + 1; else hi = mid; }
+    const tri = candidates[lo], u = Math.random(), v = Math.random(), su = Math.sqrt(u);
+    const wa = 1 - su, wb = su * (1 - v), wc = su * v;
+    const src = srcMeshes[tri[3]];
+    if (src.morph.length && src.morph.some(a => [tri[4], tri[5], tri[6]].some(j => Math.abs(a.getX(j)) + Math.abs(a.getY(j)) + Math.abs(a.getZ(j)) > 1e-6 || !src.rel))) moving.push(i, lo, wa, wb, wc);
+    const l = tri[7], lit = Math.max(0, l.x * LIGHT.x + l.y * LIGHT.y + l.z * LIGHT.z);
+    colors[i*3] = colors[i*3+1] = colors[i*3+2] = 0.62 + 0.55 * lit;   // a soft light from the upper left: the nose, lips and brow show
+    points[i*3+1] = tri[0].y * wa + tri[1].y * wb + tri[2].y * wc;
+    points[i*3] = cx + (tri[0].x * wa + tri[1].x * wb + tri[2].x * wc - cx) * widen(points[i*3+1]);
+    points[i*3+2] = tri[0].z * wa + tri[1].z * wb + tri[2].z * wc;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  // the dots ride the face's own mouth and eyelids: each frame, the dots on moving skin are put back on their triangle, with
+  // the face's mouth-open and blink shapes (driven by the lip sync and blink code) applied
+  const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3();
+  let wasMoving = false; const MOUTH_GAIN = 2.2;   // dots are sparse: the real mouth movement, exaggerated, so it reads
+  const vert = (src, j, out) => {
+    out.fromBufferAttribute(src.pos, j); const inf = src.mesh.morphTargetInfluences || [];
+    for (let k = 0; k < src.morph.length; k++) { const w = (inf[k] || 0) * MOUTH_GAIN; if (!w) continue; const a = src.morph[k];
+      if (src.rel) { out.x += w * a.getX(j); out.y += w * a.getY(j); out.z += w * a.getZ(j); }
+      else { out.x += w * (a.getX(j) - src.pos.getX(j)); out.y += w * (a.getY(j) - src.pos.getY(j)); out.z += w * (a.getZ(j) - src.pos.getZ(j)); } }
+    return out.applyMatrix4(src.m);
+  };
+  const followFace = () => {
+    const now = srcMeshes.some(s => s.morph.length && (s.mesh.morphTargetInfluences || []).some(w => w > 1e-3));
+    if (!now && !wasMoving) return; wasMoving = now;
+    for (let n = 0; n < moving.length; n += 5) {
+      const i = moving[n], tri = candidates[moving[n + 1]], src = srcMeshes[tri[3]], wa = moving[n + 2], wb = moving[n + 3], wc = moving[n + 4];
+      vert(src, tri[4], va); vert(src, tri[5], vb); vert(src, tri[6], vc);
+      const y = va.y * wa + vb.y * wb + vc.y * wc;
+      points[i*3] = cx + (va.x * wa + vb.x * wb + vc.x * wc - cx) * widen(y); points[i*3+1] = y; points[i*3+2] = va.z * wa + vb.z * wb + vc.z * wc;
+    }
+    geo.attributes.position.needsUpdate = true;
+  };
+  particleFaceMaterial = new THREE.PointsMaterial({
+    vertexColors: true, color: 0xffd783, size: 0.016, map: glowTex, transparent: true, opacity: 1,   // applyAvatarAlpha fades it from this base
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+  });
+  const cloud = new THREE.Points(geo, particleFaceMaterial);
+  cloud.frustumCulled = false;
+  model.traverse(mesh => { if (mesh.isMesh || mesh.isSkinnedMesh) mesh.visible = false; });
+  model.add(cloud);
+  if (eyeMeshes.length) {                       // two glowing eyes, like the reference
+    const eb = new THREE.Box3(); eyeMeshes.forEach(e => eb.expandByObject(e)); eb.applyMatrix4(invRoot);
+    const c = eb.getCenter(new THREE.Vector3()), dx = (eb.max.x - eb.min.x) / 4 * widen(c.y) * 1.3, r = (eb.max.y - eb.min.y) * 1.1;   // set wide, like the reference
+    for (const sx of [-1, 1]) {
+      const at = new THREE.Vector3(cx + (c.x - cx) + sx * dx, c.y, eb.max.z);
+      const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff1d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      eye.position.copy(at); eye.scale.set(r * 1.2, r * 0.55, 1); model.add(eye);   // oval, like a human eye
+      const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: flareTex, color: 0xffc66e, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      flare.position.copy(at); flare.scale.set(r * 1.4, r * 0.35, 1)   /* short: two flares, never one line */; model.add(flare);   // a thin lens flare across each eye
+    }
+  }
+  if (head) {                                    // the epic part: sparkles on the face and orbiting gold dust
+    const mid = new THREE.Vector3(cx, head.neck + span * 0.55, head.cz || 0), mat = (size, color) => new THREE.PointsMaterial({
+      color, size, map: glowTex, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+    const spark = [0, 1].map(() => { const n = 110, p = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { const k = Math.floor(Math.random() * count) * 3; p[i*3] = points[k]; p[i*3+1] = points[k+1]; p[i*3+2] = points[k+2]; }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+      const o = new THREE.Points(g, mat(0.034, 0xfff0c8)); o.frustumCulled = false; model.add(o); return o; });
+    const orbit = new THREE.Group(); orbit.position.copy(mid); model.add(orbit);
+    for (const [tilt, rad, n] of [[0.25, 1.15, 900], [-0.35, 1.45, 700], [1.1, 1.3, 500]]) {
+      const p = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {                // streams: thick in places, thin in others
+        const t = Math.random() * Math.PI * 2, rr = span * rad * (0.9 + 0.2 * Math.random()) * (1 + 0.08 * Math.sin(t * 3));
+        const x = Math.cos(t) * rr, z = Math.sin(t) * rr; p[i*3] = x; p[i*3+1] = z * Math.sin(tilt) + (Math.random() - 0.5) * span * 0.08; p[i*3+2] = z * Math.cos(tilt);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+      const ring = new THREE.Points(g, mat(0.014, 0xffcf7a)); ring.frustumCulled = false; ring.rotation.y = Math.random() * 6; orbit.add(ring);
+    }
+    particleFx = { spark, orbit, followFace };
+  }
+  return cloud;
+}
+
+
+// Finds the head (from the neck to the top) by the model's width, slice by slice from the top down: below the head the
+// width narrows to the neck, then grows at the shoulders (or jumps at outstretched arms). Added by make_www.py.
+const HEAD_UNITS = 1.55, HEAD_CENTER_Y = 4.37;      // a big head: the particle face is the whole screen (measured at S21 size)
+function frameByHead(model) {
+  try {
+    const known = model.userData && model.userData.jvHead;                 // our own faces say where their head is (tools/faces)
+    if (known && known.top > known.neck) return { neck: known.neck, top: known.top, cx: known.cx || 0, cz: known.cz || 0 };
+    model.updateMatrixWorld(true);
+    const pts = [], v = new THREE.Vector3();
+    model.traverse(c => {
+      if (!(c.isMesh || c.isSkinnedMesh) || !c.geometry || !c.geometry.attributes.position) return;
+      const p = c.geometry.attributes.position, step = Math.max(1, Math.floor(p.count / 25000));
+      for (let i = 0; i < p.count; i += step) { v.fromBufferAttribute(p, i).applyMatrix4(c.matrixWorld); pts.push(v.x, v.y, v.z); }
+    });
+    if (pts.length < 300) return null;
+    let y0 = Infinity, y1 = -Infinity;
+    for (let i = 1; i < pts.length; i += 3) { y0 = Math.min(y0, pts[i]); y1 = Math.max(y1, pts[i]); }
+    const N = 60, sl = (y1 - y0) / N, lo = new Array(N).fill(Infinity), hi = new Array(N).fill(-Infinity), cnt = new Array(N).fill(0);
+    for (let i = 0; i < pts.length; i += 3) { const k = Math.min(N - 1, Math.floor((y1 - pts[i + 1]) / sl)); lo[k] = Math.min(lo[k], pts[i]); hi[k] = Math.max(hi[k], pts[i]); cnt[k]++; }
+    let hmax = 0, below = false, mn = Infinity, kmin = -1, neck = null;
+    for (let k = 0; k < N; k++) {
+      if (cnt[k] < 3) continue;
+      if (k > N * 0.7) break;
+      const w = hi[k] - lo[k];
+      if (hmax && w > 1.6 * hmax) { neck = y1 - sl * k; break; }                       // shoulders or arms: the neck is just above
+      if (!below) { hmax = Math.max(hmax, w); if (w < 0.85 * hmax && k > 2) { below = true; mn = w; kmin = k; } }
+      else if (w < mn) { mn = w; kmin = k; }
+      else if (w > 1.3 * mn) { neck = y1 - sl * (kmin + 0.5); break; }
+    }
+    if (neck === null && kmin >= 0) neck = y1 - sl * (kmin + 0.5);
+    if (neck === null || y1 - neck < (y1 - y0) * 0.08) return null;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let i = 0; i < pts.length; i += 3) if (pts[i + 1] >= neck) { x0 = Math.min(x0, pts[i]); x1 = Math.max(x1, pts[i]); z0 = Math.min(z0, pts[i + 2]); z1 = Math.max(z1, pts[i + 2]); }
+    return { neck, top: y1, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2 };
+  } catch (e) { console.warn('[AVATAR] framing', e); return null; }
+}
+function doSwap(url) {
+  if (avatarModel) { faceGroup.remove(avatarModel); disposeAvatar(avatarModel); avatarModel = null; }
+  particleFx = null;
+  for (const k in mouthMorphs) delete mouthMorphs[k];
+  window.__jvBlinkMorphs = [];
+  jawBone = null; jawBoneRestQuat = null;
+  gidPlane.visible = true;
+  document.getElementById('d-model').textContent = 'loading…';
+  const myToken = ++avatarLoadToken;
+  avatarLoader.load(url, (gltf) => {
+    if (myToken !== avatarLoadToken) { disposeAvatar(gltf.scene); return; }
+    if (pendingSwapUrl) { const next = pendingSwapUrl; pendingSwapUrl = null; disposeAvatar(gltf.scene); doSwap(next); return; }
+    avatarModel = gltf.scene;
+    const morphReport = {};
+    avatarModel.traverse((child) => {
+      if (child.morphTargetDictionary) {
+        for (const n of Object.keys(child.morphTargetDictionary)) {
+          morphReport[n] = { mesh: child.name || '', index: child.morphTargetDictionary[n] };
+          if (MOUTH_MORPH_NAMES.includes(n)) mouthMorphs[n + '#' + child.uuid] = { mesh: child, index: child.morphTargetDictionary[n], name: n };
+          if (n === 'eyeBlink') (window.__jvBlinkMorphs = window.__jvBlinkMorphs || []).push({ mesh: child, index: child.morphTargetDictionary[n] });
+        }
+      }
+      if ((child.isMesh || child.isSkinnedMesh) && child.material) {
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach(m => {
+          m.clippingPlanes = [bodyClipPlane]; m.clipShadows = true; m.needsUpdate = true;
+          if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+        });
+      }
+    });
+    avatarModel.updateMatrixWorld(true);
+    avatarModel.traverse((child) => {
+      if (child.isBone) {
+        const n = (child.name || '').toLowerCase();
+        if (!jawBone && n.includes('jaw')) { jawBone = child; jawBoneRestQuat = child.quaternion.clone(); }
+      }
+    });
+    document.getElementById('d-morphs').textContent = Object.keys(mouthMorphs).length;
+    document.getElementById('d-total').textContent = Object.keys(morphReport).length;
+    document.getElementById('d-bones').textContent = jawBone ? 'YES' : 'NO';
+    document.getElementById('d-model').textContent = 'LOADED';
+    const head = frameByHead(avatarModel);
+    let s;
+    if (head) {
+      s = HEAD_UNITS / (head.top - head.neck);
+      avatarModel.scale.setScalar(s);
+      avatarModel.position.set(-head.cx * s, HEAD_CENTER_Y - ((head.neck + head.top) / 2) * s, -head.cz * s);
+    } else {
+      const box = new THREE.Box3().setFromObject(avatarModel);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      s = 7.0 / size.y;
+      avatarModel.scale.setScalar(s);
+      avatarModel.position.sub(center.clone().multiplyScalar(s));
+      avatarModel.position.y += 1.4;
+    }
+    avatarModel.userData._baseScale = s;
+    avatarModel.traverse((c) => {
+      if (!c.material) return;
+      const mats = Array.isArray(c.material) ? c.material : [c.material];
+      mats.forEach(m => { delete m.userData._baseOpacity; delete m.userData._baseTransparent; });
+    });
+    gidPlane.visible = false; faceGroup.add(avatarModel);
+    window.__jvSwapFx = window.__jvSwapFx === undefined ? 0 : 1;   // no flare for the very first face
+    try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: url })); } catch (e) {}
+    makeGoldenParticleFace(avatarModel);
+    avatarAlpha = 0; applyAvatarAlpha(0);
+  }, undefined, (err) => {
+    if (myToken !== avatarLoadToken) return;
+    document.getElementById('d-model').textContent = 'FALLBACK';
+    gidPlane.visible = true; avatarAlpha = 1;
+  });
+}
+function loadAvatar(url) {
+  if (currentAvatarUrl === url) return;
+  currentAvatarUrl = url;
+  if (!avatarModel) { avatarAlpha = 0; doSwap(url); return; }
+  pendingSwapUrl = url;
+}
+const MALE_VOICE_HINTS = ['alan','ryan','joe','john','bryce','danny','norman','alex','daniel','james','mark','paul','peter','robert','male','michael','david','george','adam'];
+const FEMALE_VOICE_HINTS = ['amy','lessac','kathleen','kristin','cori','jenny','alba','alice','emma','karen','lisa','sarah','susan','female','michelle','ava','olivia'];
+function isMaleVoice(v) {
+  if (!v) return false;
+  const s = String(v).toLowerCase();
+  for (const n of MALE_VOICE_HINTS) if (s.includes(n)) return true;
+  for (const n of FEMALE_VOICE_HINTS) if (s.includes(n)) return false;
+  return false;
+}
+function syncAvatarToVoice() {
+  const want = window.__jvFaceFor ? window.__jvFaceFor(isMaleVoice(currentVoice)) : (isMaleVoice(currentVoice) ? AVATAR_MALE : AVATAR_FEMALE);
+  if (want === 'orb') { try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: 'orb' })); } catch (e) {} return; }
+  if (want !== currentAvatarUrl) loadAvatar(want);
+}
+window.__jvSyncFace = syncAvatarToVoice;
+loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);
+
+const headHalo = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: glowTex, color: 0xffd783, transparent: true, opacity: 0.12,
+  blending: THREE.AdditiveBlending, depthWrite: false,
+}));
+headHalo.scale.setScalar(6.0); headHalo.position.set(0, 4.4, -2.5); faceGroup.add(headHalo);
+headHalo.visible = false;   // the particle face needs no glowing disc behind it
+const particleCount = 100;
+const particlePositions = new Float32Array(particleCount * 3);
+const particlePhases = new Float32Array(particleCount);
+for (let i = 0; i < particleCount; i++) {
+  const r = 2.8 + Math.random() * 3.4, theta = Math.random() * Math.PI * 2, phi = Math.acos(2 * Math.random() - 1);
+  particlePositions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+  particlePositions[i*3+1] = r * Math.cos(phi) * 0.8 + 3.5;
+  particlePositions[i*3+2] = r * Math.sin(phi) * Math.sin(theta) * 0.4;
+  particlePhases[i] = Math.random() * Math.PI * 2;
+}
+const particleGeo = new THREE.BufferGeometry();
+particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+const particleMat = new THREE.PointsMaterial({ color: 0xffd783, size: 0.045, transparent: true, opacity: 0.38, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true, map: glowTex });
+const particles = new THREE.Points(particleGeo, particleMat); faceGroup.add(particles);
+
+const composer = new EffectComposer(renderer);
+composer.setPixelRatio(Math.min(window.devicePixelRatio, window.JARVIS_NATIVE ? ((navigator.deviceMemory || 4) <= 4 ? 1 : 1.25) : 1));   // PC: bloom at 1x; at 125% scaling it cost ~1.6x the GPU for no visible gain
+composer.setSize(window.innerWidth, window.innerHeight);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.6, 0.85);
+composer.addPass(bloomPass);
+const VignetteShader = {
+  uniforms: { tDiffuse: { value: null }, vignetteIntensity: { value: 1.0 }, chromaticAberration: { value: 0.002 } },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float vignetteIntensity; uniform float chromaticAberration; varying vec2 vUv;
+  void main() {
+    vec2 uv = vUv; vec2 dir = uv - vec2(0.5); float dist = length(dir);
+    float offset = chromaticAberration * dist;
+    float r = texture2D(tDiffuse, uv - dir * offset).r;
+    float g = texture2D(tDiffuse, uv).g;
+    float b = texture2D(tDiffuse, uv + dir * offset).b;
+    vec3 col = vec3(r, g, b);
+    float vig = 1.0 - dist * dist * vignetteIntensity;
+    col *= clamp(vig, 0.0, 1.0);
+    gl_FragColor = vec4(col, 1.0);
+  }`,
+};
+composer.addPass(new ShaderPass(VignetteShader));
+composer.addPass(new OutputPass());
+
+let appState = 'idle';
+const STATE_COLORS = {
+  idle: { cool: 0xffd783, spinMul: 0.4 }, standby: { cool: 0xffd783, spinMul: 0.5 },
+  listening: { cool: 0xffefb0, spinMul: 1.1 }, thinking: { cool: 0xffb84d, spinMul: 1.5 },
+  speaking: { cool: 0xffd783, spinMul: 1.2 }, muted: { cool: 0x66533a, spinMul: 0.2 },
+};
+const currentCool = new THREE.Color(0xffd783);
+let currentSpinMul = 0.4, speakingAmount = 0;
+function lerpColors(t, dt) { const k = Math.min(1, dt * 2.0); currentCool.lerp(new THREE.Color(t.cool), k); currentSpinMul += (t.spinMul - currentSpinMul) * k; }
+function applyColors() {
+  sharedUniforms.uColor.value.copy(currentCool);
+  sharedUniforms.uAccent.value.copy(currentCool).lerp(new THREE.Color(0xffffff), 0.45);
+  headHalo.material.color.copy(currentCool);
+  particleMat.color.copy(currentCool).lerp(new THREE.Color(0xffffff), 0.25);
+  bloomPass.strength = 0.10 + speakingAmount * 0.05 + (window.__jvBurst || 0) * 0.08 + (window.__jvSwapFx || 0) * 0.85 + (window.__jvHear || 0) * 0.3;
+  if (window.__jvSwapFx > 0) window.__jvSwapFx = Math.max(0, window.__jvSwapFx - 0.025);
+  if (particleFaceMaterial) { const hr = window.__jvHear || 0;      // __jvHear: your voice while he listens (PC HUD)
+    particleFaceMaterial.color.copy(currentCool).multiplyScalar(1 + hr * 0.45); particleFaceMaterial.size = 0.016 * (1 + speakingAmount * 0.35 + hr * 0.3); }
+  if (particleFx && avatarModel) {
+    const t = performance.now() / 1000, f = particleFx; f.followFace();
+    f.spark.forEach((o, i) => { o.material.opacity = avatarAlpha * (0.55 + 0.45 * Math.sin(t * 1.7 + i * 3.1)); });
+    f.orbit.rotation.y = t * 0.12 * currentSpinMul * 2.5; f.orbit.rotation.z = 0.12 * Math.sin(t * 0.2);
+  }
+}
+const _tmpQ = new THREE.Quaternion(), _tmpE = new THREE.Euler();
+function driveLipSync(t, amt) {
+  if (!avatarModel) return;
+  const keys = Object.keys(mouthMorphs);
+  if (keys.length > 0) {
+    if (amt < 0.001) {
+      keys.forEach(k => { const m = mouthMorphs[k]; if (m.mesh.morphTargetInfluences) m.mesh.morphTargetInfluences[m.index] = 0; });
+    } else {
+      const real = window.__jvMouthLevel ? window.__jvMouthLevel() : -1;   // the phone measures his actual speech (shim.js), once a frame
+      keys.forEach((name, i) => {
+        const m = mouthMorphs[name];
+        if (!m.mesh.morphTargetInfluences) return;
+        const lower = (m.name || name).toLowerCase();
+        let v = 0;
+        if (lower.includes('jawopen') || lower.includes('mouthopen')) {
+          v = real >= 0 ? real : ((Math.sin(t*13.0)*0.5+0.5)*0.9) + ((Math.sin(t*22.0)*0.5+0.5)*0.1);
+        } else if (lower.includes('viseme') || ['a','i','u','e','o','aa','ih','ou','ee','oh'].includes(lower)) {
+          v = Math.max(0, Math.sin(t*10.0 + i*0.8)) * 0.5;
+        }
+        m.mesh.morphTargetInfluences[m.index] = v * amt;
+      });
+    }
+  }
+  if (jawBone && jawBoneRestQuat) {
+    const amt2 = amt * 0.5 * ((Math.sin(t*13.0)*0.5+0.5)*0.8 + (Math.sin(t*22.0)*0.5+0.5)*0.2);
+    _tmpE.set(amt2, 0, 0, 'XYZ'); _tmpQ.setFromEuler(_tmpE);
+    jawBone.quaternion.copy(jawBoneRestQuat).multiply(_tmpQ);
+  }
+}
+const _spinPivot = new THREE.Vector3(), _spinTmp = new THREE.Vector3();
+const clock = new THREE.Clock();
+let t0 = 0, diagTimer = 0;
+let _lastFrame = 0;
+function animate() {
+  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || window.__jvHideFace || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
+  if (window.__jvFaceOff && !pendingSwapUrl) { clock.getDelta(); requestAnimationFrame(animate); return; }
+  if (!window.JARVIS_NATIVE) {     // PC: 60 fps only while he's talking or you are; resting, 30 is plenty and halves the work
+    const now = performance.now(), busy = appState === 'speaking' || appState === 'thinking' || (window.__jvHear || 0) > 0.05 || pendingSwapUrl;
+    if (!busy && now - _lastFrame < 31) { requestAnimationFrame(animate); return; }
+    _lastFrame = now;
+  }   // the globe is up: don't draw a face nobody sees
+  const dt = clock.getDelta(); t0 += dt; const t = t0;
+  lerpColors(STATE_COLORS[appState] || STATE_COLORS.idle, dt);
+  applyColors();
+  sharedUniforms.uTime.value = t;
+  const target = (appState === 'speaking') ? 1 : 0;
+  speakingAmount += (target - speakingAmount) * Math.min(1, dt * 8.0);
+  sharedUniforms.uSpeaking.value = speakingAmount; window.__jvSpeak = speakingAmount;
+  driveLipSync(t, speakingAmount);
+
+  { const bl = window.__jvBlinkMorphs; if (bl && bl.length) {
+      const B = window.__jvBlink || (window.__jvBlink = { next: t + 2 + Math.random() * 3, start: -1, twice: false });
+      if (B.start < 0 && t >= B.next) { B.start = t; B.twice = Math.random() < 0.18; }
+      let v = 0;
+      if (B.start >= 0) { const e = t - B.start, d = 0.15; v = e < d ? Math.sin(Math.PI * e / d) : 0;
+        if (e >= d) { if (B.twice) { B.twice = false; B.start = t + 0.08; } else { B.start = -1; B.next = t + 2.5 + Math.random() * 3.5; } } }
+      for (const m of bl) if (m.mesh.morphTargetInfluences) m.mesh.morphTargetInfluences[m.index] = v;
+  } }  if (pendingSwapUrl) {
+    if (avatarModel) {
+      avatarAlpha -= dt * FADE_OUT_RATE;
+      if (avatarAlpha <= 0) { avatarAlpha = 0; applyAvatarAlpha(0); const u = pendingSwapUrl; pendingSwapUrl = null; doSwap(u); }
+      else applyAvatarAlpha(avatarAlpha);
+    } else { const u = pendingSwapUrl; pendingSwapUrl = null; doSwap(u); }
+  } else if (avatarModel && avatarAlpha < 1) {
+    avatarAlpha += dt * FADE_IN_RATE;
+    if (avatarAlpha > 1) avatarAlpha = 1;
+    applyAvatarAlpha(avatarAlpha);
+  }
+  camera.position.x = CAM_BASE.x + Math.sin(t*0.1)*0.08;
+  camera.position.y = CAM_BASE.y + Math.cos(t*0.08)*0.06;
+  camera.position.z = CAM_BASE.z * camFit;
+  { const want = window.__jvStage || { ty: 0, s: 1 }, cur = window.__jvStageCur || (window.__jvStageCur = { ty: 0, s: 1 });
+    const k = window.__jvStageInstant ? 1 : Math.min(1, dt * 7);
+    cur.ty += (want.ty - cur.ty) * k; cur.s += (want.s - cur.s) * k;
+    if (Math.abs(want.ty - cur.ty) < 0.3) cur.ty = want.ty; if (Math.abs(want.s - cur.s) < 0.001) cur.s = want.s;
+    const w = window.innerWidth, h = window.innerHeight;
+    if (cur.ty !== 0 || cur.s !== 1) { camera.zoom = cur.s; camera.setViewOffset(w, h, 0, -cur.ty, w, h); camera.updateProjectionMatrix(); cur.on = true; }
+    else if (cur.on) { camera.zoom = 1; camera.clearViewOffset(); camera.updateProjectionMatrix(); cur.on = false; } }
+  camera.lookAt(CAM_LOOK);
+  const spin = window.__jvSpin || { yaw: 0, pitch: 0 };                  // the user turning his head by touch (ui.js)
+  const yaw = mouseNormX * 0.05 + spin.yaw, pitch = -mouseNormY * 0.03 + spin.pitch, follow = spin.drag ? 0.35 : 0.08;
+  faceGroup.rotation.y += (yaw - faceGroup.rotation.y) * follow;
+  faceGroup.rotation.x += (pitch - faceGroup.rotation.x) * follow;
+  const breath = 1 + Math.sin(t*1.4)*0.006;
+  faceGroup.scale.setScalar(breath);
+  { // turn about the middle of the head, not the group's origin far below it
+    const hc = typeof HEAD_CENTER_Y !== 'undefined' ? HEAD_CENTER_Y : 4.4, pv = _spinPivot.set(0, hc, 0);
+    faceGroup.position.copy(pv).sub(_spinTmp.copy(pv).multiplyScalar(breath).applyEuler(faceGroup.rotation));
+  }
+  headHalo.material.opacity = 0.04 + Math.sin(t*1.3)*0.015;
+  const p = particleGeo.attributes.position;
+  // the dust around him stirs while he thinks and swirls while he talks
+  const burst = window.__jvBurst = (window.__jvBurst || 0) + (((appState === 'thinking') ? 1 : speakingAmount * 0.75) - (window.__jvBurst || 0)) * Math.min(1, dt * 3);
+  for (let i = 0; i < particleCount; i++) p.array[i*3+1] += Math.sin(t*(0.5 + burst * 2) + particlePhases[i]) * 0.001 * (1 + burst * 2.5);
+  p.needsUpdate = true;
+  particles.rotation.y += dt * (0.03 + burst * 0.4);
+  particles.scale.setScalar(1 + burst * 0.16); particles.position.y = -3.5 * burst * 0.16;
+  particleMat.opacity = 0.38 + burst * 0.32; particleMat.size = 0.045 * (1 + burst * 0.7);
+  diagTimer += dt;
+  if (diagTimer > 0.1) { diagTimer = 0; document.getElementById('d-speak').textContent = speakingAmount.toFixed(2); }
+  composer.render();
+  requestAnimationFrame(animate);
+}
+animate();
+
+const logEl = document.getElementById('log');
+const initBtn = document.getElementById('initBtn');
+const muteBtn = document.getElementById('muteBtn');
+const clearBtn = document.getElementById('clearBtn');
+const stateEl = document.getElementById('state');
+const modeReadout = document.getElementById('mode-readout');
+const linkStatus = document.getElementById('link-status');
+const audioStatus = document.getElementById('audio-status');
+const ttsStatus = document.getElementById('tts-status');
+const latencyEl = document.getElementById('latency');
+const uptimeEl = document.getElementById('uptime');
+const sessionIdEl = document.getElementById('session-id');
+const debugEl = document.getElementById('debug');
+const voiceSelect = document.getElementById('voiceSelect');
+const micLevelEl = document.getElementById('mic-level');
+const micLevelFill = document.getElementById('mic-level-fill');
+const dUserEl = document.getElementById('d-user');
+const camIndicator = document.getElementById('cam-indicator');
+const partialTextEl = document.getElementById('partial-text');
+
+let currentVoice = null;
+let currentUser = null;
+let audioWs = null, serverSttAvailable = false;
+let audioCaptureCtx = null, audioCaptureReady = false;
+let sessionCount = 0;
+
+function loadCachedUser() {
+  try {
+    const j = localStorage.getItem('jarvis_user');
+    if (j) {
+      currentUser = JSON.parse(j);
+      updateUserDisplay();
+      console.log('[CAM] cached user:', currentUser);
+    }
+  } catch (e) {}
+}
+function saveCachedUser() {
+  try {
+    if (currentUser) localStorage.setItem('jarvis_user', JSON.stringify(currentUser));
+    else localStorage.removeItem('jarvis_user');
+  } catch (e) {}
+}
+
+let _camBusy = false;
+function _setCamIndicator(on) {
+  if (on) camIndicator.classList.add('active');
+  else camIndicator.classList.remove('active');
+}
+
+async function grabWebcamFrame(width = 640, height = 480) {
+  let tries = 0;
+  while (_camBusy && tries < 30) {
+    await new Promise(r => setTimeout(r, 100));
+    tries++;
+  }
+  _camBusy = true;
+  _setCamIndicator(true);
+  let stream = null;
+  let video = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width, height, facingMode: 'user' }, audio: false,
+    });
+    video = document.createElement('video');
+    video.srcObject = stream;
+    video.muted = true; video.playsInline = true; video.autoplay = true;
+    video.style.cssText = 'position:fixed;width:2px;height:2px;opacity:0.01;pointer-events:none;';
+    document.body.appendChild(video);
+    try { await video.play(); } catch (e) {}
+    const startWait = Date.now();
+    while (video.readyState < 2 && Date.now() - startWait < 5000) {
+      await new Promise(r => setTimeout(r, 50));
+    }
+    if (video.readyState < 2) {
+      console.warn('[CAM] readyState stuck at', video.readyState);
+    }
+    await new Promise(r => setTimeout(r, 700));
+    const cw = video.videoWidth || width;
+    const ch = video.videoHeight || height;
+    console.log(`[CAM] capturing ${cw}x${ch} (readyState=${video.readyState})`);
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    canvas.getContext('2d').drawImage(video, 0, 0, cw, ch);
+    const data = canvas.toDataURL('image/jpeg', 0.85);
+    console.log(`[CAM] frame size: ${data.length} bytes`);
+    return data;
+  } catch (e) {
+    console.warn('[CAM] grab failed', e);
+    return null;
+  } finally {
+    try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    try { if (video) { video.pause(); video.srcObject = null; video.remove(); } } catch (e) {}
+    _camBusy = false;
+    _setCamIndicator(false);
+  }
+}
+
+let _idTries = 0, _idTimer = null;
+async function identifyUser() {
+  const frame = await grabWebcamFrame();
+  if (!frame) { updateUserDisplay(); return currentUser; }
+  try {
+    const r = await fetch('/identify_face', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: frame }),
+    });
+    const d = await r.json();
+    if (d.ok && d.recognized) {
+      currentUser = { name: d.name, title: d.title || '' }; _idTries = 0;
+      console.log(`[CAM] identified: ${d.title} ${d.name} (sim ${d.similarity.toFixed(2)})`);
+      saveCachedUser();
+    } else if (_idTries++ < 15) {
+      // a miss (looking away, not at the desk yet) keeps the last name he was greeted by, and tries again shortly
+      clearTimeout(_idTimer); _idTimer = setTimeout(() => identifyUser().catch(() => {}), 20000);
+    }
+  } catch (e) { console.warn('[CAM] identify fail', e); }
+  updateUserDisplay();
+  return currentUser;
+}
+
+function updateUserDisplay() {
+  if (currentUser && currentUser.name) {
+    dUserEl.textContent = `${currentUser.title || ''} ${currentUser.name}`.trim();
+  } else {
+    dUserEl.textContent = 'unknown';
+  }
+}
+
+async function handleLookRequest(rid) {
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
+    const video = document.createElement('video');
+    video.srcObject = stream; video.muted = true; video.playsInline = true;
+    await video.play();
+    await new Promise(r => setTimeout(r, 300));
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth || 1280;
+    c.height = video.videoHeight || 720;
+    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+    const img = c.toDataURL('image/jpeg', 0.85);
+    stream.getTracks().forEach(t => t.stop());
+    await fetch(`/vision_capture/${rid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: img }) });
+  } catch (e) {
+    console.warn('[VISION] capture failed', e);
+    try { await fetch(`/vision_capture/${rid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: "" }) }); } catch (e2) {}
+  }
+}
+
+async function handleEnrollRequest(rid, name, title) {
+  console.log(`[CAM] enroll: ${title} ${name}`.trim());
+  const frame = await grabWebcamFrame();
+  console.log(`[CAM] enroll frame: ${frame ? frame.length + ' bytes' : 'NULL'}`);
+  try {
+    await fetch(`/enroll_face_ws/${rid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: frame || '' }) });
+  } catch (e) { console.warn('[CAM] enroll POST fail', e); }
+  if (frame) setTimeout(() => identifyUser().catch(() => {}), 500);
+}
+
+async function handleIdentifyRequest(rid) {
+  const frame = await grabWebcamFrame();
+  try {
+    await fetch(`/identify_ws/${rid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: frame || '' }) });
+  } catch (e) { console.warn('[CAM] identify POST fail', e); }
+}
+
+function connectAudioWs() {
+  try {
+    audioWs = new WebSocket(`ws://${location.host}/audio`);
+    audioWs.binaryType = 'arraybuffer';
+    audioWs.onopen = () => { serverSttAvailable = true; console.log('[STT] server Whisper connected'); };
+    audioWs.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        if (d.type === 'transcript' && d.text) handleServerTranscript(d.text);
+        else if (d.type === 'partial' && d.text) { if (sessionActive) showPartial(d.text); }
+        else if (d.type === 'error') { serverSttAvailable = false; console.warn('[STT] server:', d.text); }
+      } catch (err) {}
+    };
+    audioWs.onclose = () => { serverSttAvailable = false; setTimeout(connectAudioWs, 2500); };
+    audioWs.onerror = () => {};
+  } catch (e) { console.warn('[STT] connect fail', e); }
+}
+
+async function setupAudioCapture(stream) {
+  if (audioCaptureReady) return;
+  try {
+    audioCaptureCtx = new AudioContext({ sampleRate: 16000 });
+    const src = audioCaptureCtx.createMediaStreamSource(stream);
+    const proc = audioCaptureCtx.createScriptProcessor(2048, 1, 1);
+    const mute = audioCaptureCtx.createGain(); mute.gain.value = 0;
+    proc.connect(mute); mute.connect(audioCaptureCtx.destination); src.connect(proc);
+
+    proc.onaudioprocess = (e) => {
+      if (muted || window.__jvInCall) return;   // stream mic to Whisper even while idle so 'Hey Jarvis' is heard by the browser too
+      if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
+      const input = e.inputBuffer.getChannelData(0);
+
+      // While he talks the laptop mic hears his own voice from the speakers: a loudness check cut him off mid-sentence.
+      // "Hey Jarvis" (wake.py, on the PC) still interrupts him.
+      if (speaking) return;
+
+      const pcm = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      try { audioWs.send(pcm.buffer); } catch (err) {}
+    };
+    audioCaptureReady = true;
+  } catch (e) { console.error('[STT] capture fail', e); }
+}
+
+async function handleServerTranscript(raw) {
+  if (muted) return;
+  const text = (raw || '').trim();
+  if (!text) return;
+  // Clear any lingering partial text
+  if (partialTextEl) { partialTextEl.classList.remove('active'); partialTextEl.textContent = ''; }
+  const clean = cleanPunct(text);
+  if (!sessionActive) {
+    // A bare "Hey Jarvis" wakes the assistant (previously it was thrown away here).
+    const wk = matchWakeStrict(text);
+    if (wk.matched && !wk.command) { showDebug(text, 'heard'); startSession(); return; }
+  } else if (clean === 'hey jarvis' || clean === 'jarvis') return;
+  const now = performance.now();
+  if (speaking) {
+    const ec = isEcho(text);
+    if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
+    if (!containsWakeWord(text)) { showDebug(`"${text}" ignored`, 'rejected'); return; }
+    beep(1200, 0.08); cancelAllSpeech();
+  } else if (now - lastCommandTime < COMMAND_COOLDOWN_MS) { showDebug(text + ' cooldown', 'rejected'); return; }
+  const words = cleanPunct(text).split(' ').filter(Boolean);
+  if (words.length < MIN_WORDS) { showDebug(`"${text}" too short`, 'rejected'); return; }
+  const ec = !speaking ? isEcho(text) : { echo: false };
+  if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
+  if (sessionActive) {
+    showDebug(text, 'heard');
+    armSessionSilenceTimer();
+    if (hasEndPhrase(text)) { await handleCommand(text); endSession(); return; }
+    await handleCommand(text);
+    return;
+  }
+  const { matched, command } = matchWakeStrict(text);
+  if (!matched) { return; }   // idle chatter: ignore silently
+  showDebug(text, 'heard');
+  startSession();
+  if (command) {
+    if (hasEndPhrase(command)) { await handleCommand(command); endSession(); }
+    else { await handleCommand(command); }
+  } else { armSessionSilenceTimer(); }
+}
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const recognition = SR ? new SR() : null;
+if (recognition) {
+  recognition.continuous = true; recognition.interimResults = true;
+  recognition.lang = 'en-US'; recognition.maxAlternatives = 3;
+}
+
+async function loadVoices() {
+  if (!voiceSelect) return;
+  try {
+    const r = await fetch('/voices'); const voices = await r.json();
+    voiceSelect.innerHTML = '';
+    if (!voices.length) { const o = document.createElement('option'); o.value = ''; o.textContent = '(none)'; voiceSelect.appendChild(o); return; }
+    voices.forEach(v => {
+      const o = document.createElement('option');
+      if (typeof v === 'string') { o.value = v; o.textContent = v; } else { o.value = v.id; o.textContent = v.name; }
+      voiceSelect.appendChild(o);
+    });
+    const cur = await (await fetch('/get_voice')).json();
+    if (cur.voice && voices.some(v => (typeof v === 'string' ? v : v.id) === cur.voice)) voiceSelect.value = cur.voice;
+    else voiceSelect.value = (typeof voices[0] === 'string') ? voices[0] : voices[0].id;
+    currentVoice = voiceSelect.value;
+    syncAvatarToVoice();
+  } catch (e) { console.error(e); }
+}
+if (voiceSelect) {
+  voiceSelect.addEventListener('change', async () => {
+    const voice = voiceSelect.value; currentVoice = voice; syncAvatarToVoice();
+    try {
+      const r = await fetch('/set_voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice }) });
+      const d = await r.json();
+      if (d.ok) addMsg(`Voice set to ${d.friendly || voice}`, 'sys');
+    } catch (e) {}
+  });
+  loadVoices();
+}
+
+sessionIdEl.textContent = Math.random().toString(36).substring(2, 6).toUpperCase();
+let sessionStart = Date.now();
+setInterval(() => {
+  const s = Math.floor((Date.now() - sessionStart) / 1000);
+  uptimeEl.textContent = `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}, 1000);
+
+function addMsg(text, who) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + who;
+  if (who === 'sys' || who === 'proactive') d.textContent = text;
+  else {
+    d.innerHTML = `<span class="who">${who === 'user' ? 'YOU' : 'JARVIS'}</span><span class="body"></span>`;
+    d.querySelector('.body').textContent = text;
+  }
+  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  if (nav && (who === 'user' || who === 'jarvis')) { try { nav.caption(text, who); } catch (e) {} }
+}
+function setState(s) {
+  appState = s;
+  stateEl.className = ''; stateEl.classList.add(s);
+  const labels = { idle: 'BOOTING', standby: 'STANDBY', listening: 'LISTENING', thinking: 'PROCESSING', speaking: 'RESPONDING', session: 'LISTENING', muted: 'MUTED' };
+  stateEl.textContent = labels[s] || 'STANDBY';
+  modeReadout.textContent = s === 'session' ? 'SESSION' : (s === 'idle' ? 'BOOT' : s.toUpperCase());
+}
+
+let audioCtx = null;
+function beep(freq, duration, volume) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.frequency.value = freq; osc.type = 'sine';
+    osc.connect(g); g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(volume || 0.06, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+  } catch (e) {}
+}
+const beepWake = () => { beep(880, 0.1); setTimeout(() => beep(1320, 0.15), 100); };
+const beepEnd = () => { beep(660, 0.1); setTimeout(() => beep(440, 0.18), 100); };
+
+let micStream = null, micAnalyser = null, micDataArray = null, micLevelLoop = null;
+const BARGE_IN_VOLUME_THRESHOLD = 35, BARGE_DUCK_MS = 800;
+let bargeDuckUntil = 0;
+
+async function setupMicAnalyser(stream) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(stream);
+    micAnalyser = ctx.createAnalyser(); micAnalyser.fftSize = 512;
+    src.connect(micAnalyser);
+    micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+  } catch (e) {}
+}
+function startMicLevelLoop() {
+  if (micLevelLoop) return;
+  micLevelLoop = setInterval(() => {
+    if (!micAnalyser || !micDataArray) return;
+    micAnalyser.getByteFrequencyData(micDataArray);
+    let sum = 0; for (let i = 0; i < micDataArray.length; i++) sum += micDataArray[i];
+    const avg = sum / micDataArray.length;
+    micLevelFill.style.width = Math.min(100, avg) + '%';
+    if (avg > BARGE_IN_VOLUME_THRESHOLD) micLevelEl.classList.add('hot'); else micLevelEl.classList.remove('hot');
+  }, 60);
+}
+
+let partialTimer = null;
+function showPartial(text) {
+  if (!partialTextEl) return;
+  partialTextEl.textContent = text;
+  partialTextEl.classList.add('active');
+  if (partialTimer) clearTimeout(partialTimer);
+  partialTimer = setTimeout(() => partialTextEl.classList.remove('active'), 2500);
+}
+
+let ws = null;
+function onWakeEvent() {
+  if (muted) return;
+  if (speaking) { beep(1200, 0.08); cancelAllSpeech(); if (sessionActive) { setState('session'); armSessionSilenceTimer(); return; } }
+  if (sessionActive) { armSessionSilenceTimer(); return; }
+  startSession();
+}
+
+function speakUnprompted(text) {
+  if (!bargeAbort) bargeAbort = new AbortController();
+  const ch = enqueueSpeech(text);
+  ch.then(() => { if (speakChain === ch && speaking) { speaking = false; if (active && !muted) { if (sessionActive) { setState('session'); armSessionSilenceTimer(); } else setState('standby'); } } });
+  return ch;
+}
+
+function connectWS() {
+  try {
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = (e) => {
+      const data = e.data;
+      if (data === 'wake') onWakeEvent();
+      else if (data.startsWith('timer:')) {
+        const label = data.slice(6);
+        addMsg(`⏰ Timer done: ${label}`, 'sys');
+        beep(880, 0.15); setTimeout(() => beep(880, 0.15), 200); setTimeout(() => beep(880, 0.15), 400);
+      }
+      else if (data.startsWith('briefing:')) {
+        const text = data.slice(9);
+        if (window.__jvBriefing) window.__jvBriefing(text); else addMsg(text, 'jarvis');
+        if (!muted) speakUnprompted(text);
+      }
+      else if (data.startsWith('proactive:')) {
+        const text = data.slice(10);
+        addMsg(text, 'proactive');
+        if (!muted) speakUnprompted(text);
+      }
+      // a WhatsApp call he's taking for you: stop listening (the caller isn't giving commands), say the line, tell the server when done
+      else if (data.startsWith('callstart:')) { window.__jvInCall = true; addMsg('Answering a WhatsApp call for you.', 'sys'); }
+      else if (data.startsWith('callsay:')) { Promise.resolve(muted ? null : speakUnprompted(data.slice(8))).finally(() => fetch('/call/said', { method: 'POST' }).catch(() => {})); }
+      else if (data.startsWith('callend:')) { window.__jvInCall = false; }
+      else if (/^(globe|plan|recap|gesture|panels|holo):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
+      else if (data.startsWith('nav:')) { try { navMessage(JSON.parse(data.slice(4))); } catch (e) { console.warn('[NAV]', e); } }
+      else if (data.startsWith('look_request:')) { handleLookRequest(data.slice(13)); }
+      else if (data.startsWith('identify_request:')) { handleIdentifyRequest(data.slice(17)); }
+      else if (data.startsWith('enroll_request:')) {
+        const rest = data.slice(15);
+        const parts = rest.split(':');
+        handleEnrollRequest(parts[0] || '', parts[1] || '', parts[2] || '');
+      }
+      else if (data.startsWith('voice_changed:')) {
+        const payload = data.slice(14).trim();
+        const parts = payload.includes('|') ? payload.split('|', 2) : [payload, payload];
+        currentVoice = parts[0];
+        if (voiceSelect) for (const opt of voiceSelect.options) if (opt.value === currentVoice) { voiceSelect.value = currentVoice; break; }
+        syncAvatarToVoice();
+        addMsg(`Voice changed to ${parts[1]}`, 'sys');
+      }
+    };
+    ws.onclose = () => setTimeout(connectWS, 2000);
+    ws.onerror = () => {};
+  } catch (e) {}
+}
+connectWS();
+
+const WAKE_WORDS = ['jarvis','jervis','jarvas','javis','charvis','jarvis.'];
+const LOOSE_WAKE = ['travis','jarvus','harvis','garvis','jarvice','jarves'];   // common mishearings, only accepted after hey/hi/ok
+const HEY_WORDS = ['hey','hi','ok','okay','hay'];
+const END_PHRASES = ['thank you','thanks jarvis','thank you jarvis','goodbye jarvis','good bye jarvis','bye jarvis',"that's all","that's it",'we are done',"we're done",'stop listening'];
+const MIN_CONFIDENCE = 0.15, MIN_WORDS = 2;
+const COMMAND_COOLDOWN_MS = 900, SESSION_SILENCE_MS = 35000;
+const ECHO_SIMILARITY_THRESHOLD = 0.40, POST_TTS_DELAY_MS = 50, ECHO_MEMORY_MS = 15000;
+// Talking over Jarvis. Was 3500 for 4 frames (you had to shout); saying "Hey Jarvis" also interrupts him.
+// Greet out loud only after you've been away a while; otherwise just chime and listen (no waiting through a greeting).
+const GREET_EVERY_MS = 10 * 60 * 1000;
+let lastGreetAt = 0;
+
+let active = false, sessionActive = false, recognizing = false, speaking = false, muted = false;
+let lastCommandTime = 0, sessionSilenceTimer = null, recentJarvisReplies = [];
+let bargeAbort = null, speakChain = Promise.resolve(), currentAudio = null, commandId = 0, jarvisMsgEl = null;
+
+let debugTimer = null;
+function showDebug(text, kind) {
+  const labels = { heard: 'HEARD', rejected: 'REJECTED', echo: 'ECHO-DROP' };
+  debugEl.innerHTML = `<span class="${kind}">${labels[kind]}:</span> ${escapeHtml(text)}`;
+  debugEl.classList.add('active');
+  if (debugTimer) clearTimeout(debugTimer);
+  debugTimer = setTimeout(() => debugEl.classList.remove('active'), 4000);
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function wordSet(s) { return new Set(cleanPunct(s).split(' ').filter(w => w.length > 2)); }
+function similarity(a, b) {
+  const wa = wordSet(a), wb = wordSet(b);
+  if (!wa.size || !wb.size) return 0;
+  let o = 0; for (const w of wa) if (wb.has(w)) o++;
+  return o / Math.min(wa.size, wb.size);
+}
+function isEcho(transcript) {
+  const now = performance.now();
+  recentJarvisReplies = recentJarvisReplies.filter(r => now - r.time < ECHO_MEMORY_MS);
+  for (const r of recentJarvisReplies) { const sim = similarity(transcript, r.text); if (sim >= ECHO_SIMILARITY_THRESHOLD) return { echo: true, sim }; }
+  return { echo: false };
+}
+function rememberJarvisReply(text) {
+  if (!text || text.length < 3) return;
+  recentJarvisReplies.push({ text, time: performance.now() });
+  if (recentJarvisReplies.length > 10) recentJarvisReplies.shift();
+}
+function cleanPunct(s) { return s.toLowerCase().replace(/[.,!?;:]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+function matchWakeStrict(text) {
+  const words = cleanPunct(text).split(' ').filter(Boolean);
+  if (!words.length) return { matched: false, command: '' };
+  for (let i = 0; i < Math.min(2, words.length); i++) {
+    const w = words[i].replace(/[^a-z]/g, '');
+    if (WAKE_WORDS.includes(w)) return { matched: true, command: words.slice(i + 1).join(' ').trim() };
+  }
+  if (words.length >= 2 && HEY_WORDS.includes(words[0]) && LOOSE_WAKE.includes(words[1].replace(/[^a-z]/g, ''))) {
+    return { matched: true, command: words.slice(2).join(' ').trim() };
+  }
+  return { matched: false, command: '' };
+}
+function containsWakeWord(text) {
+  const lower = text.toLowerCase();
+  for (const w of WAKE_WORDS) if (lower.includes(w.replace('.', ''))) return true;
+  return false;
+}
+function hasEndPhrase(text) { const t = cleanPunct(text); return END_PHRASES.some(p => t.includes(p)); }
+function armSessionSilenceTimer() {
+  if (sessionSilenceTimer) clearTimeout(sessionSilenceTimer);
+  if (SESSION_SILENCE_MS <= 0) return;
+  sessionSilenceTimer = setTimeout(() => { if (sessionActive) { addMsg('— Session timed out —', 'sys'); endSession(); } }, SESSION_SILENCE_MS);
+}
+function startRecognition() {
+  if (!recognition || recognizing || !active || muted) return;
+  if (serverSttAvailable) return;
+  try { recognition.start(); recognizing = true; linkStatus.textContent = 'ONLINE'; }
+  catch (e) { setTimeout(() => { recognizing = false; startRecognition(); }, 500); }
+}
+recognition && (recognition.onstart = () => { recognizing = true; linkStatus.textContent = 'ONLINE'; audioStatus.textContent = sessionActive ? 'SESSION' : 'STANDBY'; });
+recognition && (recognition.onend = () => {
+  recognizing = false;
+  if (active && !muted && !serverSttAvailable) setTimeout(startRecognition, 100);
+  else { linkStatus.textContent = muted ? 'MUTED' : (serverSttAvailable ? 'ONLINE' : 'OFFLINE'); audioStatus.textContent = muted ? 'MUTED' : (sessionActive ? 'SESSION' : 'IDLE'); }
+});
+recognition && (recognition.onerror = (e) => {
+  if (e.error === 'no-speech' || e.error === 'aborted') return;
+  if (e.error === 'not-allowed') { addMsg('Microphone permission denied.', 'sys'); active = false; initBtn.style.display = 'inline-block'; initBtn.textContent = 'Turn on the microphone'; }
+});
+recognition && (recognition.onresult = async (event) => {
+  if (serverSttAvailable) return;
+  if (muted) return;
+  const last = event.results[event.results.length - 1];
+  const result = last[0];
+  const transcript = (result.transcript || '').trim();
+  if (!transcript || !last.isFinal) return;
+  await handleServerTranscript(transcript);
+});
+
+async function startSession() {
+  sessionActive = true;
+  beepWake(); setState('session');
+  audioStatus.textContent = 'SESSION';
+  addMsg('— Session started —', 'sys');
+  armSessionSilenceTimer();
+  sessionCount++;
+
+  if (!currentUser) identifyUser().catch(() => {});   // in the background; never hold the session for the camera
+
+  if (Date.now() - lastGreetAt < GREET_EVERY_MS) { speaking = false; setState('session'); armSessionSilenceTimer(); return; }
+  lastGreetAt = Date.now();
+
+  const user = currentUser;
+  const myId = ++commandId;
+  const params = new URLSearchParams();
+  if (user && user.name) {
+    params.set('name', user.name);
+    if (user.title) params.set('title', user.title);
+  }
+  const url = params.toString() ? `/greeting?${params.toString()}` : '/greeting';
+
+  fetch(url).then(r => r.json()).then(async (d) => {
+    if (myId !== commandId) return;
+    if (!d.text) { speaking = false; if (sessionActive && active && !muted) { setState('session'); armSessionSilenceTimer(); } return; }
+    addMsg(d.text, 'jarvis');
+    rememberJarvisReply(d.text);
+    bargeAbort = new AbortController(); speakChain = Promise.resolve();
+    enqueueSpeech(d.text);
+    try { await speakChain; } catch (e) {}
+    if (myId !== commandId) return;
+    speaking = false;
+    if (sessionActive && active && !muted) { setState('session'); armSessionSilenceTimer(); }
+  }).catch(() => { speaking = false; if (sessionActive && active && !muted) { setState('session'); armSessionSilenceTimer(); } });
+}
+function endSession() {
+  sessionActive = false; beepEnd(); addMsg('— Session ended —', 'sys');
+  if (sessionSilenceTimer) { clearTimeout(sessionSilenceTimer); sessionSilenceTimer = null; }
+  if (active && !muted) { setState('standby'); audioStatus.textContent = 'STANDBY'; }
+}
+
+async function handleCommand(text) {
+  const myId = ++commandId;
+  cancelAllSpeech();
+  bargeAbort = new AbortController();
+  speakChain = Promise.resolve();
+  let cleaned = text;
+  const w = WAKE_WORDS.map(k => k.replace('.', '')).join('|');
+  cleaned = cleaned.replace(new RegExp(`\\b(hey |ok |hi )?(${w})\\b`, 'gi'), '').trim();
+  cleaned = cleaned.replace(/^[\s,.\-!?]+/, '').trim();
+  if (!cleaned) {
+    if (sessionActive) { setState('session'); armSessionSilenceTimer(); } else if (active && !muted) { setState('standby'); }
+    return;
+  }
+  addMsg(cleaned, 'user'); setState('thinking');
+  lastCommandTime = performance.now();
+  const tStart = performance.now();
+  let fullReply = "", firstSentence = true;
+  jarvisMsgEl = null;
+  try {
+    const response = await fetch('/chat_stream', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: cleaned }), signal: bargeAbort.signal,
+    });
+    if (!response.ok || !response.body) throw new Error('stream failed');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (myId !== commandId) break;
+      sseBuffer += decoder.decode(value, { stream: true });
+      const frames = sseBuffer.split('\n\n');
+      sseBuffer = frames.pop();
+      for (const frame of frames) {
+        const line = frame.trim();
+        if (!line.startsWith('data:')) continue;
+        let evt; try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (evt.type === 'sentence') {
+          fullReply += (fullReply ? ' ' : '') + evt.text;
+          appendJarvisSentence(evt.text);
+          rememberJarvisReply(evt.text);
+          if (firstSentence) { latencyEl.textContent = `${Math.round(performance.now() - tStart)}ms`; firstSentence = false; }
+          enqueueSpeech(evt.text);
+        }
+      }
+    }
+  } catch (e) { if (e.name !== 'AbortError') { console.error('[STREAM]', e); if (!fullReply) addMsg("Neural link unstable. Please repeat.", 'jarvis'); } }
+  if (myId !== commandId) return;
+  if (fullReply) rememberJarvisReply(fullReply);
+  try { await speakChain; } catch (e) {}
+  if (myId !== commandId) return;
+  speaking = false;
+  if (active && !muted) { if (sessionActive) { setState('session'); armSessionSilenceTimer(); } else { setState('standby'); } }
+}
+
+function appendJarvisSentence(text) {
+  if (!jarvisMsgEl) {
+    jarvisMsgEl = document.createElement('div');
+    jarvisMsgEl.className = 'msg jarvis';
+    jarvisMsgEl.innerHTML = `<span class="who">JARVIS</span><span class="body"></span>`;
+    logEl.appendChild(jarvisMsgEl);
+  }
+  const body = jarvisMsgEl.querySelector('.body');
+  body.textContent += (body.textContent ? ' ' : '') + text;
+  logEl.scrollTop = logEl.scrollHeight;
+  if (nav) { try { nav.caption(body.textContent, 'jarvis'); } catch (e) {} }
+}
+
+function fetchTts(text, signal) {
+  return fetch('/speak', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice: currentVoice }), signal,
+  }).catch(() => null);
+}
+
+function enqueueSpeech(text) {
+  const signal = bargeAbort ? bargeAbort.signal : null;
+  // Start synthesising right now, not when the previous sentence finishes: no gaps between sentences.
+  const pre = signal ? fetchTts(text, signal) : null;
+  speakChain = speakChain.then(() => playSpeechChunk(text, pre, signal)).catch(() => {});
+  return speakChain;
+}
+
+async function playSpeechChunk(text, pre, sig) {
+  if (!bargeAbort || muted) return;
+  const signal = sig || bargeAbort.signal;
+  if (signal.aborted) return;               // belongs to a reply the user already interrupted
+  speaking = true; setState('thinking');      // 'speaking' (and the mouth) start when the sound does
+  audioStatus.textContent = 'PAUSED'; ttsStatus.textContent = 'ACTIVE';
+  const ttsPromise = pre || fetchTts(text, signal);
+  try {
+    const r = await ttsPromise;
+    if (signal.aborted) return;
+    if (!r || r.status === 204) { setState('speaking'); await browserSpeak(text); return; }
+    const blob = await r.blob();
+    if (signal.aborted) return;
+    const audio = new Audio(URL.createObjectURL(blob));
+    currentAudio = audio;
+    audio.onplaying = () => { if (currentAudio === audio) { setState('speaking'); trackMouth(audio); } };
+    await new Promise(resolve => { audio.onended = resolve; audio.onerror = resolve; audio.play().catch(resolve); });
+  } catch (e) {} finally {
+    if (currentAudio) currentAudio = null;
+    ttsStatus.textContent = 'READY';
+    if (!signal.aborted) await new Promise(r => setTimeout(r, POST_TTS_DELAY_MS));
+  }
+}
+
+// The mouth follows the voice coming out of the speakers (it used to move on a timer, even while the sound was still loading).
+let mouthAnalyser = null, mouthBuf = null, mouthLvl = 0;
+function trackMouth(audio) {
+  mouthAnalyser = null;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const an = audioCtx.createAnalyser(); an.fftSize = 1024;
+    audioCtx.createMediaStreamSource(audio.captureStream()).connect(an);   // listens to a copy: the speakers still play the element itself
+    mouthBuf = new Float32Array(an.fftSize); mouthAnalyser = an;
+  } catch (e) { console.warn('[MOUTH]', e); }
+}
+window.__jvMouthLevel = () => {
+  if (!currentAudio || currentAudio.paused) return speechSynthesis.speaking ? -1 : 0;   // nothing playing: mouth shut
+  if (!mouthAnalyser || audioCtx.state !== 'running') return -1;                       // can't measure: the old timed movement
+  mouthAnalyser.getFloatTimeDomainData(mouthBuf);
+  let s = 0; for (let i = 0; i < mouthBuf.length; i++) s += mouthBuf[i] * mouthBuf[i];
+  mouthLvl += (Math.min(1, Math.sqrt(s / mouthBuf.length) * 7) - mouthLvl) * 0.6;
+  return mouthLvl;
+};
+
+function cancelAllSpeech() {
+  if (bargeAbort) { try { bargeAbort.abort(); } catch (e) {} bargeAbort = null; }
+  if (currentAudio) { try { currentAudio.pause(); currentAudio.currentTime = 0; } catch (e) {} currentAudio = null; }
+  try { speechSynthesis.cancel(); } catch (e) {}
+  speakChain = Promise.resolve(); speaking = false; bargeDuckUntil = 0;
+  stopGuidance();
+}
+
+function browserSpeak(text) {
+  return new Promise(resolve => {
+    if (muted) return resolve();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = TTS_RATE; u.pitch = TTS_PITCH;
+    u.onend = resolve; u.onerror = resolve;
+    speechSynthesis.speak(u);
+  });
+}
+
+// ---------------------------------------------------------------- navigation (face <-> map)
+// nav.js is loaded on demand. If it ever fails, Jarvis still works; only the map screen is missing.
+var nav = null, navQueue = [], navLoading = false;
+function navMessage(m) {
+  if (nav) { nav.handle(m); return; }
+  navQueue.push(m);
+  if (navLoading) return;
+  navLoading = true;
+  import('/nav.js').then(mod => {
+    nav = mod.createNav({ say: guidanceSay });
+    const q = navQueue; navQueue = [];
+    q.forEach(x => { try { nav.handle(x); } catch (e) { console.warn('[NAV]', e); } });
+  }).catch(e => {
+    navLoading = false; navQueue = [];
+    console.error('[NAV] could not load nav.js', e);
+    addMsg('The map screen could not load. Voice commands still work.', 'sys');
+  });
+}
+
+var guideSpeaking = false, guideAbort = null, guideAudio = null, guideChain = Promise.resolve(), guidePending = 0;
+const sleepMs = ms => new Promise(r => setTimeout(r, ms));
+function stopGuidance() {
+  if (guideAbort) { try { guideAbort.abort(); } catch (e) {} }
+  if (guideAudio) { try { guideAudio.pause(); } catch (e) {} guideAudio = null; }
+  guideAbort = null;
+}
+// Turn-by-turn prompts. They wait politely for Jarvis to finish an answer, play without the mic hearing them,
+// and an old prompt is dropped rather than read out late ("turn left" after you've already turned).
+function guidanceSay(text, opts = {}) {
+  if (!text || muted || !active) return;
+  const urgent = !!opts.urgent, queuedAt = performance.now();
+  if (!urgent && guidePending >= 2) return;
+  guidePending++;
+  guideChain = guideChain.then(async () => {
+    try {
+      while ((speaking && !guideSpeaking) || appState === 'thinking') {
+        if (performance.now() - queuedAt > (urgent ? 20000 : 6000)) return;
+        await sleepMs(150);
+      }
+      if (!urgent && performance.now() - queuedAt > 8000) return;
+      if (muted) return;
+      guideAbort = new AbortController(); const sig = guideAbort.signal;
+      guideSpeaking = true; speaking = true;
+      if (appState === 'standby' || appState === 'session') setState('speaking');
+      try { rememberJarvisReply(text); } catch (e) {}
+      const r = await fetchTts(text, sig);
+      if (sig.aborted) return;
+      if (!r || r.status === 204) { await browserSpeak(text); return; }
+      const blob = await r.blob();
+      if (sig.aborted) return;
+      const audio = new Audio(URL.createObjectURL(blob)); guideAudio = audio;
+      await new Promise(res => { audio.onended = res; audio.onerror = res; audio.play().catch(res); });
+    } catch (e) {} finally {
+      guidePending = Math.max(0, guidePending - 1);
+      if (guideSpeaking) {
+        guideSpeaking = false; guideAudio = null;
+        if (!guideAbort || !guideAbort.signal.aborted) {
+          speaking = false;
+          if (appState === 'speaking') { if (sessionActive) setState('session'); else if (active && !muted) setState('standby'); }
+        }
+      }
+    }
+  });
+}
+
+async function initialize() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true } });
+    await setupMicAnalyser(micStream);
+    startMicLevelLoop();
+    connectAudioWs();
+    await setupAudioCapture(micStream);
+    setTimeout(() => {
+      if (!serverSttAvailable && active && !muted) { console.log('[STT] fallback'); startRecognition(); }
+    }, 4000);
+  } catch (e) { addMsg('Microphone access denied.', 'sys'); return false; }
+  active = true;
+  initBtn.style.display = 'none';
+  setState('standby'); audioStatus.textContent = 'STANDBY';
+  addMsg('Jarvis online.', 'sys');
+
+  loadCachedUser();
+  identifyUser().catch(() => {});
+  setTimeout(() => navMessage({ cmd: 'cfg', cfg: {} }), 1500);        // loads the map module and asks for GPS once
+  return true;
+}
+
+initBtn.addEventListener('click', async () => { await initialize(); });
+muteBtn.addEventListener('click', () => {
+  muted = !muted;
+  muteBtn.classList.toggle('active', muted);
+  muteBtn.textContent = muted ? 'UNMUTE' : 'MUTE';
+  if (muted) {
+    cancelAllSpeech(); endSession();
+    if (recognition) { try { recognition.stop(); } catch (e) {} }
+    setState('muted'); audioStatus.textContent = 'MUTED'; linkStatus.textContent = 'MUTED';
+  } else {
+    if (active) { setState('standby'); audioStatus.textContent = 'STANDBY'; if (!serverSttAvailable) startRecognition(); }
+  }
+});
+
+window.addEventListener('load', async () => {
+  setState('idle');
+  try {
+    const ok = await initialize();
+    if (!ok) { initBtn.style.display = 'inline-block'; initBtn.textContent = 'Turn on the microphone'; }
+  } catch (e) {
+    addMsg('Click INITIALIZE to grant microphone access.', 'sys');
+    initBtn.style.display = 'inline-block'; initBtn.textContent = 'Turn on the microphone'; setState('idle');
+  }
+});
+
+clearBtn.addEventListener('click', () => { logEl.innerHTML = ''; });
+
+// ---------- audio unlock ----------
+// start_jarvis.bat opens Chrome with autoplay allowed, so this succeeds straight away.
+// In any other browser audio waits for the first click or key, silently (no hint any more).
+async function unlockAudio() {
+  try { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); await audioCtx.resume(); } catch (e) {}
+  try { if (audioCaptureCtx) await audioCaptureCtx.resume(); } catch (e) {}
+  try { speechSynthesis.getVoices(); } catch (e) {}
+}
+['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, unlockAudio, { capture: true }));
+unlockAudio(); setInterval(() => { if ([audioCtx, audioCaptureCtx].some(c => c && c.state === 'suspended')) unlockAudio(); }, 2000);
+
+
+// ---------- PC HUD: greeting, clock, subtitles and a status pill (the phone app's look, laid out for a desktop) ----------
+{
+  const $ = id => document.getElementById(id);
+  const helloG = $('pc-hello').querySelector('.g'), helloN = $('pc-hello').querySelector('.n');
+  const clockT = $('pc-clock').querySelector('.t'), clockD = $('pc-clock').querySelector('.d');
+  const subs = $('pc-subs'), subYou = subs.querySelector('.you'), subHim = subs.querySelector('.him');
+  const note = $('pc-note'), pillLbl = $('pc-pill').querySelector('.lbl'), bars = [...$('pc-pill').querySelectorAll('.sig i')];
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const paintTop = () => {
+    const d = new Date(), h = d.getHours();
+    clockT.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    clockD.textContent = d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+    helloG.textContent = h >= 4 && h < 12 ? 'Good morning,' : h >= 12 && h < 17 ? 'Good afternoon,' : 'Good evening,';
+    helloN.textContent = currentUser && currentUser.name ? `${currentUser.title || ''} ${currentUser.name}`.trim() : 'Sir';
+  };
+  paintTop(); setInterval(paintTop, 5000);
+
+  // subtitles: what he heard, then the last two sentences of the answer; the face lifts a little to make room
+  let hideTimer = null, sentences = [];
+  const showSubs = on => {
+    clearTimeout(hideTimer);
+    subs.classList.toggle('on', on);
+    window.__jvStageInstant = calm;
+    // lift and shrink the face by as much room as the words need, so a long answer never sits on his chin
+    const room = on ? Math.min(0.32, (subs.offsetHeight + 40) / innerHeight) : 0;
+    window.__jvStage = on ? { ty: -Math.round(innerHeight * (0.03 + room * 0.45)), s: Math.max(0.7, 0.98 - room * 0.75) } : { ty: 0, s: 1 };
+  };
+  const hideSoon = ms => { clearTimeout(hideTimer); hideTimer = setTimeout(() => showSubs(false), ms); };
+  let noteTimer = null;
+  const showNote = text => { note.textContent = text; note.classList.add('on'); clearTimeout(noteTimer); noteTimer = setTimeout(() => note.classList.remove('on'), 6000); };
+
+  const _addMsg = addMsg;
+  addMsg = function (text, who) {
+    _addMsg(text, who);
+    if (who === 'user') { subYou.textContent = text; subHim.textContent = ''; sentences = []; showSubs(true); }
+    else if (who === 'jarvis' || who === 'proactive') { subYou.textContent = who === 'user' ? text : subYou.textContent; sentences = [text]; subHim.textContent = text; showSubs(true); }
+    else if (!/^— .* —$/.test(text)) showNote(text);       // status lines ("Jarvis online.", "Microphone access denied.")
+  };
+  const _append = appendJarvisSentence;
+  appendJarvisSentence = function (text) {
+    _append(text);
+    sentences.push(text); subHim.textContent = sentences.slice(-2).join(' '); showSubs(true);
+  };
+  const _partial = showPartial;
+  showPartial = function (text) { _partial(text); subYou.textContent = text; subHim.textContent = ''; showSubs(true); };
+
+  // the pill: what he's doing, in plain words
+  const LABELS = { idle: 'Starting up', standby: 'Say “Hey Jarvis”', listening: 'Listening', session: 'Listening', thinking: 'Thinking', speaking: 'Speaking', muted: 'Muted' };
+  const _setState = setState;
+  setState = function (s) {
+    _setState(s);
+    document.body.className = document.body.className.replace(/\bst-\S+/g, '').trim() + ' st-' + s;
+    pillLbl.textContent = LABELS[s] || LABELS.standby;
+    if (s === 'standby' || s === 'idle') hideSoon(4000);
+    else if (s === 'session') hideSoon(9000);
+    else clearTimeout(hideTimer);
+  };
+  setState(appState || 'idle');
+
+  // bars: his voice while he speaks, yours while he listens
+  const shape = [0.7, 1, 0.8];
+  (function tick() {
+    let lvl = 0;
+    if (appState === 'speaking') { const m = window.__jvMouthLevel ? window.__jvMouthLevel() : 0; lvl = m < 0 ? 0.5 + 0.3 * Math.sin(performance.now() / 90) : m * 1.6; }
+    else if (appState === 'session' || appState === 'listening') lvl = (parseFloat(micLevelFill.style.width) || 0) / 45;
+    const t = performance.now() / 160;
+    bars.forEach((b, i) => { const v = Math.max(0.25, Math.min(1, lvl * shape[i] * (0.85 + 0.15 * Math.sin(t + i * 2)))); b.style.transform = `scaleY(${v.toFixed(3)})`; });
+    requestAnimationFrame(tick);
+  })();
+}
+
+
+// ---------- PC HUD, part two: corner card, a face that hears you, idle dimming, briefing card, one tab at a time ----------
+{
+  const $ = id => document.getElementById(id);
+  // corner card: the weather (the server refreshes it every half hour) and Spotify's current song, if Spotify is set up
+  const wx = $('pc-ambient').querySelector('.wx'), np = $('pc-ambient').querySelector('.np');
+  const useF = /-US$/.test(navigator.language || '');
+  const paintAmbient = async () => {
+    try {
+      const a = await (await fetch('/ambient', { cache: 'no-store' })).json();
+      wx.hidden = !a.weather;
+      if (a.weather) { wx.querySelector('b').textContent = `${useF ? a.weather.f : a.weather.c}°`; wx.querySelector('span').textContent = a.weather.desc; }
+      np.hidden = !a.playing;
+      if (a.playing) { np.querySelector('.t').textContent = a.playing.title; np.querySelector('.a').textContent = a.playing.artist; }
+    } catch (e) {}
+  };
+  paintAmbient(); setInterval(paintAmbient, 20000);
+
+  // the face glows and swells a little with your voice while he's listening
+  let hear = 0;
+  (function hearTick() {
+    const listening = appState === 'session' || appState === 'listening';
+    const lvl = listening ? Math.min(1, (parseFloat(micLevelFill.style.width) || 0) / 40) : 0;
+    hear += (lvl - hear) * 0.25; window.__jvHear = hear;
+    requestAnimationFrame(hearTick);
+  })();
+
+  // quiet for 3 minutes: dim everything; anything at all wakes it
+  let lastActive = performance.now();
+  const wake = () => { lastActive = performance.now(); document.body.classList.remove('pc-idle'); };
+  window.__jvWake = wake;
+  window.__jvCommand = text => handleCommand(text);     // gestures can answer for him (thumbs up = "yes")
+  // the globe, plan and recap cards, system gauges and gestures live in hud_extra.js; if it fails, Jarvis still works
+  import('/hud_extra.js').catch(e => console.error('[HUD+] could not load hud_extra.js', e));
+  const _setStateIdle = setState;
+  setState = function (s) { _setStateIdle(s); if (s !== 'standby') wake(); };
+  setInterval(() => {
+    if (appState === 'standby' && performance.now() - lastActive > 180000) document.body.classList.add('pc-idle');
+    if ((window.__jvHear || 0) > 0.15) wake();
+  }, 2000);
+
+  // the morning briefing: a card on the left while he reads it
+  const brief = $('pc-brief'); let briefTimer = null;
+  window.__jvBriefing = text => {
+    wake();
+    brief.querySelector('p').textContent = text; brief.classList.add('on');
+    clearTimeout(briefTimer); briefTimer = setTimeout(() => brief.classList.remove('on'), Math.max(25000, text.split(/\s+/).length * 450));
+  };
+
+  // the launcher opens a new tab each start: the newest Jarvis tab wins, older ones step aside so he doesn't hear and answer twice
+  try {
+    const bc = new BroadcastChannel('jarvis-tab');
+    bc.onmessage = e => {
+      if (e.data !== 'new') return;
+      connectAudioWs = connectWS = () => {};              // no reconnecting
+      try { audioWs && audioWs.close(); } catch (er) {} try { ws && ws.close(); } catch (er) {}
+      try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch (er) {}
+      muted = true; cancelAllSpeech();
+      document.body.classList.add('pc-retired');
+    };
+    bc.postMessage('new');
+  } catch (e) {}
+}
+
+</script>
+<!-- First launch: ask for a free Groq key (Jarvis's brain). Shown only while the server has no working key. -->
+<style>
+  #jv-setup { position: fixed; inset: 0; z-index: 9999; display: none; align-items: center; justify-content: center; padding: 16px;
+    background: radial-gradient(ellipse at 50% 40%, rgba(20, 15, 8, .94), rgba(0, 0, 0, .97)); font-family: 'Saira', system-ui, sans-serif; }
+  #jv-setup.on { display: flex; }
+  #jv-setup .box { width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 28px; border-radius: 20px;
+    background: var(--glass); border: 1px solid var(--glass-hi); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); color: var(--ice); }
+  #jv-setup h1 { margin: 0 0 6px; font: 600 24px/1.2 'Saira', system-ui, sans-serif; color: var(--live); }
+  #jv-setup p { margin: 0 0 18px; font-size: 15px; line-height: 1.5; color: var(--mist); }
+  #jv-setup ol { margin: 0 0 20px; padding-left: 20px; font-size: 15px; line-height: 1.6; color: var(--mist); }
+  #jv-setup ol b { color: var(--ice); font-weight: 600; }
+  #jv-setup .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  #jv-setup input { flex: 1 1 220px; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--glass-hi); background: rgba(0, 0, 0, .45);
+    color: var(--ice); font: 500 15px/1.2 Consolas, monospace; outline: none; }
+  #jv-setup input:focus { border-color: var(--holo); }
+  #jv-setup button { padding: 12px 20px; border-radius: 999px; border: 1px solid var(--glass-hi); cursor: pointer; font: 600 15px/1 'Saira', system-ui, sans-serif;
+    letter-spacing: normal; text-transform: none; text-shadow: none; }
+  #jv-setup .get { width: 100%; margin-bottom: 14px; background: var(--holo); color: #1a1208; border-color: transparent; }
+  #jv-setup .go { background: rgba(255, 214, 150, .12); color: var(--ice); }
+  #jv-setup button:disabled { opacity: .5; cursor: default; }
+  #jv-setup .msg { min-height: 22px; margin: 12px 0 0; font-size: 14px; color: var(--mist); }
+  #jv-setup .msg.bad { color: #ff9a7a; } #jv-setup .msg.good { color: var(--live); }
+</style>
+<div id="jv-setup" role="dialog" aria-modal="true" aria-labelledby="jv-setup-h">
+  <div class="box">
+    <h1 id="jv-setup-h">Welcome to Jarvis</h1>
+    <p>Jarvis thinks with Groq, which is free. You only need to do this once.</p>
+    <ol>
+      <li>Press <b>Get my free key</b>. Sign in to Groq with Google or your email.</li>
+      <li>Press <b>Create API Key</b>, give it any name, then <b>Copy</b>.</li>
+      <li>Come back here, paste it below and press <b>Connect</b>.</li>
+    </ol>
+    <button class="get" type="button">Get my free key</button>
+    <div class="row">
+      <input type="password" placeholder="Paste your key (gsk_...)" autocomplete="off" spellcheck="false" aria-label="Groq API key">
+      <button class="go" type="button">Connect</button>
+    </div>
+    <div class="msg" aria-live="polite"></div>
+  </div>
+</div>
+<script>
+(() => {
+  const box = document.getElementById('jv-setup'), input = box.querySelector('input'), go = box.querySelector('.go'), msg = box.querySelector('.msg');
+  const say = (t, kind) => { msg.textContent = t; msg.className = 'msg' + (kind ? ' ' + kind : ''); };
+  box.querySelector('.get').onclick = () => window.open('https://console.groq.com/keys', '_blank');
+  async function connect() {
+    const key = input.value.trim(); if (!key) { say('Paste the key first.', 'bad'); input.focus(); return; }
+    go.disabled = true; say('Checking with Groq...');
+    try {
+      const r = await (await fetch('/setup/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) })).json();
+      if (r.ok) { say('Connected. Say "Hey Jarvis".', 'good'); input.value = ''; setTimeout(() => box.classList.remove('on'), 1400); }
+      else say(r.error, 'bad');
+    } catch (e) { say('Jarvis is still starting. Try again in a few seconds.', 'bad'); }
+    go.disabled = false;
+  }
+  go.onclick = connect; input.addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+  fetch('/setup/status').then(r => r.json()).then(s => { if (s.need_key) { box.classList.add('on'); input.focus(); } }).catch(() => {});
+})();
+</script>
+</body>
+</html>

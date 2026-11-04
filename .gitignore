@@ -15,3 +15,8 @@ ios/*.xcodeproj/
 ios/build/
 ios/JarvisCore/.build/
 ios/Jarvis/Info.plist
+
+# the PC app's page files (ignored above for the old layout)
+!desktop/app/index.html
+!desktop/app/nav.js
+!desktop/app/nav_core.js
