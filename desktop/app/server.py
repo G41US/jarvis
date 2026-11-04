@@ -795,6 +795,28 @@ def synth_piper(text, voice_name=None):
         except Exception as e: print(f"[PIPER] wav fail: {e}")
     return None
 
+# A new install has no Piper voices: fetch Alan (male) and Amy (female) once, ~63 MB each. They are the fast voices, and
+# they are what the voice list, "switch to a male voice" and the face (male/female) follow.
+PIPER_STOCK = {"en_GB-alan-medium": "en/en_GB/alan/medium", "en_US-amy-medium": "en/en_US/amy/medium"}
+def _piper_fetch():
+    try:
+        import requests
+        from piper.voice import PiperVoice
+        os.makedirs("voices", exist_ok=True)
+        for name, sub in PIPER_STOCK.items():
+            if name in VOICES: continue
+            base = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/{sub}/{name}"
+            path = os.path.join("voices", name + ".onnx")
+            for ext in (".onnx.json", ".onnx"):
+                with requests.get(base + ext, stream=True, timeout=30) as r:
+                    r.raise_for_status()
+                    with open(path.replace(".onnx", ext) + ".part", "wb") as f:
+                        for chunk in r.iter_content(1 << 20): f.write(chunk)
+                os.replace(path.replace(".onnx", ext) + ".part", path.replace(".onnx", ext))
+            VOICES[name] = PiperVoice.load(path); print(f"[PIPER] downloaded voice {name}")
+    except Exception as e: print(f"[PIPER] voice download failed: {type(e).__name__}: {e}")
+if not all(n in VOICES for n in PIPER_STOCK): threading.Thread(target=_piper_fetch, daemon=True).start()
+
 # ---- the APK's voices, in the phone's order: Groq Orpheus (Daniel for the male face, Hannah for the female), then Kokoro offline
 # (Michael / Bella), then Piper only if Kokoro isn't installed. Off with "natural_voice": false in config.json.
 ORPHEUS_VOICES = {"Male": "daniel", "Female": "hannah"}
@@ -914,6 +936,7 @@ def _kokoro_open(d):
     t = time.time(); a = tts.generate("Good evening, sir. All systems are online.", sid=6, speed=1.0)
     rtf = (time.time() - t) / max(0.1, len(a.samples) / a.sample_rate)
     print(f"[KOKORO] {os.path.basename(d)} ready on {cores} cores: {rtf:.2f}x real time (under 1 = no waiting between sentences)")
+    _KOKORO["rtf"] = rtf
     return tts
 
 def _kokoro_load():
@@ -933,6 +956,9 @@ def _kokoro_load():
 def synth_kokoro(text, voice_name=None):
     tts = _KOKORO["tts"]
     if tts is None or CONFIG.get("natural_voice", True) is False: return None
+    # shortcut: speed measured once at load; on a slow or busy CPU Kokoro takes longer than the speech itself (10-50 s a sentence),
+    # so the fast Piper voice speaks instead. "natural_voice": "always" in config.json forces Kokoro.
+    if _KOKORO.get("rtf", 0) > 1.2 and VOICES and CONFIG.get("natural_voice") != "always": return None
     try:
         import numpy as np, io
         a = tts.generate(text, sid=KOKORO_SPEAKERS.get(_friendly_name(voice_name or CONFIG.get("voice") or ""), 6), speed=1.0)
