@@ -85,6 +85,88 @@ def start_wake(home):
         print(f"[APP] wake listener failed: {e}"); return None
 
 
+def version_tuple(v):
+    """'desktop-v1.0.12' -> (1, 0, 12); anything unreadable sorts as oldest."""
+    try: return tuple(int(x) for x in v.rsplit("v", 1)[-1].strip().split("."))
+    except ValueError: return (0,)
+
+
+def pick_asset(assets):
+    """The download for this computer from a release's files."""
+    names = {a["name"]: a["browser_download_url"] for a in assets}
+    if sys.platform == "win32": want = ["Jarvis-Setup.exe"]
+    elif sys.platform == "darwin":
+        import platform
+        arm = platform.machine() == "arm64" or subprocess.run(["sysctl", "-n", "hw.optional.arm64"], capture_output=True, text=True).stdout.strip() == "1"
+        want = ["Jarvis-Mac-AppleSilicon.dmg", "Jarvis-Mac-Intel.dmg"] if arm else ["Jarvis-Mac-Intel.dmg"]
+    else: want = []
+    return next(((n, names[n]) for n in want if n in names), (None, None))
+
+
+def add_update_routes(app, home, quit_all):
+    """/update/check and /update/install for the page's Update button. Updates come from the GitHub Releases the build publishes to."""
+    import requests
+    def read(name, default=""):
+        try: return open(os.path.join(BUNDLE, name), encoding="utf-8").read().strip()
+        except OSError: return default
+    current, repo = read("VERSION", "0"), read("UPDATE_REPO")
+    state = {"state": "idle", "pct": 0, "error": "", "latest": None, "asset": None}
+
+    def check():
+        r = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", timeout=10, headers={"Accept": "application/vnd.github+json"})
+        r.raise_for_status(); rel = r.json()
+        name, url = pick_asset(rel.get("assets", []))
+        state["latest"] = rel.get("tag_name", "").rsplit("v", 1)[-1]
+        state["asset"] = (name, url) if url and version_tuple(state["latest"]) > version_tuple(current) else None
+
+    def download_and_install():
+        name, url = state["asset"]
+        folder = os.path.join(home, "update"); os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, name)
+        try:
+            with requests.get(url, stream=True, timeout=30) as r:   # only ever the release's own file, never a URL from the page
+                r.raise_for_status(); total = int(r.headers.get("content-length") or 0); got = 0
+                with open(path + ".part", "wb") as f:
+                    for chunk in r.iter_content(1 << 20):
+                        f.write(chunk); got += len(chunk); state["pct"] = int(got * 100 / total) if total else 0
+            os.replace(path + ".part", path)
+            state["state"] = "installing"; print(f"[UPDATE] installing {name}")
+            if sys.platform == "win32":
+                # the installer closes this copy, replaces the program files and starts the new Jarvis; user data stays in %APPDATA%
+                subprocess.Popen([path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"], close_fds=True)
+            else:
+                app_path = os.path.abspath(os.path.join(os.path.dirname(sys.executable), "..", ".."))   # .../Jarvis.app
+                script = os.path.join(folder, "install.sh")
+                with open(script, "w") as f: f.write(f"""#!/bin/sh
+while kill -0 {os.getpid()} 2>/dev/null; do sleep 0.5; done
+MNT="{folder}/mnt"; mkdir -p "$MNT"
+hdiutil attach -nobrowse -noautoopen -mountpoint "$MNT" "{path}" || exit 1
+rm -rf "{app_path}.old"; mv "{app_path}" "{app_path}.old" && {{ ditto "$MNT/Jarvis.app" "{app_path}" || {{ rm -rf "{app_path}"; mv "{app_path}.old" "{app_path}"; }}; }}; rm -rf "{app_path}.old"
+hdiutil detach "$MNT" -quiet
+open "{app_path}"
+""")
+                subprocess.Popen(["/bin/sh", script], start_new_session=True, close_fds=True)
+            threading.Timer(1.5, quit_all).start()
+        except Exception as e:
+            state.update(state="error", error=f"{type(e).__name__}: {e}"); print(f"[UPDATE] failed: {e}")
+
+    @app.get("/update/check")
+    def update_check():
+        if state["state"] == "idle" and repo:
+            try: check()
+            except Exception as e: print(f"[UPDATE] check failed: {type(e).__name__}")
+        return {"current": current, "latest": state["latest"], "available": bool(state["asset"]),
+                "state": state["state"], "pct": state["pct"], "error": state["error"]}
+
+    @app.post("/update/install")
+    def update_install():
+        if state["state"] in ("downloading", "installing"): return {"ok": True}
+        if not state["asset"]: return {"ok": False, "error": "No update available."}
+        state.update(state="downloading", pct=0, error="")
+        threading.Thread(target=download_and_install, daemon=True).start()
+        return {"ok": True}
+
+
 def main():
     import multiprocessing; multiprocessing.freeze_support()   # libraries that spawn workers need this inside an exe
     home = data_dir(); os.makedirs(home, exist_ok=True)
@@ -105,19 +187,23 @@ def main():
     sync_app_files(home)
     wake_proc = start_wake(home)
 
+    win = None
     def window():
+        nonlocal win
         win = open_window(home)
         if win is not None:
             win.wait()
             print("[APP] window closed, stopping"); quit_all()
 
     def quit_all():
-        if wake_proc and wake_proc.poll() is None: wake_proc.terminate()
+        for p in (wake_proc, win):
+            if p and p.poll() is None: p.terminate()
         os._exit(0)
 
     threading.Thread(target=window, daemon=True).start()
     try:
         import uvicorn, server
+        if FROZEN: add_update_routes(server.app, home, quit_all)
         uvicorn.run(server.app, host="127.0.0.1", port=PORT)
     finally:
         quit_all()

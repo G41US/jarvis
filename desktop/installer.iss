@@ -37,4 +37,5 @@ Name: "{autoprograms}\Jarvis"; Filename: "{app}\Jarvis.exe"
 Name: "{autodesktop}\Jarvis"; Filename: "{app}\Jarvis.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Jarvis.exe"; Description: "Start Jarvis now"; Flags: nowait postinstall skipifsilent
+; no skipifsilent: after a silent update from the app's Update button, Jarvis starts again by itself
+Filename: "{app}\Jarvis.exe"; Description: "Start Jarvis now"; Flags: nowait postinstall

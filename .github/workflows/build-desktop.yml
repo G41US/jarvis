@@ -33,7 +33,9 @@ jobs:
 
       - name: Version
         shell: bash
-        run: echo "$JARVIS_VERSION" > desktop/app/VERSION
+        run: |
+          echo "$JARVIS_VERSION" > desktop/app/VERSION
+          echo "${{ vars.RELEASE_REPO || github.repository }}" > desktop/app/UPDATE_REPO
 
       - name: Microphone library (Mac)
         if: runner.os == 'macOS'

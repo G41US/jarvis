@@ -16,6 +16,11 @@ Each user's memory, key and voices stay in their own folder: `%APPDATA%\Jarvis` 
 `~/Library/Application Support/Jarvis` on Mac. Uninstalling the app keeps them.
 Closing the Jarvis window quits Jarvis. Problems: `jarvis.log` in that folder says what went wrong.
 
+**Updates:** each build is a new version. When Jarvis sees a newer one on the Releases page, an *Update Jarvis to 1.0.N* button
+appears at the top. One click downloads it, installs it and reopens Jarvis (no security warnings the second time).
+It checks the downloads repo below (`RELEASE_REPO`); while that isn't set up, the app can't see the private releases and the button never shows.
+Self-check: `python desktop/test_update.py`.
+
 ## Letting anyone download it
 
 This repository is private, so its Releases only work for you. To share:

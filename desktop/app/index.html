@@ -1815,6 +1815,36 @@ unlockAudio(); setInterval(() => { if ([audioCtx, audioCaptureCtx].some(c => c &
 }
 
 </script>
+<!-- Update button (installed app only): shows when a newer version is on the Releases page; one click downloads, installs and reopens Jarvis. -->
+<style>
+  #jv-update { position: fixed; top: 36px; left: 50%; transform: translateX(-50%); z-index: 50; display: none; max-width: calc(100vw - 32px);
+    padding: 10px 18px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-hi); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    font: 600 14px/1.2 'Saira', system-ui, sans-serif; letter-spacing: normal; text-transform: none; text-shadow: none; color: var(--live); cursor: pointer; white-space: nowrap; }
+  #jv-update.on { display: block; }
+  #jv-update:disabled { cursor: default; color: var(--mist); }
+  #jv-update:not(:disabled):hover { border-color: var(--holo); }
+</style>
+<button id="jv-update" type="button"></button>
+<script>
+(() => {
+  const btn = document.getElementById('jv-update');
+  const show = (text, busy) => { btn.textContent = text; btn.disabled = !!busy; btn.classList.add('on'); };
+  async function poll() {
+    let s; try { const r = await fetch('/update/check'); if (!r.ok) return; s = await r.json(); } catch (e) { return; }
+    if (s.state === 'downloading') { show(`Downloading update… ${s.pct}%`, true); setTimeout(poll, 1000); }
+    else if (s.state === 'installing') show('Installing… Jarvis will reopen by himself', true);
+    else if (s.state === 'error') show('Update failed. Click to try again');
+    else if (s.available) show(`Update Jarvis to ${s.latest}`);
+    else btn.classList.remove('on');
+  }
+  btn.onclick = async () => {
+    show('Starting update…', true);
+    try { await fetch('/update/install', { method: 'POST' }); } catch (e) {}
+    poll();
+  };
+  setTimeout(poll, 15000); setInterval(() => { if (!btn.disabled) poll(); }, 6 * 3600 * 1000);   // on start, then every 6 hours
+})();
+</script>
 <!-- First launch: ask for a free Groq key (Jarvis's brain). Shown only while the server has no working key. -->
 <style>
   #jv-setup { position: fixed; inset: 0; z-index: 9999; display: none; align-items: center; justify-content: center; padding: 16px;
