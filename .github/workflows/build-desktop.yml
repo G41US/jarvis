@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, macos-15-intel]   # macos-latest = Apple Silicon (often busy); Intel also runs on M1+ via Rosetta
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -76,15 +76,16 @@ jobs:
       - name: Mac disk image
         if: runner.os == 'macOS'
         run: |
+          name=$([ "$(uname -m)" = arm64 ] && echo Jarvis-Mac-AppleSilicon || echo Jarvis-Mac-Intel)
           mkdir dmg && cp -R dist/Jarvis.app dmg/ && ln -s /Applications dmg/Applications
-          hdiutil create -volname Jarvis -srcfolder dmg -ov -format UDZO dist/Jarvis.dmg
+          hdiutil create -volname Jarvis -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Jarvis-${{ runner.os }}
+          name: Jarvis-${{ matrix.os }}
           path: |
             dist/Jarvis-Setup.exe
-            dist/Jarvis.dmg
+            dist/*.dmg
           if-no-files-found: error
 
   release:
@@ -101,10 +102,10 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           REPO: ${{ vars.RELEASE_REPO || github.repository }}
         run: |
-          files=$(ls out/Jarvis-Setup.exe out/Jarvis.dmg 2>/dev/null) || true
+          files=$(ls out/Jarvis-Setup.exe out/*.dmg 2>/dev/null) || true
           [ -n "$files" ] || { echo "Nothing was built."; exit 1; }
           gh release create "desktop-v$JARVIS_VERSION" $files --repo "$REPO" --latest \
             --title "Jarvis $JARVIS_VERSION for Windows and Mac" \
             --notes "Windows: download Jarvis-Setup.exe and run it. If Windows says it protected your PC, press More info, then Run anyway.
-          Mac (Apple Silicon): open Jarvis.dmg and drag Jarvis into Applications. The first time, open it, then go to System Settings > Privacy & Security and press Open Anyway.
+          Mac: Jarvis-Mac-AppleSilicon.dmg for M1 and newer, Jarvis-Mac-Intel.dmg for older Macs (also works on M1+). Open it and drag Jarvis into Applications. The first time, open it, then go to System Settings > Privacy & Security and press Open Anyway.
           On first start Jarvis asks for a free Groq key and downloads his voice (about 400 MB, once)."
