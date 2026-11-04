@@ -770,11 +770,12 @@ try:
 except Exception as e: print(f"Piper unavailable ({e}).")
 
 def synth_piper(text, voice_name=None):
-    if not VOICES: return None
-    requested = voice_name or CONFIG.get("voice") or next(iter(VOICES))
-    voice = VOICES.get(requested)
-    if voice is None:
-        requested = next(iter(VOICES)); voice = VOICES[requested]
+    local = {k: v for k, v in VOICES.items() if v is not None}     # the Groq entries are names only
+    if not local: return None
+    requested = voice_name or CONFIG.get("voice") or next(iter(local))
+    voice = local.get(requested)
+    if voice is None:   # e.g. a Groq voice while Groq is out: a local voice of the same gender
+        requested = next((k for k in local if _sex(k) == _sex(requested)), next(iter(local))); voice = local[requested]
     syn_config = None
     try:
         from piper import SynthesisConfig
@@ -816,6 +817,10 @@ def _piper_fetch():
             VOICES[name] = PiperVoice.load(path); print(f"[PIPER] downloaded voice {name}")
     except Exception as e: print(f"[PIPER] voice download failed: {type(e).__name__}: {e}")
 if not all(n in VOICES for n in PIPER_STOCK): threading.Thread(target=_piper_fetch, daemon=True).start()
+# Groq's own voices (Orpheus): online, natural, no load on this computer, but a daily free limit; Jarvis falls back to the
+# local voice of the same gender when it runs out. Pick them like any voice: "switch to the Groq female voice".
+GROQ_VOICES = ("groq-daniel", "groq-hannah")
+for _g in GROQ_VOICES: VOICES[_g] = None
 
 # ---- the APK's voices, in the phone's order: Groq Orpheus (Daniel for the male face, Hannah for the female), then Kokoro offline
 # (Michael / Bella), then Piper only if Kokoro isn't installed. Off with "natural_voice": false in config.json.
@@ -838,7 +843,7 @@ def synth_orpheus(text, voice_name=None):
     if not GROQ_API_KEY or CONFIG.get("natural_voice", True) is False or time.time() < _ORPHEUS["paused_until"]: return None
     import requests, io
     if _ORPHEUS_HTTP is None: _ORPHEUS_HTTP = requests.Session()
-    who = ORPHEUS_VOICES.get(_friendly_name(voice_name or CONFIG.get("voice") or ""), "daniel")
+    who = ORPHEUS_VOICES.get(_sex(voice_name or CONFIG.get("voice") or ""), "daniel")
     clips, parts = [], _orpheus_chunks(text)
     # MP3 is about a quarter the size of WAV: on a slow line that's most of the wait. Long sentences come in pieces, joined as WAV.
     fmt = _ORPHEUS.get("fmt", "mp3") if len(parts) == 1 else "wav"
@@ -958,10 +963,10 @@ def synth_kokoro(text, voice_name=None):
     if tts is None or CONFIG.get("natural_voice", True) is False: return None
     # shortcut: speed measured once at load; on a slow or busy CPU Kokoro takes longer than the speech itself (10-50 s a sentence),
     # so the fast Piper voice speaks instead. "natural_voice": "always" in config.json forces Kokoro.
-    if _KOKORO.get("rtf", 0) > 1.2 and VOICES and CONFIG.get("natural_voice") != "always": return None
+    if _KOKORO.get("rtf", 0) > 1.2 and any(VOICES.values()) and CONFIG.get("natural_voice") != "always": return None
     try:
         import numpy as np, io
-        a = tts.generate(text, sid=KOKORO_SPEAKERS.get(_friendly_name(voice_name or CONFIG.get("voice") or ""), 6), speed=1.0)
+        a = tts.generate(text, sid=KOKORO_SPEAKERS.get(_sex(voice_name or CONFIG.get("voice") or ""), 6), speed=1.0)
         if not len(a.samples): return None
         pcm = (np.clip(np.asarray(a.samples, dtype=np.float32), -1, 1) * 32767).astype("<i2").tobytes()
         out = io.BytesIO()
@@ -986,13 +991,15 @@ def synth_elevenlabs(text):
 # VOICE HELPERS
 # ============================================================
 MALE_NAMES = {"alan","ryan","joe","john","bryce","danny","norman","alex","daniel","james","mark","paul","peter","robert"}
-FEMALE_NAMES = {"amy","lessac","kathleen","kristin","cori","jenny","alba","alice","emma","karen","lisa","sarah","susan"}
+FEMALE_NAMES = {"hannah","amy","lessac","kathleen","kristin","cori","jenny","alba","alice","emma","karen","lisa","sarah","susan"}
 VOICE_MISHEARINGS = {"mail":"male","mails":"male","mal":"male","meal":"male","mile":"male","males":"male","man voice":"male","male voice":"male","femail":"female","f mail":"female","fe mail":"female","female voice":"female","woman voice":"female","girl voice":"female"}
 VOICE_ORDINALS = {"first":0,"1st":0,"second":1,"2nd":1,"third":2,"3rd":2,"fourth":3,"4th":3,"last":-1}
 _SKIP_WORDS = {"en","us","gb","au","ca","medium","high","low","x_low","x-low"}
 
+def _sex(full): return (_friendly_name(full) or "").replace("Groq ", "")
 def _friendly_name(full):
     if not full: return full
+    if full.startswith("groq-"): return "Groq " + _friendly_name(full[5:])
     lower = full.lower()
     for n in MALE_NAMES:
         if n in lower: return "Male"
@@ -1009,6 +1016,9 @@ def _voice_summary():
 def _resolve_voice(text):
     if not VOICES: return None
     t = text.lower()
+    if re.search(r"\bgro[qk]\b", t):
+        fem = re.search(r"\b(female|woman|girl|lady|hannah)\b", t) or (not re.search(r"\b(male|man|guy|daniel)\b", t) and _sex(CONFIG.get("voice") or "") == "Female")
+        return "groq-hannah" if fem else "groq-daniel"
     for full in VOICES.keys():
         if full.lower() in t: return full
     for full in VOICES.keys():
@@ -3730,7 +3740,8 @@ def _synth_blocking(text, voice):
     engine = CONFIG.get("voice_engine", "kokoro")
     el = synth_elevenlabs(text) if engine == "elevenlabs" else None
     if el: return el, "audio/mpeg"
-    nat = synth_orpheus(text, voice) if engine == "orpheus" else None      # network call: outside the Piper lock
+    use_groq = engine == "orpheus" or str(voice or CONFIG.get("voice") or "").startswith("groq-")
+    nat = synth_orpheus(text, voice) if use_groq else None      # network call: outside the Piper lock
     if nat: return nat, ("audio/wav" if nat[:4] == b"RIFF" else "audio/mpeg")
     with _TTS_LOCK:                      # the phonemiser isn't thread-safe; one voice job at a time
         wav = synth_kokoro(text, voice) or synth_piper(text, voice)   # Groq out or offline: Kokoro, like the phone, then Piper
