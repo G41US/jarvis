@@ -7,6 +7,7 @@ APP = os.path.join(HERE, "app")
 
 datas = [(os.path.join(APP, f), ".") for f in ("index.html", "hud_extra.js", "nav.js", "nav_core.js", "VERSION")]
 datas += [(os.path.join(APP, "models"), "models")]
+if os.path.exists(os.path.join(APP, "UPDATE_REPO")): datas += [(os.path.join(APP, "UPDATE_REPO"), ".")]   # written by the build: where updates come from
 binaries, hidden = [], ["server", "features", "wake", "nav", "delivery", "spotify_auth"]
 hidden += collect_submodules("uvicorn")
 # libraries that load model files, native libraries or templates from their own folder at run time
