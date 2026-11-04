@@ -26,7 +26,7 @@ icon = os.path.join(HERE, "icon.ico" if sys.platform == "win32" else "icon.icns"
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Jarvis", console=False, icon=icon if os.path.exists(icon) else None)
 coll = COLLECT(exe, a.binaries, a.datas, name="Jarvis")
 if sys.platform == "darwin":
-    app = BUNDLE(coll, name="Jarvis.app", icon=icon if os.path.exists(icon) else None, bundle_identifier="com.g41us.jarvis",
+    app = BUNDLE(coll, name="Jarvis.app", icon=icon if os.path.exists(icon) else None, bundle_identifier="com.ghost.jarvis",
                  info_plist={"NSMicrophoneUsageDescription": "Jarvis listens for \"Hey Jarvis\" and to what you say.",
                              "NSCameraUsageDescription": "Jarvis uses the camera for hand gestures and to recognise you.",
                              "CFBundleShortVersionString": open(os.path.join(APP, "VERSION")).read().strip(), "LSMinimumSystemVersion": "12.0"})

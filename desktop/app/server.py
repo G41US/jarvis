@@ -3748,7 +3748,7 @@ async def set_voice(payload: dict):
     return {"ok": False, "error": "invalid voice"}
 
 # ---- Phone <-> PC handoff through the Jarvis service (server/worker.js in the Android project; the phone's side is handoff.js)
-HANDOFF_SERVICE = os.environ.get("JARVIS_SERVICE", "https://jarvis-proxy.g41us-jarvis.workers.dev").rstrip("/")
+HANDOFF_SERVICE = os.environ.get("JARVIS_SERVICE", "").rstrip("/")   # the shared app has no phone service: set JARVIS_SERVICE to turn handoff on
 _HAND = {"last": 0.0}
 
 def _ago(ms):
@@ -3798,6 +3798,9 @@ def _handoff_push():
                           headers={"Content-Type": "application/json"}, timeout=10)
         except Exception as e: print(f"[HANDOFF] {type(e).__name__}")
     threading.Thread(target=go, daemon=True).start()
+
+if not HANDOFF_SERVICE:
+    for _n in ("link_phone", "continue_from_phone", "unlink_phone"): _TOOL_REGISTRY.pop(_n, None)
 
 # Delivery stacking is the Android app's job: the PC Jarvis doesn't offer it (delivery.py stays only as the map's location store).
 for _n in ("add_delivery_order", "plan_deliveries", "next_stop", "complete_stop", "list_delivery_orders", "remove_delivery_order",
