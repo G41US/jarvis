@@ -3,7 +3,7 @@ name: Build Jarvis desktop (Windows + Mac)
 # Runs when anything in desktop/ changes, or from the Actions tab ("Run workflow").
 # Makes Jarvis-Setup.exe (Windows) and Jarvis.dmg (Mac, Apple Silicon) and puts them on a Release.
 # Releases of a private repo can only be downloaded by you. To share with anyone, make a PUBLIC repo for downloads,
-# then add the repo name as the Actions variable RELEASE_REPO (e.g. G41US/jarvis-download) and a token that can
+# then add the repo name as the Actions variable RELEASE_REPO (e.g. ghost-apps/downloads) and a token that can
 # write to it as the secret RELEASE_TOKEN. See desktop/README.md.
 on:
   push:

@@ -9,7 +9,6 @@
 AppId={{8045A67E-985B-4E21-A447-B0E54DDE364E}
 AppName=Jarvis
 AppVersion={#AppVer}
-AppPublisher=G41US
 DefaultDirName={localappdata}\Programs\Jarvis
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest

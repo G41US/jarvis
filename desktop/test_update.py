@@ -29,7 +29,7 @@ _get = requests.get
 requests.get = lambda url, **k: _get(url.replace("https://api.github.com", f"http://127.0.0.1:{srv.server_port}"), **k)
 
 bundle, home = tempfile.mkdtemp(), tempfile.mkdtemp()
-open(os.path.join(bundle, "VERSION"), "w").write("1.0.3"); open(os.path.join(bundle, "UPDATE_REPO"), "w").write("G41US/jarvis-download")
+open(os.path.join(bundle, "VERSION"), "w").write("1.0.3"); open(os.path.join(bundle, "UPDATE_REPO"), "w").write("ghost-example/downloads")
 ja.BUNDLE = bundle
 launched, quit_called = [], threading.Event()
 ja.subprocess = types.SimpleNamespace(Popen=lambda cmd, **k: launched.append(cmd), run=ja.subprocess.run)
