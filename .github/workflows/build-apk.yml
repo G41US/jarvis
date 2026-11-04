@@ -3,6 +3,7 @@ name: Build Jarvis APK
 # Runs on every push, and from the Actions tab ("Run workflow"). No Android Studio needed: GitHub builds the APK for you.
 on:
   push:
+    paths-ignore: ['desktop/**', '.github/workflows/build-desktop.yml']   # the PC app has its own build
   workflow_dispatch:
 
 permissions:

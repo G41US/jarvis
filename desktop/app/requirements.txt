@@ -1,0 +1,26 @@
+fastapi
+uvicorn[standard]
+python-multipart
+ollama
+groq
+duckduckgo-search
+ddgs
+psutil
+pyperclip
+requests
+faster-whisper
+piper-tts
+reportlab
+python-docx
+python-dateutil
+openwakeword
+pyaudio
+numpy
+fastembed
+spotipy
+opencv-python
+pypdf
+google-api-python-client
+google-auth
+sherpa-onnx==1.13.8
+uiautomation==2.0.29; sys_platform == "win32"

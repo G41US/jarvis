@@ -1,0 +1,4 @@
+device_name: Jarvis Speaker
+device_type: speaker
+audio_backend: wasapi
+bitrate: 320

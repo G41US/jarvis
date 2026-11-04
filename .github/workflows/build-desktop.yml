@@ -1,0 +1,107 @@
+name: Build Jarvis desktop (Windows + Mac)
+
+# Runs when anything in desktop/ changes, or from the Actions tab ("Run workflow").
+# Makes Jarvis-Setup.exe (Windows) and Jarvis.dmg (Mac, Apple Silicon) and puts them on a Release.
+# Releases of a private repo can only be downloaded by you. To share with anyone, make a PUBLIC repo for downloads,
+# then add the repo name as the Actions variable RELEASE_REPO (e.g. G41US/jarvis-download) and a token that can
+# write to it as the secret RELEASE_TOKEN. See desktop/README.md.
+on:
+  push:
+    paths: ['desktop/**', '.github/workflows/build-desktop.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  JARVIS_VERSION: 1.0.${{ github.run_number }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Version
+        shell: bash
+        run: echo "$JARVIS_VERSION" > desktop/app/VERSION
+
+      - name: Microphone library (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          brew install portaudio
+          echo "CFLAGS=-I$(brew --prefix portaudio)/include" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$(brew --prefix portaudio)/lib" >> $GITHUB_ENV
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r desktop/app/requirements.txt pyinstaller
+
+      - name: Package
+        run: pyinstaller desktop/jarvis.spec --noconfirm --distpath dist --workpath build
+
+      - name: Check it starts
+        shell: bash
+        env:
+          JARVIS_NO_WINDOW: '1'
+          JARVIS_HOME: ${{ runner.temp }}/jarvis-home
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then ./dist/Jarvis/Jarvis.exe & else ./dist/Jarvis.app/Contents/MacOS/Jarvis & fi
+          ok=0
+          for i in $(seq 1 120); do curl -fs http://127.0.0.1:8000/setup/status && ok=1 && break; sleep 3; done
+          echo; echo "---- jarvis.log"; tail -n 60 "$JARVIS_HOME/jarvis.log" || true
+          echo "---- wake.log"; tail -n 20 "$JARVIS_HOME/wake.log" || true
+          if [ "$RUNNER_OS" = Windows ]; then taskkill //F //IM Jarvis.exe || true; else pkill -f Contents/MacOS/Jarvis || true; fi
+          sleep 3
+          [ "$ok" = 1 ]
+
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc desktop\installer.iss
+
+      - name: Mac disk image
+        if: runner.os == 'macOS'
+        run: |
+          mkdir dmg && cp -R dist/Jarvis.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname Jarvis -srcfolder dmg -ov -format UDZO dist/Jarvis.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis-${{ runner.os }}
+          path: |
+            dist/Jarvis-Setup.exe
+            dist/Jarvis.dmg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish the downloads
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          REPO: ${{ vars.RELEASE_REPO || github.repository }}
+        run: |
+          gh release create "desktop-v$JARVIS_VERSION" out/Jarvis-Setup.exe out/Jarvis.dmg --repo "$REPO" --latest \
+            --title "Jarvis $JARVIS_VERSION for Windows and Mac" \
+            --notes "Windows: download Jarvis-Setup.exe and run it. If Windows says it protected your PC, press More info, then Run anyway.
+          Mac (Apple Silicon): open Jarvis.dmg and drag Jarvis into Applications. The first time, open it, then go to System Settings > Privacy & Security and press Open Anyway.
+          On first start Jarvis asks for a free Groq key and downloads his voice (about 400 MB, once)."
