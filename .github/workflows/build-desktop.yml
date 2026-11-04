@@ -89,6 +89,7 @@ jobs:
 
   release:
     needs: build
+    if: always()   # publish whatever was built: GitHub sometimes has no Mac machine free
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -100,7 +101,9 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           REPO: ${{ vars.RELEASE_REPO || github.repository }}
         run: |
-          gh release create "desktop-v$JARVIS_VERSION" out/Jarvis-Setup.exe out/Jarvis.dmg --repo "$REPO" --latest \
+          files=$(ls out/Jarvis-Setup.exe out/Jarvis.dmg 2>/dev/null) || true
+          [ -n "$files" ] || { echo "Nothing was built."; exit 1; }
+          gh release create "desktop-v$JARVIS_VERSION" $files --repo "$REPO" --latest \
             --title "Jarvis $JARVIS_VERSION for Windows and Mac" \
             --notes "Windows: download Jarvis-Setup.exe and run it. If Windows says it protected your PC, press More info, then Run anyway.
           Mac (Apple Silicon): open Jarvis.dmg and drag Jarvis into Applications. The first time, open it, then go to System Settings > Privacy & Security and press Open Anyway.
