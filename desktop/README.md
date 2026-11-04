@@ -1,12 +1,12 @@
 # Jarvis for Windows and Mac
 
-The PC Jarvis as a normal app: `Jarvis-Setup.exe` for Windows, `Jarvis.dmg` for Mac (Apple Silicon).
+The PC Jarvis as a normal app: `Jarvis-Setup.exe` for Windows, `Jarvis-Mac-AppleSilicon.dmg` / `Jarvis-Mac-Intel.dmg` for Mac.
 GitHub builds both whenever something in `desktop/` changes (Actions tab, "Build Jarvis desktop").
 
 ## What a new user does
 
 1. **Windows:** run `Jarvis-Setup.exe`. If Windows says it protected the PC: *More info* > *Run anyway*.
-   **Mac:** open `Jarvis.dmg`, drag Jarvis into Applications, open it. The first time macOS blocks it:
+   **Mac:** open the `.dmg`, drag Jarvis into Applications, open it. The first time macOS blocks it:
    System Settings > Privacy & Security > *Open Anyway*.
 2. Jarvis opens its own window and asks for a free Groq key: *Get my free key* opens Groq, they press
    *Create API Key*, copy it, paste it, *Connect*. Done once.
