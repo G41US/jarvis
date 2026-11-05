@@ -1481,6 +1481,14 @@ def _google_account(action: str = "status"):
         return f"Connected to Google as {me.get('emailAddress')}."
     except Exception: return "Your Google account is connected."
 
+def _clean_mail_text(t):
+    """An email body as something worth saying: no image tags, links, long separators or footers."""
+    t = re.sub(r"\[image:[^\]]*\]", " ", t or "")
+    t = re.sub(r"<?https?://\S+>?", " ", t)
+    t = re.sub(r"[-_=*~]{3,}", " ", t)
+    t = re.split(r"\n\s*(unsubscribe|you received this|this email was sent|© ?\d{4}|view in browser|privacy policy)", t, flags=re.I)[0]
+    return re.sub(r"\s+", " ", t).strip()
+
 @tool("gmail", "Read his Gmail (read-only). action: unread (new mail in the inbox), search (Gmail search words, e.g. 'from:amazon', "
       "'invoice', 'newer_than:2d'), read (open message n from the last list).",
       {"action": {"type": "string", "enum": ["unread", "search", "read"]}, "query": {"type": "string"}, "n": {"type": "number"}}, ["action"])
@@ -1501,16 +1509,23 @@ def _gmail(action: str = "unread", query: str = "", n: float = 1):
                     t = text_of(sub)
                     if t: return t
                 return ""
-            body = re.sub(r"\s+", " ", text_of(m.get("payload", {})) or m.get("snippet", "")).strip()
-            return f"From {h.get('from', '?')}. Subject: {h.get('subject', '(none)')}. {body[:1500]}"
+            body = _clean_mail_text(text_of(m.get("payload", {})) or m.get("snippet", ""))
+            sender = re.sub(r"\s*<.*?>", "", h.get("from", "?")).strip('" ')
+            return (f"Email from {sender}, subject: {h.get('subject', '(none)')}. {body[:900]}"
+                    "\n(Tell him in two or three sentences what this email says and anything he needs to do; read it word for word only if he asked.)")
         q = "is:unread in:inbox" if action == "unread" else (query or "in:inbox")
         res = svc.users().messages().list(userId="me", q=q, maxResults=6).execute().get("messages", [])
         if not res: return "No unread email in your inbox." if action == "unread" else f"No email matches {query}."
         _GOOGLE["last_ids"] = [r["id"] for r in res]
+        heads = {}
+        def got(rid, m, err):
+            if err is None: heads[rid] = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
+        batch = svc.new_batch_http_request(callback=got)      # one round trip for all of them, not one per email
+        for r in res: batch.add(svc.users().messages().get(userId="me", id=r["id"], format="metadata", metadataHeaders=["From", "Subject"]), request_id=r["id"])
+        batch.execute()
         lines = []
         for i, r in enumerate(res, 1):
-            m = svc.users().messages().get(userId="me", id=r["id"], format="metadata", metadataHeaders=["From", "Subject"]).execute()
-            h = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
+            h = heads.get(r["id"], {})
             sender = re.sub(r"\s*<.*?>", "", h.get("from", "?")).strip('" ')
             lines.append(f"{i}. {sender}: {h.get('subject', '(no subject)')}")
         return ("Unread email:\n" if action == "unread" else "Matching email:\n") + "\n".join(lines) + "\nSay 'read number 2' to hear one."
@@ -3105,6 +3120,19 @@ def _opus_bytes(a_f32):
     except Exception as e:
         print(f"[STT] opus unavailable ({type(e).__name__}); sending WAV"); return None
 
+def _stt_unsure(r, text):
+    """Whisper's own confidence: a TV in the background or room noise comes back as made-up words with a low score
+    ('Sibir Ghanada Hong Kong'). Those are dropped (and logged, so the bar can be tuned) instead of being answered."""
+    segs = getattr(r, "segments", None) or (getattr(r, "model_extra", None) or {}).get("segments") or []
+    get = lambda sg, k: sg.get(k) if isinstance(sg, dict) else getattr(sg, k, None)
+    lp = [get(sg, "avg_logprob") for sg in segs if get(sg, "avg_logprob") is not None]
+    ns = [get(sg, "no_speech_prob") for sg in segs if get(sg, "no_speech_prob") is not None]
+    if not lp or not text: return False
+    avg, nsp = sum(lp) / len(lp), (max(ns) if ns else 0.0)
+    unsure = avg < float(CONFIG.get("stt_min_logprob", -1.0)) or (nsp > 0.6 and avg < -0.6)
+    if unsure: print(f"[STT] dropped as unclear (confidence {avg:.2f}, no-speech {nsp:.2f}): {text!r}")
+    return unsure
+
 def _stt_groq(a_f32):
     """Groq's hosted Whisper: much more accurate than tiny.en and usually faster than CPU. None = unavailable."""
     if STT_BACKEND == "local" or not _groq_usable(): return None
@@ -3118,8 +3146,9 @@ def _stt_groq(a_f32):
             try: cl = groq_client.with_options(timeout=timeout, max_retries=0)
             except Exception: pass
             r = cl.audio.transcriptions.create(file=upload, model=GROQ_STT_MODEL,
-                                               language="en", prompt=STT_PROMPT, response_format="json", temperature=0.0)
-            return (getattr(r, "text", None) or "").strip()
+                                               language="en", prompt=STT_PROMPT, response_format="verbose_json", temperature=0.0)
+            text = (getattr(r, "text", None) or "").strip()
+            return "" if _stt_unsure(r, text) else text
         except Exception as e:
             if opus and "400" in str(e) and not GROQ_STATE.get("no_opus"):   # Groq refused the format: WAV from now on
                 GROQ_STATE["no_opus"] = True; print("[STT] Groq didn't take Opus; using WAV"); return _stt_groq(a_f32)
@@ -3524,7 +3553,8 @@ def _stream_groq_sync(messages, fast=False):
         return
     except Exception as e:
         print(f"[GROQ STREAM] attempt 1 fail: {_why(e)}")
-        if fast and re.search(r"model|not found|decommission|404", str(e), re.I):
+        # only a missing model switches the quick one off for good ("model called a tool" used to match and did it by mistake)
+        if fast and re.search(r"model_not_found|does not exist|decommission|\b404\b", str(e), re.I):
             GROQ_STATE["fast_off"] = True; print(f"[GROQ] {GROQ_FAST_MODEL} unavailable; small talk uses {GROQ_MODEL}")
         _groq_failed(e)
         if GROQ_STATE["bad"]: return
@@ -3559,6 +3589,13 @@ async def _async_iter(sync_iter):
 SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
 CLAUSE_SPLIT = re.compile(r'(?<=[,;:])\s+')
 def _sse(obj): return f"data: {json.dumps(obj)}\n\n"
+
+def _long_cut(buf, limit=200):
+    """Where to cut a run-on (an email body, a list with no full stops) so the voice gets it in breaths, not 1,800 characters at once."""
+    if len(buf) <= limit + 20: return -1
+    cut = max(buf.rfind(", ", 0, limit), buf.rfind("; ", 0, limit), buf.rfind(": ", 0, limit))
+    if cut < 60: cut = buf.rfind(" ", 0, limit)
+    return cut + 1 if cut > 0 else limit
 
 def _emit_sentences(text: str):
     out = []
@@ -3695,15 +3732,20 @@ async def stream_chat(user_text: str):
                     m = SENTENCE_SPLIT.search(buffer)
                     if not m and not sent_any and len(buffer) >= 60:
                         m = CLAUSE_SPLIT.search(buffer, 30)          # don't wait for a full stop to start talking
-                    if not m: break
-                    s = buffer[:m.end()].strip(); buffer = buffer[m.end():]
+                    if m: end = m.end()
+                    else:
+                        end = _long_cut(buffer)
+                        if end < 0: break
+                    s = buffer[:end].strip(); buffer = buffer[end:]
                     if s and len(s) >= 4:
                         if not sent_any: print(f"[LAT] first words {int((time.time() - t_req) * 1000)} ms after your question (tools={'yes' if scratch else 'no'})")
                         sent_any = True
                         yield _sse({"type": "sentence", "text": s})
             if buffer.strip():
                 if not sent_any: print(f"[LAT] first words {int((time.time() - t_req) * 1000)} ms after your question (tools={'yes' if scratch else 'no'})")
-                yield _sse({"type": "sentence", "text": buffer.strip()})
+                while (end := _long_cut(buffer)) > 0:
+                    yield _sse({"type": "sentence", "text": buffer[:end].strip()}); buffer = buffer[end:]
+                if buffer.strip(): yield _sse({"type": "sentence", "text": buffer.strip()})
         except Exception as e:
             print(f"[STREAM TOKEN] {type(e).__name__}: {e}"); traceback.print_exc()
         if scratch:      # tool plumbing is not kept in history (saves tokens; avoids orphaned tool messages)
@@ -3950,6 +3992,24 @@ def _synth_blocking(text, voice):
         wav = synth_kokoro(text, voice) or synth_piper(text, voice)   # Groq out or offline: Kokoro, like the phone, then Piper
     return (wav, "audio/wav") if wav else (None, None)
 
+_BUSY_LOGGED = {"at": 0.0}
+def _log_busiest():
+    """Which programs had the processor when the voice was slow (at most once a minute)."""
+    if time.time() - _BUSY_LOGGED["at"] < 60: return
+    _BUSY_LOGGED["at"] = time.time()
+    procs = list(psutil.process_iter(["name"]))
+    for p in procs:
+        try: p.cpu_percent(None)
+        except Exception: pass
+    time.sleep(1.0)
+    use = {}
+    for p in procs:
+        try: use[p.info["name"]] = use.get(p.info["name"], 0) + p.cpu_percent(None)
+        except Exception: pass
+    top = sorted(use.items(), key=lambda kv: -kv[1])[:4]
+    cores = psutil.cpu_count() or 1
+    print("[BUSY] " + ", ".join(f"{n} {v / cores:.0f}%" for n, v in top if v > 0))
+
 @app.post("/speak")
 async def speak(payload: dict):
     text = (payload.get("text") or "").strip()
@@ -3958,6 +4018,7 @@ async def speak(payload: dict):
     audio, media = await asyncio.to_thread(_synth_cached, text, CONFIG.get("voice"))
     ms = int((time.time() - t0) * 1000)
     print(f"[LAT] voice {ms} ms for {len(text)} chars" + (f" (computer {psutil.cpu_percent():.0f}% busy)" if ms > 3000 else ""))
+    if ms > 3000: threading.Thread(target=_log_busiest, daemon=True).start()
     if audio: return Response(content=audio, media_type=media)
     return Response(status_code=204)
 
