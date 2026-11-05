@@ -772,12 +772,14 @@ const _spinPivot = new THREE.Vector3(), _spinTmp = new THREE.Vector3();
 const clock = new THREE.Clock();
 let t0 = 0, diagTimer = 0;
 let _lastFrame = 0;
+fetch('/perf').then(r => r.json()).then(p => { window.__jvLight = p.mode === 'light'; }).catch(() => {});
 function animate() {
   if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || window.__jvHideFace || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
   if (window.__jvFaceOff && !pendingSwapUrl) { clock.getDelta(); requestAnimationFrame(animate); return; }
   if (!window.JARVIS_NATIVE) {     // PC: 60 fps only while he's talking or you are; resting, 30 is plenty and halves the work
     const now = performance.now(), busy = appState === 'speaking' || appState === 'thinking' || (window.__jvHear || 0) > 0.05 || pendingSwapUrl;
-    if (!busy && now - _lastFrame < 31) { requestAnimationFrame(animate); return; }
+    // light mode (a slow or hot laptop, decided by the server): 15 fps resting, 30 while busy, so the voice and hearing get the processor
+    if (now - _lastFrame < (window.__jvLight ? (busy ? 31 : 66) : (busy ? 0 : 31))) { requestAnimationFrame(animate); return; }
     _lastFrame = now;
   }   // the globe is up: don't draw a face nobody sees
   const dt = clock.getDelta(); t0 += dt; const t = t0;
@@ -980,10 +982,10 @@ async function handleLookRequest(rid) {
     await video.play();
     await new Promise(r => setTimeout(r, 300));
     const c = document.createElement('canvas');
-    c.width = video.videoWidth || 1280;
-    c.height = video.videoHeight || 720;
+    const vw = video.videoWidth || 1280, vh = video.videoHeight || 720, k = Math.min(1, 1600 / vw);   // a 4K screen is 4x the upload for no gain
+    c.width = Math.round(vw * k); c.height = Math.round(vh * k);
     c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
-    const img = c.toDataURL('image/jpeg', 0.85);
+    const img = c.toDataURL('image/jpeg', 0.8);
     stream.getTracks().forEach(t => t.stop());
     await fetch(`/vision_capture/${rid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: img }) });
   } catch (e) {
@@ -1250,7 +1252,7 @@ function connectWS() {
       else if (data.startsWith('callstart:')) { window.__jvInCall = true; addMsg('Answering a WhatsApp call for you.', 'sys'); }
       else if (data.startsWith('callsay:')) { Promise.resolve(muted ? null : speakUnprompted(data.slice(8))).finally(() => fetch('/call/said', { method: 'POST' }).catch(() => {})); }
       else if (data.startsWith('callend:')) { window.__jvInCall = false; }
-      else if (/^(globe|plan|recap|gesture|panels|holo):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
+      else if (/^(globe|plan|recap|gesture|panels|holo|feeds):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
       else if (data.startsWith('nav:')) { try { navMessage(JSON.parse(data.slice(4))); } catch (e) { console.warn('[NAV]', e); } }
       else if (data.startsWith('look_request:')) { handleLookRequest(data.slice(13)); }
       else if (data.startsWith('identify_request:')) { handleIdentifyRequest(data.slice(17)); }

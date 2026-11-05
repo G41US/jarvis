@@ -37,6 +37,13 @@ jobs:
           echo "$JARVIS_VERSION" > desktop/app/VERSION
           echo "${{ vars.RELEASE_REPO || github.repository }}" > desktop/app/UPDATE_REPO
 
+      - name: Google sign-in client
+        shell: bash
+        env:
+          GOOGLE_OAUTH_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT }}
+        run: |
+          if [ -n "$GOOGLE_OAUTH_CLIENT" ]; then printf '%s' "$GOOGLE_OAUTH_CLIENT" > desktop/app/google_client.json && python -c "import json; c = json.load(open('desktop/app/google_client.json')); print('Google client:', list(c))"; else echo "No GOOGLE_OAUTH_CLIENT secret: Sign in with Google is left out"; fi
+
       - name: Microphone library (Mac)
         if: runner.os == 'macOS'
         run: |

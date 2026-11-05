@@ -22,5 +22,6 @@ opencv-python
 pypdf
 google-api-python-client
 google-auth
+google-auth-oauthlib
 sherpa-onnx==1.13.8
 uiautomation==2.0.29; sys_platform == "win32"
