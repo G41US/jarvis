@@ -44,5 +44,16 @@ and the phone handoff (which used your Cloudflare service) is off in this app.
 - Not code-signed, hence the warnings above. Removing them needs an Apple Developer account ($99/year, for notarising)
   and a Windows code-signing certificate.
 - Windows-only parts (answering WhatsApp calls, the Spotify speaker) are quietly off on a Mac.
-- Builds run only when started (Actions tab > Build Jarvis desktop > Run workflow). Windows by default; tick "mac" for a Mac build: Mac machines count 10x against the 2,000 free minutes a month of a private repo.
+- Builds run only when started (Actions tab > Build Jarvis desktop > Run workflow). Windows builds on your own laptop (below) unless
+  you tick "cloud"; tick "mac" for a Mac build on GitHub's machines (they count 10x against the 2,000 free minutes a month).
+
+## Building on your own laptop (free, unlimited)
+
+The laptop is registered once as this repo's build machine (a "self-hosted runner"). After that, Run workflow builds there.
+1. github.com/G41US/jarvis > Settings > Actions > Runners > **New self-hosted runner** > **Windows**, x64.
+2. Open **PowerShell** (not as admin), and run the commands GitHub shows under *Download* and *Configure*, one block at a time.
+   When `config.cmd` asks: runner group: Enter; name: `jarvis-laptop`; **additional labels: `jarvis-laptop`**; work folder: Enter;
+   **run as service: Y**; service account: Enter.
+3. The runner then shows as *Idle* on that Runners page. It starts with Windows; builds only need the laptop on and online.
+Remove it any time from the same page (and `.\config.cmd remove` in its folder).
 - Run from source: `pip install -r desktop/app/requirements.txt`, then `python desktop/jarvis_app.py`.

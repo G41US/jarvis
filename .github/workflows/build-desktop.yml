@@ -1,21 +1,23 @@
 name: Build Jarvis desktop (Windows + Mac)
 
-# Runs when anything in desktop/ changes, or from the Actions tab ("Run workflow").
-# Makes Jarvis-Setup.exe (Windows) and Jarvis.dmg (Mac, Apple Silicon) and puts them on a Release.
-# Releases of a private repo can only be downloaded by you. To share with anyone, make a PUBLIC repo for downloads,
-# then add the repo name as the Actions variable RELEASE_REPO (e.g. ghost-apps/downloads) and a token that can
-# write to it as the secret RELEASE_TOKEN. See desktop/README.md.
-# Only when started by hand (Actions tab > Run workflow, or the API): every build used to run on each push, and Mac machines count
-# 10x against a private repo's free 2,000 minutes a month (one full build was ~250 of them). Windows only by default.
+# Started by hand (Actions tab > Build Jarvis desktop > Run workflow), never on push.
+# Windows builds on YOUR LAPTOP by default (a self-hosted runner, label "jarvis-laptop"): free and unlimited, as long as the laptop
+# is on. Tick "cloud" to use GitHub's Windows machine instead, "mac" for a Mac build (GitHub's Mac machines count 10x against a
+# private repo's 2,000 free minutes a month). Each build puts its installer straight onto the downloads page: RELEASE_REPO
+# (variable) + RELEASE_TOKEN (secret), see desktop/README.md. The steps are Python so the laptop needs nothing but the runner.
 on:
   workflow_dispatch:
     inputs:
+      cloud:
+        description: "Build Windows on GitHub's machine instead of my laptop (uses free minutes)"
+        type: boolean
+        default: false
       mac:
-        description: 'Also build for Mac (Intel build, runs on every Mac; costs ~100 free minutes)'
+        description: 'Also build for Mac (Intel build, runs on every Mac; ~100 free minutes)'
         type: boolean
         default: false
       mac_arm:
-        description: 'Also a native Apple Silicon build (another ~100 minutes, and GitHub often has no machine free)'
+        description: 'Also a native Apple Silicon build (another ~100 minutes; GitHub often has no machine free)'
         type: boolean
         default: false
 
@@ -24,15 +26,16 @@ permissions:
 
 env:
   JARVIS_VERSION: 1.0.${{ github.run_number }}
+  REPO: ${{ vars.RELEASE_REPO || github.repository }}
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(format('["windows-latest"{0}{1}]', inputs.mac && ',"macos-15-intel"' || '', inputs.mac_arm && ',"macos-latest"' || '')) }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+        os: ${{ fromJSON(format('["{0}"{1}{2}]', inputs.cloud && 'windows-latest' || 'laptop', inputs.mac && ',"macos-15-intel"' || '', inputs.mac_arm && ',"macos-latest"' || '')) }}
+    runs-on: ${{ matrix.os == 'laptop' && fromJSON('["self-hosted", "Windows", "jarvis-laptop"]') || matrix.os }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -40,21 +43,24 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Version
-        shell: bash
-        run: |
-          echo "$JARVIS_VERSION" > desktop/app/VERSION
-          echo "${{ vars.RELEASE_REPO || github.repository }}" > desktop/app/UPDATE_REPO
-
-      - name: Google sign-in client
-        shell: bash
+      - name: Version and Google sign-in client
+        shell: python
         env:
           GOOGLE_OAUTH_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT }}
         run: |
-          if [ -n "$GOOGLE_OAUTH_CLIENT" ]; then printf '%s' "$GOOGLE_OAUTH_CLIENT" > desktop/app/google_client.json && python -c "import json; c = json.load(open('desktop/app/google_client.json')); print('Google client:', list(c))"; else echo "No GOOGLE_OAUTH_CLIENT secret: Sign in with Google is left out"; fi
+          import json, os
+          open("desktop/app/VERSION", "w").write(os.environ["JARVIS_VERSION"])
+          open("desktop/app/UPDATE_REPO", "w").write(os.environ["REPO"])
+          c = os.environ.get("GOOGLE_OAUTH_CLIENT", "")
+          if c:
+              open("desktop/app/google_client.json", "w").write(c)
+              print("Google client:", list(json.loads(c)))
+          else:
+              print("No GOOGLE_OAUTH_CLIENT secret: Sign in with Google is left out")
 
       - name: Microphone library (Mac)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           brew install portaudio
           echo "CFLAGS=-I$(brew --prefix portaudio)/include" >> $GITHUB_ENV
@@ -63,58 +69,94 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -r desktop/app/requirements.txt pyinstaller
+          python -m pip install -r desktop/app/requirements.txt pyinstaller
 
       - name: Package
-        run: pyinstaller desktop/jarvis.spec --noconfirm --distpath dist --workpath build
+        run: python -m PyInstaller desktop/jarvis.spec --noconfirm --distpath dist --workpath build
 
       - name: Check it starts
-        shell: bash
+        shell: python
         env:
           JARVIS_NO_WINDOW: '1'
+          JARVIS_PORT: '8010'           # not 8000: on the laptop, the Jarvis you use may be running
           JARVIS_HOME: ${{ runner.temp }}/jarvis-home
         run: |
-          if [ "$RUNNER_OS" = Windows ]; then ./dist/Jarvis/Jarvis.exe & else ./dist/Jarvis.app/Contents/MacOS/Jarvis & fi
-          ok=0
-          for i in $(seq 1 120); do curl -fs http://127.0.0.1:8000/setup/status && ok=1 && break; sleep 3; done
-          echo; echo "---- jarvis.log"; tail -n 60 "$JARVIS_HOME/jarvis.log" || true
-          echo "---- wake.log"; tail -n 20 "$JARVIS_HOME/wake.log" || true
-          if [ "$RUNNER_OS" = Windows ]; then taskkill //F //IM Jarvis.exe || true; else pkill -f Contents/MacOS/Jarvis || true; fi
-          sleep 3
-          [ "$ok" = 1 ]
+          import os, subprocess, sys, time, urllib.request
+          exe = os.path.abspath("dist/Jarvis/Jarvis.exe" if sys.platform == "win32" else "dist/Jarvis.app/Contents/MacOS/Jarvis")
+          proc = subprocess.Popen([exe])
+          ok = False
+          for _ in range(120):
+              try: print(urllib.request.urlopen("http://127.0.0.1:8010/setup/status", timeout=3).read().decode()); ok = True; break
+              except Exception: time.sleep(3)
+          home = os.environ["JARVIS_HOME"]
+          for log in ("jarvis.log", "wake.log"):
+              p = os.path.join(home, log)
+              if os.path.exists(p): print(f"---- {log}"); print("".join(open(p, encoding="utf-8", errors="replace").readlines()[-50:]))
+          # stop only this test copy (and its listener), never the Jarvis he is using
+          if sys.platform == "win32":
+              subprocess.run(["powershell", "-NoProfile", "-Command",
+                              f"Get-Process Jarvis -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -eq '{exe}' }} | Stop-Process -Force"])
+          else:
+              subprocess.run(["pkill", "-f", exe])
+          time.sleep(3)
+          sys.exit(0 if ok else 1)
 
       - name: Windows installer
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: python
         run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc desktop\installer.iss
+          import os, subprocess, urllib.request
+          iscc = next((p for p in [os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Inno Setup 6", "ISCC.exe"),
+                                   os.path.join(os.environ["RUNNER_TOOL_CACHE"], "InnoSetup6", "ISCC.exe")] if os.path.exists(p)), None)
+          if not iscc:   # first build on the laptop: install Inno Setup once, into the runner's own tool folder
+              setup = os.path.join(os.environ["RUNNER_TEMP"], "innosetup.exe")
+              urllib.request.urlretrieve("https://jrsoftware.org/download.php/is.exe", setup)
+              target = os.path.join(os.environ["RUNNER_TOOL_CACHE"], "InnoSetup6")
+              subprocess.run([setup, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/CURRENTUSER", f"/DIR={target}"], check=True)
+              iscc = os.path.join(target, "ISCC.exe")
+          subprocess.run([iscc, r"desktop\installer.iss"], check=True)
 
       - name: Mac disk image
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           name=$([ "$(uname -m)" = arm64 ] && echo Jarvis-Mac-AppleSilicon || echo Jarvis-Mac-Intel)
           mkdir dmg && cp -R dist/Jarvis.app dmg/ && ln -s /Applications dmg/Applications
           hdiutil create -volname Jarvis -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
 
-      # Straight onto the downloads page from here: handing 230 MB installers to a separate job went through GitHub's artifact
-      # storage, which is tiny for a private repo and filled up ("BlobNotFound"). Each build adds its own file to the release.
+      # Straight onto the downloads page (no artifact storage: a private repo's is tiny). Python + the GitHub API, so the laptop
+      # doesn't need the gh tool. The first build to finish creates the release; the others add their file to it.
       - name: Publish
-        shell: bash
+        shell: python
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
-          REPO: ${{ vars.RELEASE_REPO || github.repository }}
         run: |
-          TAG="desktop-v$JARVIS_VERSION"
-          files=$(ls dist/Jarvis-Setup.exe dist/*.dmg 2>/dev/null) || true
-          [ -n "$files" ] || { echo "Nothing was built."; exit 1; }
-          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release create "$TAG" --repo "$REPO" --latest --title "Jarvis $JARVIS_VERSION" --notes "Windows: download Jarvis-Setup.exe and run it. If Windows says it protected your PC, press More info, then Run anyway.
-          Mac: Jarvis-Mac-Intel.dmg works on every Mac (Jarvis-Mac-AppleSilicon.dmg, when there is one, is faster on M1 and newer). Open it and drag Jarvis into Applications. The first time, open it, then go to System Settings > Privacy & Security and press Open Anyway.
-          On first start Jarvis asks for a free Groq key and downloads his voice (about 400 MB, once)." || sleep 5   # two builds may race to create it
-          fi
-          for f in $files; do
-            for try in 1 2 3; do gh release upload "$TAG" "$f" --repo "$REPO" --clobber && break; sleep 10; done
-          done
-          echo "https://github.com/$REPO/releases/tag/$TAG"
+          import glob, os, time, requests
+          repo, tag, ver = os.environ["REPO"], "desktop-v" + os.environ["JARVIS_VERSION"], os.environ["JARVIS_VERSION"]
+          H = {"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"}
+          files = glob.glob("dist/Jarvis-Setup.exe") + glob.glob("dist/*.dmg")
+          if not files: raise SystemExit("Nothing was built.")
+          notes = ("Windows: download Jarvis-Setup.exe and run it. If Windows says it protected your PC, press More info, then Run anyway.\n"
+                   "Mac: Jarvis-Mac-Intel.dmg works on every Mac (Jarvis-Mac-AppleSilicon.dmg, when there is one, is faster on M1 and newer). "
+                   "Open it and drag Jarvis into Applications. The first time, open it, then System Settings > Privacy & Security > Open Anyway.\n"
+                   "On first start Jarvis asks for a free Groq key and downloads his voice (about 400 MB, once).")
+          for attempt in range(3):
+              r = requests.get(f"https://api.github.com/repos/{repo}/releases/tags/{tag}", headers=H, timeout=30)
+              if r.status_code == 200: rel = r.json(); break
+              r = requests.post(f"https://api.github.com/repos/{repo}/releases", headers=H, timeout=30,
+                                json={"tag_name": tag, "name": f"Jarvis {ver}", "body": notes, "make_latest": "true"})
+              if r.status_code == 201: rel = r.json(); break
+              print("create release:", r.status_code, r.text[:200]); time.sleep(5)
+          else: raise SystemExit("Couldn't create the release.")
+          for f in files:
+              name = os.path.basename(f)
+              for old in rel.get("assets", []):
+                  if old["name"] == name: requests.delete(old["url"], headers=H, timeout=30)
+              for attempt in range(3):
+                  with open(f, "rb") as fh:
+                      r = requests.post(f"https://uploads.github.com/repos/{repo}/releases/{rel['id']}/assets", params={"name": name},
+                                        headers={**H, "Content-Type": "application/octet-stream"}, data=fh, timeout=1800)
+                  if r.status_code == 201: print("uploaded", name); break
+                  print("upload", name, r.status_code, r.text[:200]); time.sleep(10)
+              else: raise SystemExit(f"Couldn't upload {name}.")
+          print(f"https://github.com/{repo}/releases/tag/{tag}")
