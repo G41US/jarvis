@@ -167,7 +167,7 @@ const globe = (() => {
 
   function init() {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, window.__jvLight ? 1 : 2));   // light mode: no extra-sharp pixels (the globe was the busiest thing)
     scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100); camera.position.set(0, 0, dist);
     group = new THREE.Group(); scene.add(group);
     mat = makeMat([-180, -90, 180, 90], 0);
@@ -332,7 +332,7 @@ const globe = (() => {
   let lastDraw = 0;
   function frame() {
     if (!running) return;
-    if (window.__jvLight && performance.now() - lastDraw < 31) { requestAnimationFrame(frame); return; }   // light mode: the globe at 30 fps
+    if (window.__jvLight && performance.now() - lastDraw < 40) { requestAnimationFrame(frame); return; }   // light mode: the globe at 25 fps
     lastDraw = performance.now();
     const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
     mode += (modeWant - mode) * Math.min(1, dt * 2.5); shared.uMode.value = mode; shared.uTime.value += dt;

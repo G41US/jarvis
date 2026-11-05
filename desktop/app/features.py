@@ -516,7 +516,7 @@ def install(ns):
         return f"Here are {min(6, len(items))} pictures of {query}, sir."
 
     @tool("holo", "The ring of floating panels on screen. action: on (3D mode: the screen becomes a window that follows his head), off, "
-          "clear (put the panels away), select (bring panel n forward), back (return it to the ring), next / previous (turn the ring one panel).",
+          "clear (put the panels / floating cards away and show his face again), select (bring panel n forward), back (return it to the ring), next / previous (turn the ring one panel).",
           {"action": {"type": "string", "enum": ["on", "off", "clear", "select", "back", "next", "previous"]}, "n": {"type": "number"}}, ["action"])
     def _holo(action: str, n: float = 0):
         send("holo", {"cmd": action, "n": int(n or 0)})
@@ -635,7 +635,7 @@ def install(ns):
             "translate": "Translation", "spotify_now_playing": "Now playing", "query_documents": "Your documents", "fetch_page": "Page",
             "flip_coin": "Coin", "roll_dice": "Dice", "where_am_i": "Location", "navigation_status": "Trip", "morning_briefing": "Briefing",
             "list_preferences": "Preferences", "list_files": "Files", "search_files": "Files", "read_file": "File", "list_documents": "Documents"}
-    SHOW = set(NICE) | {"get_weather", "crypto_price", "currency_convert", "calculate", "wikipedia", "system_info"}
+    SHOW = set(NICE) | {"gmail", "get_weather", "crypto_price", "currency_convert", "calculate", "wikipedia", "system_info"}
 
     def wiki_card(query, extract):
         import requests
@@ -672,6 +672,13 @@ def install(ns):
             m = _re.search(r"\d{1,2}:\d\d\s*[AP]M", r)
             if m: return [{"kind": "stat", "label": str(args.get("location") or args.get("city") or "Time").title(), "value": m.group(0), "sub": r.replace(m.group(0), "").strip(" ,.")[:60]}]
         if name == "wikipedia": return wiki_card(str(args.get("query", "")), r)
+        if name == "gmail":     # "check my email": the list on screen too, numbered like he'll say it ("read number 2")
+            rows = _re.findall(r"^(\d+)\. (.*?): (.*)$", r, _re.M)
+            if rows: return [{"kind": "list", "title": "Unread email" if r.startswith("Unread") else "Email",
+                              "rows": [{"t": n, "title": subj[:90], "sub": who[:60]} for n, who, subj in rows]}]
+            m = _re.match(r"Email from (.*?), subject: (.*?)\. (.*?)(\n\(|$)", r, _re.S)
+            if m: return [{"kind": "note", "title": m.group(2)[:80], "text": m.group(3)[:900], "source": m.group(1)[:60]}]
+            return None
         return [{"kind": "note", "title": NICE.get(name, name.replace("_", " ").title()), "text": r[:700], "source": ""}]
 
     def on_tool(name, args, result):

@@ -3076,7 +3076,7 @@ def _has_speech(a_f32):
 
 STT_BACKEND = os.environ.get("JARVIS_STT", "auto").lower()        # auto | groq | local
 GROQ_STT_MODEL = os.environ.get("JARVIS_GROQ_STT_MODEL", "whisper-large-v3-turbo")
-STT_PROMPT = "Hey Jarvis."
+STT_PROMPT = "Hey Jarvis. Gesture mode, globe, zoom in, zoom out, live feeds, panels, close the card, check my email, Lagos, Abuja."
 _STT_PROMPT_NORM = re.sub(r"[^a-z ]", "", STT_PROMPT.lower())
 
 def _normalize_pcm(a, target=0.7, max_gain=20.0):
@@ -3289,6 +3289,7 @@ def _spawn_summary():
 # so sending them every time meant a second question within a minute waited. The last two things he said pick the groups.
 _TOOL_CORE = ("get_time", "get_weather", "search_web", "wikipedia", "calculate", "remember")
 _TOOL_GROUPS = [
+    (r"\b(close|take away|remove|hide|dismiss|clear|get rid of|put away|bring back|card|cards|panels?|floating|your face)\b", ("holo", "globe", "show_public_cam")),
     (r"\b(e-?mails?|gmail|inbox|mail|unread|messages? from)\b", ("gmail", "google_account")),
     (r"\b(google account|connect (my )?google|sign (me )?in|log ?in|disconnect)\b", ("google_account",)),
     (r"\b(time|date|day|clock|timezone|o'?clock|until|how long|countdown|days? (left|to))\b", ("get_time", "time_until")),
@@ -3320,7 +3321,7 @@ _TOOL_GROUPS = [
      ("schedule", "todo", "plan_my_day", "get_calendar")),
     (r"\b(recap|numbers|stats|how'?s my day)\b", ("recap",)),
     (r"\b(brief|briefing|morning report)\b", ("morning_briefing",)),
-    (r"\b(globe|earth|world|satellite|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|zoom|borders?|provinces?|states?|country|countries|show me|go to|back to you|hologram)\b",
+    (r"\b(globe|earth|world|satellite|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|zoom\w*|borders?|provinces?|states?|country|countries|show me|go to|back to you|hologram)\b",
      ("globe",)),
     (r"\b(gestures?|hand control|hands?)\b", ("gesture_mode",)),
     (r"\b(pictures?|images?|photos?|pics?|look like|show me)\b", ("show_images", "holo")),
@@ -3337,6 +3338,8 @@ def _pick_tools(messages):
 def _needs_tool(text: str) -> bool:
     t = text.lower().strip()
     if re.search(r'\b(phone|link|unlink|continue|carry on|left off)\b', t): return True    # phone handoff
+    if re.search(r'\b(close|take away|remove|hide|dismiss|clear|get rid of|put away)\b.*\b(card|cards|panel|panels|this|that|it|them|those|everything|feeds?|globe|window)\b'
+                 r'|\b(bring back|show) (your|the) face\b|\bzoom\w*\b', t): return True
     if re.search(r'\b(globe|earth|world map|satellite|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|'
                  r'plan|planner|organi[sz]e|tasks?|to-?dos?|lock it in|recap|numbers|gestures?|hand control|back to you|zoom|borders?|provinces?|pictures?|images?|photos?|panels?|3d|pop out|put (them|those) away|close (them|those)|(first|second|third|fourth|fifth|last) one)\b', t): return True
     if re.match(r'^(what|where|when|who|which|whose|why|how|is|are|was|were|'
@@ -3553,6 +3556,9 @@ def _stream_groq_sync(messages, fast=False):
         return
     except Exception as e:
         print(f"[GROQ STREAM] attempt 1 fail: {_why(e)}")
+        # the chat model reached for a tool ("Zooming on Abuja", "kayisho mi Belgium"): it was a request after all, so do it with tools
+        if re.search(r"called a tool|could not be parsed|tool_use_failed", str(e), re.I) and _groq_usable():
+            print("[GROQ STREAM] it wanted a tool: answering with tools"); yield from _stream_groq_tools(clean, []); return
         # only a missing model switches the quick one off for good ("model called a tool" used to match and did it by mistake)
         if fast and re.search(r"model_not_found|does not exist|decommission|\b404\b", str(e), re.I):
             GROQ_STATE["fast_off"] = True; print(f"[GROQ] {GROQ_FAST_MODEL} unavailable; small talk uses {GROQ_MODEL}")
