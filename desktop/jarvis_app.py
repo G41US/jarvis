@@ -5,7 +5,7 @@ Everything the user owns (memory, their key in .env, downloaded voices, settings
   Windows  %APPDATA%\\Jarvis          Mac  ~/Library/Application Support/Jarvis
 Run from source for testing:  python desktop/jarvis_app.py
 """
-import os, sys, shutil, socket, subprocess, threading, webbrowser
+import os, sys, shutil, socket, subprocess, threading, time, webbrowser
 
 FROZEN = getattr(sys, "frozen", False)
 BUNDLE = getattr(sys, "_MEIPASS", os.path.join(os.path.dirname(os.path.abspath(__file__)), "app"))
@@ -124,12 +124,24 @@ def add_update_routes(app, home, quit_all):
         folder = os.path.join(home, "update"); os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, name)
         try:
-            with requests.get(url, stream=True, timeout=30) as r:   # only ever the release's own file, never a URL from the page
-                r.raise_for_status(); total = int(r.headers.get("content-length") or 0); got = 0
-                with open(path + ".part", "wb") as f:
-                    for chunk in r.iter_content(1 << 20):
-                        f.write(chunk); got += len(chunk); state["pct"] = int(got * 100 / total) if total else 0
-            os.replace(path + ".part", path)
+            part, total = path + ".part", 0
+            if os.path.exists(part): os.remove(part)
+            for attempt in range(8):   # a dropped connection picks up where it stopped instead of starting the 225 MB again
+                got = os.path.getsize(part) if os.path.exists(part) else 0
+                try:
+                    # only ever the release's own file, never a URL from the page
+                    with requests.get(url, stream=True, timeout=30, headers={"Range": f"bytes={got}-"} if got else {}) as r:
+                        r.raise_for_status()
+                        if got and r.status_code != 206: got = 0      # server ignored the range: start over
+                        if not total: total = got + int(r.headers.get("content-length") or 0)
+                        with open(part, "ab" if got else "wb") as f:
+                            for chunk in r.iter_content(1 << 20):
+                                f.write(chunk); got += len(chunk); state["pct"] = int(got * 100 / total) if total else 0
+                    if not total or got >= total: break
+                except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
+                    if attempt == 7: raise
+                    print(f"[UPDATE] connection dropped at {got >> 20} MB ({type(e).__name__}), resuming"); time.sleep(3 + attempt * 2)
+            os.replace(part, path)
             state["state"] = "installing"; print(f"[UPDATE] installing {name}")
             if sys.platform == "win32":
                 # the installer closes this copy, replaces the program files and starts the new Jarvis; user data stays in %APPDATA%

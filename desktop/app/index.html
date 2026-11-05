@@ -1617,9 +1617,45 @@ function guidanceSay(text, opts = {}) {
   });
 }
 
+// Chrome's default input can be a dead or virtual device (pure digital silence) while the real mic works for everything else:
+// then he says "Hey Jarvis" (wake.py hears it) and nothing after. A mic that gives exactly nothing is swapped for one that hears.
+async function openLiveMic() {
+  const opts = id => ({ audio: { ...(id ? { deviceId: { exact: id } } : {}), autoGainControl: true, echoCancellation: true, noiseSuppression: true } });
+  const ctx = new AudioContext();                         // one context for every check: a fresh one per device could stall
+  const alive = async stream => {
+    await ctx.resume().catch(() => {});
+    if (ctx.state !== 'running') return true;            // can't measure before the first click: trust it
+    const a = ctx.createAnalyser(); a.fftSize = 2048;
+    const src = ctx.createMediaStreamSource(stream); src.connect(a);
+    const buf = new Float32Array(2048); let peak = 0;
+    for (let i = 0; i < 12; i++) { await new Promise(r => setTimeout(r, 100)); a.getFloatTimeDomainData(buf); for (const v of buf) peak = Math.max(peak, Math.abs(v)); }
+    src.disconnect();
+    return peak > 1e-4;                                  // a real mic always has some noise; a dead one is exactly 0
+  };
+  try {
+    let saved = null; try { saved = localStorage.getItem('jv_mic'); } catch (e) {}
+    let stream = await navigator.mediaDevices.getUserMedia(opts(saved)).catch(() => navigator.mediaDevices.getUserMedia(opts()));
+    if (await alive(stream)) return stream;
+    const inputs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications');
+    for (const d of inputs) {
+      try {
+        const t = await navigator.mediaDevices.getUserMedia(opts(d.deviceId));
+        if (await alive(t)) {
+          stream.getTracks().forEach(x => x.stop());
+          try { localStorage.setItem('jv_mic', d.deviceId); } catch (e) {}
+          console.log('[MIC] the default microphone was silent; using', d.label);
+          return t;
+        }
+        t.getTracks().forEach(x => x.stop());
+      } catch (e) {}
+    }
+    return stream;
+  } finally { ctx.close().catch(() => {}); }
+}
+
 async function initialize() {
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true } });
+    micStream = await openLiveMic();
     await setupMicAnalyser(micStream);
     startMicLevelLoop();
     connectAudioWs();
