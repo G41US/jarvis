@@ -1215,6 +1215,8 @@ function showPartial(text) {
 let ws = null;
 function onWakeEvent() {
   if (muted) return;
+  // still fetching the answer (email, search...) and nothing playing yet: "Hey Jarvis" again means "are you there?", not "stop"
+  if (speaking && appState === 'thinking' && !currentAudio) { beep(900, 0.06); showDebug('wake while thinking: answer kept', 'heard'); return; }
   if (speaking) { beep(1200, 0.08); cancelAllSpeech(); if (sessionActive) { setState('session'); armSessionSilenceTimer(); return; } }
   if (sessionActive) { armSessionSilenceTimer(); return; }
   startSession();

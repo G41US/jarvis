@@ -44,5 +44,5 @@ and the phone handoff (which used your Cloudflare service) is off in this app.
 - Not code-signed, hence the warnings above. Removing them needs an Apple Developer account ($99/year, for notarising)
   and a Windows code-signing certificate.
 - Windows-only parts (answering WhatsApp calls, the Spotify speaker) are quietly off on a Mac.
-- Mac builds use GitHub's Mac machines, which count 10x against the free Actions minutes of a private repo.
+- Builds run only when started (Actions tab > Build Jarvis desktop > Run workflow). Windows by default; tick "mac" for a Mac build: Mac machines count 10x against the 2,000 free minutes a month of a private repo.
 - Run from source: `pip install -r desktop/app/requirements.txt`, then `python desktop/jarvis_app.py`.

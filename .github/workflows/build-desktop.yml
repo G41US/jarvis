@@ -5,10 +5,19 @@ name: Build Jarvis desktop (Windows + Mac)
 # Releases of a private repo can only be downloaded by you. To share with anyone, make a PUBLIC repo for downloads,
 # then add the repo name as the Actions variable RELEASE_REPO (e.g. ghost-apps/downloads) and a token that can
 # write to it as the secret RELEASE_TOKEN. See desktop/README.md.
+# Only when started by hand (Actions tab > Run workflow, or the API): every build used to run on each push, and Mac machines count
+# 10x against a private repo's free 2,000 minutes a month (one full build was ~250 of them). Windows only by default.
 on:
-  push:
-    paths: ['desktop/**', '.github/workflows/build-desktop.yml']
   workflow_dispatch:
+    inputs:
+      mac:
+        description: 'Also build for Mac (Intel build, runs on every Mac; costs ~100 free minutes)'
+        type: boolean
+        default: false
+      mac_arm:
+        description: 'Also a native Apple Silicon build (another ~100 minutes, and GitHub often has no machine free)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -21,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, macos-15-intel]   # macos-latest = Apple Silicon (often busy); Intel also runs on M1+ via Rosetta
+        os: ${{ fromJSON(format('["windows-latest"{0}{1}]', inputs.mac && ',"macos-15-intel"' || '', inputs.mac_arm && ',"macos-latest"' || '')) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
