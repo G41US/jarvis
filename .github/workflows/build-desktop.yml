@@ -61,10 +61,11 @@ jobs:
           echo %PY%\tools\Scripts>>"%GITHUB_PATH%"
           "%PY%\tools\python.exe" --version
 
-      - name: Version and Google sign-in client
+      - name: Version, Google sign-in client and webcam key
         shell: python
         env:
           GOOGLE_OAUTH_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT }}
+          WINDY_KEY: ${{ secrets.WINDY_KEY }}
         run: |
           import json, os
           open("desktop/app/VERSION", "w").write(os.environ["JARVIS_VERSION"])
@@ -75,6 +76,9 @@ jobs:
               print("Google client:", list(json.loads(c)))
           else:
               print("No GOOGLE_OAUTH_CLIENT secret: Sign in with Google is left out")
+          w = os.environ.get("WINDY_KEY", "").strip()
+          if w: open("desktop/app/windy_key", "w").write(w); print("Windy webcams: key built in")
+          else: print("No WINDY_KEY secret: webcams are left out")
 
       - name: Microphone library (Mac)
         if: runner.os == 'macOS'

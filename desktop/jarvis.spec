@@ -9,6 +9,7 @@ datas = [(os.path.join(APP, f), ".") for f in ("index.html", "hud_extra.js", "na
 datas += [(os.path.join(APP, "models"), "models")]
 if os.path.exists(os.path.join(APP, "UPDATE_REPO")): datas += [(os.path.join(APP, "UPDATE_REPO"), ".")]   # written by the build: where updates come from
 if os.path.exists(os.path.join(APP, "google_client.json")): datas += [(os.path.join(APP, "google_client.json"), ".")]   # written by the build: Sign in with Google
+if os.path.exists(os.path.join(APP, "windy_key")): datas += [(os.path.join(APP, "windy_key"), ".")]   # written by the build: the webcams' Windy key
 binaries, hidden = [], ["server", "features", "wake", "nav", "delivery", "spotify_auth", "google_auth_oauthlib.flow", "google.oauth2.credentials"]
 hidden += collect_submodules("uvicorn")
 # libraries that load model files, native libraries or templates from their own folder at run time

@@ -868,6 +868,23 @@ const partialTextEl = document.getElementById('partial-text');
 
 let currentVoice = null;
 let currentUser = null;
+// sir or ma'am: a saved face's title says it; otherwise the server's one look through the camera (or "call me ma'am"); 'none' = couldn't tell
+window.__jvAddress = '';
+function addressFor() {
+  const t = String((currentUser && currentUser.title) || '').toLowerCase();
+  if (/^(mrs|ms|miss|madam|lady|ma'?am)\b/.test(t)) return "ma'am";
+  if (/^(mr|sir|lord)\b/.test(t)) return 'sir';
+  return window.__jvAddress || '';
+}
+function fixAddress(text) {      // the persona says "sir"; make it right for whoever is there
+  const a = addressFor(); text = String(text ?? '');
+  if (a === "ma'am") return text.replace(/\bsir\b/g, "ma'am").replace(/\bSir\b/g, "Ma'am").replace(/\bSIR\b/g, "MA'AM");
+  if (a === 'none') return text.replace(/(^|[.!?]\s+)sir,\s*(\w)/gi, (m, pre, c) => pre + c.toUpperCase())
+    .replace(/,\s*sir\b/gi, '').replace(/\bsir,\s*/gi, '').replace(/\s+sir(?=[.!?])/gi, '');
+  return text;
+}
+const pollAddress = () => fetch('/address').then(r => r.json()).then(d => { window.__jvAddress = d.address || ''; }).catch(() => {});
+setInterval(pollAddress, 20000); window.__jvFixAddress = fixAddress;
 let audioWs = null, serverSttAvailable = false;
 let audioCaptureCtx = null, audioCaptureReady = false;
 let sessionCount = 0;
@@ -953,6 +970,7 @@ async function identifyUser() {
       body: JSON.stringify({ image: frame }),
     });
     const d = await r.json();
+    if (d.ok && d.address !== undefined) window.__jvAddress = d.address || '';
     if (d.ok && d.recognized) {
       currentUser = { name: d.name, title: d.title || '' }; _idTries = 0;
       console.log(`[CAM] identified: ${d.title} ${d.name} (sim ${d.similarity.toFixed(2)})`);
@@ -1156,7 +1174,7 @@ function addMsg(text, who) {
   if (nav && (who === 'user' || who === 'jarvis')) { try { nav.caption(text, who); } catch (e) {} }
 }
 function setState(s) {
-  appState = s;
+  appState = s; if (window.__jvOnState) window.__jvOnState(s);   // music and news go quiet while he listens and talks
   stateEl.className = ''; stateEl.classList.add(s);
   const labels = { idle: 'BOOTING', standby: 'STANDBY', listening: 'LISTENING', thinking: 'PROCESSING', speaking: 'RESPONDING', session: 'LISTENING', muted: 'MUTED' };
   stateEl.textContent = labels[s] || 'STANDBY';
@@ -1223,6 +1241,7 @@ function onWakeEvent() {
 }
 
 function speakUnprompted(text) {
+  text = fixAddress(text);
   if (!bargeAbort) bargeAbort = new AbortController();
   const ch = enqueueSpeech(text);
   ch.then(() => { if (speakChain === ch && speaking) { speaking = false; if (active && !muted) { if (sessionActive) { setState('session'); armSessionSilenceTimer(); } else setState('standby'); } } });
@@ -1254,7 +1273,7 @@ function connectWS() {
       else if (data.startsWith('callstart:')) { window.__jvInCall = true; addMsg('Answering a WhatsApp call for you.', 'sys'); }
       else if (data.startsWith('callsay:')) { Promise.resolve(muted ? null : speakUnprompted(data.slice(8))).finally(() => fetch('/call/said', { method: 'POST' }).catch(() => {})); }
       else if (data.startsWith('callend:')) { window.__jvInCall = false; }
-      else if (/^(globe|plan|recap|gesture|panels|holo|feeds):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
+      else if (/^(globe|plan|recap|gesture|panels|holo|feeds|music):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
       else if (data.startsWith('nav:')) { try { navMessage(JSON.parse(data.slice(4))); } catch (e) { console.warn('[NAV]', e); } }
       else if (data.startsWith('look_request:')) { handleLookRequest(data.slice(13)); }
       else if (data.startsWith('identify_request:')) { handleIdentifyRequest(data.slice(17)); }
@@ -1452,6 +1471,7 @@ async function handleCommand(text) {
         if (!line.startsWith('data:')) continue;
         let evt; try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
         if (evt.type === 'sentence') {
+          evt.text = fixAddress(evt.text);
           fullReply += (fullReply ? ' ' : '') + evt.text;
           appendJarvisSentence(evt.text);
           rememberJarvisReply(evt.text);
@@ -1734,8 +1754,10 @@ unlockAudio(); setInterval(() => { if ([audioCtx, audioCaptureCtx].some(c => c &
     const d = new Date(), h = d.getHours();
     clockT.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     clockD.textContent = d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
-    helloG.textContent = h >= 4 && h < 12 ? 'Good morning,' : h >= 12 && h < 17 ? 'Good afternoon,' : 'Good evening,';
-    helloN.textContent = currentUser && currentUser.name ? `${currentUser.title || ''} ${currentUser.name}`.trim() : 'Sir';
+    const a = addressFor(), who = currentUser && currentUser.name ? `${currentUser.title || ''} ${currentUser.name}`.trim()
+      : a === "ma'am" ? "Ma'am" : a === 'none' ? '' : 'Sir';
+    helloG.textContent = (h >= 4 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening') + (who ? ',' : '');
+    helloN.textContent = who;
   };
   paintTop(); setInterval(paintTop, 5000);
 
@@ -1755,6 +1777,7 @@ unlockAudio(); setInterval(() => { if ([audioCtx, audioCaptureCtx].some(c => c &
 
   const _addMsg = addMsg;
   addMsg = function (text, who) {
+    if (who === 'jarvis' || who === 'proactive') text = fixAddress(text);
     _addMsg(text, who);
     if (who === 'user') { subYou.textContent = text; subHim.textContent = ''; sentences = []; showSubs(true); }
     else if (who === 'jarvis' || who === 'proactive') { subYou.textContent = who === 'user' ? text : subYou.textContent; sentences = [text]; subHim.textContent = text; showSubs(true); }

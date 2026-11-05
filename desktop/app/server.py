@@ -52,6 +52,7 @@ SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
 SPOTIFY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 SPOTIFY_SCOPE = "user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-recently-played"
+SPOTIFY_READY = bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET and os.path.exists(".spotify_cache"))
 
 # ============================================================
 # WEBSOCKET BROADCAST
@@ -1068,6 +1069,16 @@ def _voice_mode(text):
 # ============================================================
 # SYSTEM PROMPT
 # ============================================================
+# Sir or ma'am for someone he doesn't know yet (no face saved): one look through the camera when Jarvis opens, by the vision model.
+# "call me sir / ma'am" (a preference) always wins; "none" means he couldn't tell, so he calls them neither.
+_GUESS = {"address": "", "tries": 0}
+def _address():
+    for p in reversed(db_get_preferences(20)):     # newest first; in one line the last un-negated one counts ("don't call me ma'am, call me sir")
+        said = [w for neg, w in re.findall(r"(don'?t |do not |never |stop |not )?\b(?:call(?:ed)?|address(?:ed)?|refer(?:red)? to)(?:\s+(?:me|the user|them|him|her))?"
+                                             r"(?:\s+as)?\s+(sir|ma'?am|madam)\b", p, re.I) if not neg]
+        if said: return "sir" if said[-1].lower() == "sir" else "ma'am"
+    return _GUESS["address"]
+
 def build_system_prompt():
     base = (
         "You are Jarvis — the AI from Iron Man. Not a chatbot, not a helpful-corporate assistant. "
@@ -1099,10 +1110,11 @@ def build_system_prompt():
         "- Pictures of anything ('show me pictures of X', 'what does X look like')->show_images: they fly out of the screen as numbered panels, and so do "
         "search results, headlines and every other answer (weather, prices, facts, plans). 'open number two' / 'the third one'->holo select, 'put them away' / 'close them'->holo clear, "
         "'go back'->holo back, 'next' / 'spin them' / 'previous'->holo next/previous, '3D mode' / 'pop out mode'->holo on/off.\n"
-        "- Spotify tools ARE real and connected: spotify_play, spotify_pause, spotify_next, "
-        "spotify_previous, spotify_now_playing, spotify_devices. ALWAYS call them when the user asks "
-        "to play, pause, skip, or check music. NEVER claim you cannot control Spotify. The Spotify "
-        "player runs automatically in the background — never tell the user to open Spotify or activate a device.\n"
+        + ("- Spotify tools ARE real and connected: spotify_play, spotify_pause, spotify_next, "
+        "spotify_previous, spotify_now_playing, spotify_devices. Use them when the user says Spotify. The Spotify "
+        "player runs automatically in the background — never tell the user to open Spotify or activate a device.\n" if SPOTIFY_READY else "") +
+        "- Music: 'play X' / 'play some afrobeats' / 'pause' / 'next song' / 'louder' / 'what's playing'->play_music (YouTube Music, inside Jarvis, no account needed). "
+        "media_control is only for other apps' players.\n"
         "- MAP/NAVIGATION works anywhere in the world: 'navigate to X' or 'take me to X'->navigate_to (the face shrinks to a corner orb and a "
         "car-style map with turn-by-turn voice takes over), 'stop navigation'->stop_navigation, "
         "'how far'->navigation_status, show/hide/mini map, zoom, night mode, mute guidance, avoid tolls or highways, Google or Apple or Jarvis map->map_control, "
@@ -1121,6 +1133,9 @@ def build_system_prompt():
         "- When the user expresses a preference about HOW you behave, call set_preference.\n"
         "- Never invent facts or context.\n"
     )
+    addr = _address()
+    if addr in ("sir", "ma'am"): base += f"\nAddress the user as '{addr}'.\n"
+    elif addr == "none": base += "\nYou don't know yet whether to say sir or ma'am: call the user neither.\n"
     prefs = db_get_preferences(20)
     if prefs:
         base += "\nUSER PREFERENCES (obey these):\n"
@@ -3311,7 +3326,8 @@ _TOOL_GROUPS = [
     (r"\b(convert|currency|dollars?|naira|euros?|pounds?|exchange rate|usd|ngn|gbp)\b", ("currency_convert",)),
     (r"\b(translate|in (french|spanish|german|yoruba|igbo|hausa|chinese|japanese|arabic|portuguese|italian))\b", ("translate",)),
     (r"\b(flip|coin|dice|roll|password)\b", ("flip_coin", "roll_dice", "generate_password")),
-    (r"\b(cams?|cameras?|webcams?|live (views?|feeds?|streams?|footage)|livestreams?|feeds?)\b", ("show_public_cam",)),
+    (r"\b(cams?|cameras?|webcams?|live|livestreams?|feeds?|world news|news (stations?|channels?|from)|stations?|channels?|tv|sky news|al ?jazeera|nbc|cna|wion|dw|france 24|euronews)\b",
+     ("show_public_cam", "holo")),
     (r"\b(voices?|accent)\b", ("list_voices", "set_voice")),
     (r"\b(navigat\w*|directions?|maps?|gps|route|reroute|take me|drive|walk to|how far|eta|where am i|traffic|tolls?|highways?|save (this|it) as|home|work)\b",
      ("navigate_to", "stop_navigation", "navigation_status", "map_control", "open_in_maps_app", "save_place", "where_am_i", "set_my_location")),
@@ -3326,7 +3342,7 @@ _TOOL_GROUPS = [
     (r"\b(gestures?|hand control|hands?)\b", ("gesture_mode",)),
     (r"\b(pictures?|images?|photos?|pics?|look like|show me)\b", ("show_images", "holo")),
     (r"\b(panels?|3d|three d|pop out|holo\w*|open (the )?(first|second|third|fourth|fifth|sixth|number|one|two|three|four|five|six)|"
-     r"the (first|second|third|fourth|fifth|sixth|last) one|put (them|those|it) away|close (them|those|it)|go back|next one|previous|spin (them|it)|turn (them|it))\b", ("holo",)),
+     r"the (first|second|third|fourth|fifth|sixth|last) one|put (them|those|it) away|close (them|those|it)|go back|next|previous|spin (them|it)|turn (them|it))\b", ("holo",)),
 ]
 def _pick_tools(messages):
     said = " ".join(str(m.get("content") or "") for m in [m for m in messages if m.get("role") == "user"][-2:]).lower()
@@ -3854,7 +3870,9 @@ async def identify_face(payload: dict = Body(...)):
     img = _decode_b64_image(img_b64)
     if img is None: return {"ok": False, "error": "could not decode image"}
     match = _identify_face(img)
-    if match is None: return {"ok": True, "recognized": False}
+    if match is None:
+        await asyncio.to_thread(_guess_address, img)        # only does anything while no face is saved
+        return {"ok": True, "recognized": False, "address": _address()}
     fid, name, title, sim = match
     return {"ok": True, "recognized": True, "name": name, "title": title or "", "similarity": sim}
 
@@ -3934,14 +3952,37 @@ async def setup_key(payload: dict = Body(...)):
 async def root():
     with open("index.html", encoding="utf-8") as f: return HTMLResponse(f.read())
 
+def _guess_address(img_bgr):
+    if _GUESS["address"] or _GUESS["tries"] >= 3 or db_list_faces(): return
+    _GUESS["tries"] += 1
+    try:
+        import cv2
+        ok, jpg = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if not ok: return
+        a = (_describe_image("data:image/jpeg;base64," + base64.b64encode(jpg.tobytes()).decode(),
+             "This is a webcam frame of the person using this computer. To greet them as sir or ma'am, is the person facing the camera "
+             "a man or a woman? Reply with one word: man, woman, or unsure (no clear face, or you can't tell).") or "").lower()
+    except Exception as e: print(f"[GREET] {type(e).__name__}: {e}"); return
+    if not a: return                      # the vision model couldn't be reached: no answer isn't "can't tell"
+    guess = "ma'am" if re.search(r"\bwoman\b|\bfemale\b", a) else "sir" if re.search(r"\bman\b|\bmale\b", a) else ""
+    if guess or _GUESS["tries"] >= 3: _GUESS["address"] = guess or "none"
+    print(f"[GREET] the camera says {a[:20]!r}: calling them {_GUESS['address'] or '(try again)'}")
+    if guess: conversation[0] = {"role": "system", "content": build_system_prompt()}
+
+@app.get("/address")
+async def address(): return {"address": _address()}
+
 @app.get("/greeting")
 async def greeting(name: str = "", title: str = ""):
     tod = _time_of_day()
     name = (name or "").strip()
     title = (title or "").strip()
+    addr = _address()
     if name:
         honorific = f"{title} {name}".strip() if title else name
         opening = f"{tod}, {honorific}."
+    elif addr in ("sir", "ma'am"):
+        opening = f"{tod}, {addr}."
     else:
         opening = f"{tod}."
     return {"text": opening, "name": name, "title": title, "time_of_day": tod}
