@@ -579,9 +579,10 @@ const holo = (() => {
       }
       x.restore();
       const ty = VID.y + VID.h + 44;
-      x.beginPath(); x.roundRect(pad + 26, ty - 22, 62, 28, 14); x.fillStyle = '#e8483c'; x.fill();
-      x.font = "700 15px Saira, system-ui, sans-serif"; x.fillStyle = '#fff'; x.fillText('LIVE', pad + 38, ty - 2);
-      x.font = "600 28px Saira, system-ui, sans-serif"; x.fillStyle = '#fff6e8'; x.fillText(wrap(x, it.data.title, W - 220, 1)[0] || '', pad + 102, ty);
+      const tl = it.data.live === false, pw = tl ? 118 : 62;      // a webcam that sends pictures rather than video says TIMELAPSE
+      x.beginPath(); x.roundRect(pad + 26, ty - 22, pw, 28, 14); x.fillStyle = tl ? '#f5c97a' : '#e8483c'; x.fill();
+      x.font = "700 15px Saira, system-ui, sans-serif"; x.fillStyle = tl ? '#1a1006' : '#fff'; x.fillText(tl ? 'TIMELAPSE' : 'LIVE', pad + 38, ty - 2);
+      x.font = "600 28px Saira, system-ui, sans-serif"; x.fillStyle = '#fff6e8'; x.fillText(wrap(x, it.data.title, W - 160 - pw, 1)[0] || '', pad + 40 + pw, ty);
       x.font = "500 17px Saira, system-ui, sans-serif"; x.fillStyle = '#c9a76a'; x.fillText(String(it.data.source || '').toUpperCase().slice(0, 40), pad + 26, ty + 32);
     } else if (k === 'image') {
       const ih = H - 150;
@@ -745,31 +746,43 @@ const holo = (() => {
   function collapse() { if (layout === 'wall') { layout = 'ring'; touch(); } else clear(); }
   function enlarge(f = 1.25) { if (focused >= 0) { focusScale = Math.min(2.4, Math.max(1.1, focusScale * f)); touch(); } }
 
-  // ---- the live station in front: a YouTube player laid exactly over that panel's picture, once the ring has stopped turning ----
-  const hasVideo = () => items.some(it => it.data.video);
+  // ---- the live station or webcam in front: its player laid exactly over that panel's picture, once the ring has stopped turning ----
+  const CAM_OK = /^https:\/\/webcams\.windy\.com\/[\w\/.-]+$/;      // only Windy's own camera player goes into a webcam panel
+  const feedOf = d => d.video ? 'yt:' + d.video : d.cam && CAM_OK.test(d.cam) ? 'cam:' + d.cam : null;
+  const hasVideo = () => items.some(it => feedOf(it.data));
   const tv = (() => {
     const box = el('div'); box.id = 'pc-holo-tv'; canvas.after(box);
     document.head.appendChild(el('style', null, `#pc-holo-tv { position: fixed; z-index: 2; left: 0; top: 0; pointer-events: none; opacity: 0; border-radius: 10px;
       overflow: hidden; background: #000; transition: opacity .35s var(--ease); } #pc-holo-tv.on { opacity: 1; } #pc-holo-tv iframe { width: 100%; height: 100%; border: 0; display: block; }`));
+    const ytHost = box.appendChild(el('div')), camFrame = box.appendChild(el('iframe'));
+    ytHost.style.cssText = 'width:100%;height:100%'; camFrame.title = 'Webcam'; camFrame.referrerPolicy = 'strict-origin-when-cross-origin'; camFrame.style.display = 'none';
     let player = null, want = null, loading = null, vol = 80;
     const corner = new THREE.Vector3();
     const level = () => player && player.setVolume && player.setVolume(ducked ? Math.round(vol * 0.15) : vol);
     duckers.add(level);
-    function load(id) {
-      want = id; if (window.__jvMusic && window.__jvMusic.playing) window.__jvMusic.pause();     // one sound at a time
+    function load(feed) {
+      want = feed;
+      if (feed.startsWith('cam:')) {           // a webcam: Windy's player, silent, so the music can carry on
+        try { player && player.pauseVideo(); } catch (e) {}
+        ytHost.style.display = 'none'; camFrame.style.display = 'block'; camFrame.src = feed.slice(4); return;
+      }
+      const id = feed.slice(3); camFrame.style.display = 'none'; camFrame.src = 'about:blank'; ytHost.style.display = 'block';
+      if (window.__jvMusic && window.__jvMusic.playing) window.__jvMusic.pause();     // one sound at a time
       if (player && player.loadVideoById) { player.loadVideoById(id); return; }
       if (loading) return;
-      loading = loadYT().then(YT => { player = new YT.Player(box.appendChild(el('div')), { width: '100%', height: '100%', videoId: want,
+      loading = loadYT().then(YT => { player = new YT.Player(ytHost.appendChild(el('div')), { width: '100%', height: '100%', videoId: id,
         playerVars: { autoplay: 1, controls: 0, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
-        events: { onReady: () => { level(); player.playVideo(); } } }); });
+        events: { onReady: () => { level();          // by now he may have turned to another station, or to a webcam
+          if (want && want.startsWith('yt:') && want.slice(3) !== id) player.loadVideoById(want.slice(3)); else if (want && want.startsWith('yt:')) player.playVideo(); else player.pauseVideo(); } } }); });
     }
-    function stop() { want = null; box.classList.remove('on'); try { player && player.stopVideo(); } catch (e) {} }
+    function stop() { want = null; box.classList.remove('on'); camFrame.src = 'about:blank'; try { player && player.stopVideo(); } catch (e) {} }
     function place(now) {
       const i = focused >= 0 ? focused : frontIndex(), it = items[i];
-      const still = it && it.data.video && !closingAt && layout === 'ring' && !coasting && Math.abs(ringT - ring) < 0.03 && now > it.born + 1200
+      const feed = it && feedOf(it.data);
+      const still = feed && !closingAt && layout === 'ring' && !coasting && Math.abs(ringT - ring) < 0.03 && now > it.born + 1200
         && !it.held && !it.thrown && !it.leaving && (focused < 0 || Math.abs(it.scale - focusScale) < 0.03);
       if (!still) { box.classList.remove('on'); return; }
-      if (want !== it.data.video) load(it.data.video);
+      if (want !== feed) load(feed);
       const [W, H, w] = SIZE.video, h = w * H / W, m = it.mesh;
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       for (const [u, v] of [[VID.x / W, VID.y / H], [(VID.x + VID.w) / W, (VID.y + VID.h) / H]]) {

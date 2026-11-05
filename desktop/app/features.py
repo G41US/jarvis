@@ -609,7 +609,7 @@ def install(ns):
             if d and os.path.exists(p): return open(p, encoding="utf-8").read().strip()
         return ""
 
-    def webcams(place, n=4):
+    def webcams(place, n=8):
         import requests
         key = windy_key()
         if not key: return None
@@ -629,13 +629,15 @@ def install(ns):
                 pl, wid = w.get("player") or {}, w.get("webcamId")
                 src = pl.get("live") or pl.get("day") or (f"https://webcams.windy.com/webcams/public/embed/player/{wid}/day" if wid else "")
                 if not src.startswith("https://webcams.windy.com/"): continue
-                city = (w.get("location") or {}).get("city") or ""
-                out.append({"src": src, "live": bool(pl.get("live")), "title": (w.get("title") or city or "Webcam")[:70]})
+                loc_ = w.get("location") or {}
+                img = ((w.get("images") or {}).get("current") or {}).get("preview") or ""
+                out.append({"src": src, "live": bool(pl.get("live")), "title": (w.get("title") or loc_.get("city") or "Webcam")[:70],
+                            "where": ", ".join(x for x in (loc_.get("city"), loc_.get("country")) if x)[:50], "image": img})
                 if len(out) == n: break
             if out: return out
         return []
 
-    @tool("show_public_cam", "Show live feeds on screen. Webcams of a place ('cameras in Paris', 'live cam of Lagos', 'webcams in Times Square'), "
+    @tool("show_public_cam", "Show live feeds on screen as panels in the ring (the one in front plays, 'next' turns to the next). Webcams of a place ('cameras in Paris', 'live cam of Lagos', 'webcams in Times Square'), "
           "world news ('live news', 'news from around the world': live news stations as panels, the front one plays, 'next' turns to the next), "
           "one station ('Sky News live', 'Channels TV live', 'Al Jazeera live'), or NASA live. action close puts the feeds away.",
           {"location": {"type": "string", "description": "a place, a news channel, 'news' or 'nasa'"},
@@ -657,10 +659,13 @@ def install(ns):
             print(f"[FEEDS] {type(e).__name__}: {e}"); return "I couldn't reach the live feeds just now."
         if cams is None: return "Webcams aren't set up in this copy of Jarvis yet (it needs a Windy key)."
         if not cams: return f"I couldn't find a public webcam near {q}."
-        send("feeds", {"cmd": "show", "title": q.title(), "feeds": cams})
+        # in the ring like the news: the camera in front plays, "next" turns to the next one
+        panels(f"Webcams: {q.title()}", [{"kind": "video", "cam": c["src"], "live": c["live"], "title": c["title"],
+                                          "source": ("live" if c["live"] else "timelapse") + (" · " + c["where"] if c["where"] else ""),
+                                          **({"image": c["image"]} if c["image"].startswith("https://") else {})} for c in cams])
         live = sum(c["live"] for c in cams)
         return (f"{len(cams)} webcam{'s' if len(cams) > 1 else ''} of {q}" + (f", {live} streaming live" if live else ", each showing its latest picture and today's timelapse")
-                + ". Say close the feeds when you're done.")
+                + ". Say next for the next camera, or close them when you're done.")
 
     # ---- MUSIC: YouTube Music's catalogue, played in a small now-playing card (no account). Songs come first, then videos;
     # after the song, its radio (similar songs) keeps playing. The page plays them and tells us what's on (/music/state). ----
