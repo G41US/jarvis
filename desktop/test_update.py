@@ -13,14 +13,21 @@ sys.platform = "linux"; assert ja.pick_asset(assets) == (None, None)
 sys.platform = real
 
 # a fake GitHub: /latest says v1.0.9 with a 3 MB installer
-PAYLOAD = os.urandom(3 << 20)
+PAYLOAD = os.urandom(3 << 20); RANGES = []
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
         if self.path.endswith("/releases/latest"):
             body = ('{"tag_name": "desktop-v1.0.9", "assets": [{"name": "Jarvis-Setup.exe", "browser_download_url": "http://127.0.0.1:%d/dl"}]}'
                     % self.server.server_port).encode()
-        else: body = PAYLOAD
+        else:   # the installer: the first download drops halfway (like a flaky line), the resume asks for the rest
+            rng = self.headers.get("Range")
+            if rng:
+                start = int(rng.split("=")[1].split("-")[0]); body = PAYLOAD[start:]
+                self.send_response(206); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+                RANGES.append(start); return
+            self.send_response(200); self.send_header("Content-Length", str(len(PAYLOAD))); self.end_headers()
+            self.wfile.write(PAYLOAD[:len(PAYLOAD) // 2]); self.wfile.flush(); self.connection.shutdown(2); return
         self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 srv = ThreadingHTTPServer(("127.0.0.1", 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
 
@@ -45,6 +52,7 @@ assert quit_called.wait(15), c.get("/update/check").json()
 sys.platform = real
 dl = os.path.join(home, "update", "Jarvis-Setup.exe")
 assert open(dl, "rb").read() == PAYLOAD, "download corrupted"
+assert RANGES and RANGES[0] > 0, f"didn't resume: {RANGES}"
 assert launched and launched[0][0] == dl and "/SILENT" in launched[0], launched
 assert c.get("/update/check").json()["state"] == "installing"
 
