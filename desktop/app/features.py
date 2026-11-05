@@ -533,6 +533,8 @@ def install(ns):
              "NASA": "NASA", "EarthCam": "EarthCam"}
     _live = {}   # cache key -> (time, result): a channel keeps the same stream for hours
 
+    def runs(t): return "".join(r.get("text", "") for r in (t or {}).get("runs", []))
+
     def yt_page(url):
         import requests
         return requests.get(url, headers=YT_HEAD, timeout=10).text
@@ -550,60 +552,203 @@ def install(ns):
         return [f for f, good in zip(found, ok) if good][:n]
 
     def channel_live(handle):
-        """The stream a channel is broadcasting now (its /live page names it), or None."""
+        """The stream a channel is broadcasting now, from its Live tab: the round-the-clock one if it runs several. None if nothing's on air."""
         hit = _live.get(handle)
         if hit and time.time() - hit[0] < 600: return hit[1]
-        h = yt_page(f"https://www.youtube.com/@{handle}/live")
-        m = re.search(r'"videoId":"([\w-]{11})"', h)
-        out = {"id": m.group(1), "title": NAMES.get(handle, handle) + " · live"} if m and '"isLive":true' in h and embeddable(m.group(1)) else None
-        _live[handle] = (time.time(), out)
-        return out
-
-    def live_search(query, n=4):
-        """YouTube search with the 'Live' filter: streams on air right now."""
-        import urllib.parse
-        key = "q:" + query.lower()
-        hit = _live.get(key)
-        if hit and time.time() - hit[0] < 600: return hit[1]
-        h = yt_page("https://www.youtube.com/results?search_query=" + urllib.parse.quote(query) + "&sp=EgJAAQ%253D%253D")
+        h = yt_page(f"https://www.youtube.com/@{handle}/streams")
         m = re.search(r"var ytInitialData = (\{.*?\});</script>", h, re.S)
-        found, seen = [], set()
+        on = []
         def walk(o):
             if isinstance(o, dict):
-                v = o.get("videoRenderer")
-                if v and v.get("videoId") and v["videoId"] not in seen:
-                    seen.add(v["videoId"])
-                    found.append({"id": v["videoId"], "title": "".join(r.get("text", "") for r in v.get("title", {}).get("runs", []))[:80]})
+                v = o.get("lockupViewModel")
+                if v and v.get("contentId"):
+                    if "BADGE_STYLE_LIVE" in json.dumps(v.get("contentImage", {})):
+                        on.append((v["contentId"], v.get("metadata", {}).get("lockupMetadataViewModel", {}).get("title", {}).get("content", "")))
+                    return
+                v = o.get("videoRenderer")          # the older page layout
+                if v and v.get("videoId"):
+                    if '"LIVE"' in json.dumps(v.get("thumbnailOverlays", [])): on.append((v["videoId"], runs(v.get("title"))))
+                    return
                 for x in o.values(): walk(x)
             elif isinstance(o, list):
                 for x in o: walk(x)
         if m:
             try: walk(json.loads(m.group(1)))
             except ValueError: pass
-        found = keep_embeddable(found[:10], n)
-        _live[key] = (time.time(), found)
-        return found
+        on.sort(key=lambda v: not re.search(r"24/7|live ?stream|watch .*live|news now|\| live|english .{0,3} live", v[1], re.I))
+        vid = next((v for v, _ in on[:4] if embeddable(v)), None)
+        out = {"id": vid, "title": NAMES.get(handle, handle) + " · live"} if vid else None
+        _live[handle] = (time.time(), out)
+        return out
 
-    @tool("show_public_cam", "Show LIVE video feeds on screen: live webcams of a place ('cameras in Paris', 'live feed of Times Square'), "
-          "live news ('live news', 'Sky News live', 'Al Jazeera live'), or NASA live. action close puts the feeds away.",
+    # News from around the world, one station per panel in the ring (the one in front plays): UK, Qatar, Nigeria, Germany, France,
+    # India, Singapore, Australia, the US. All checked to allow playing inside other apps.
+    WORLD = ["SkyNews", "aljazeeraenglish", "ChannelsTelevision", "dwnews", "France24_en", "WION", "ChannelNewsAsia", "abcnewsaustralia", "NBCNews"]
+    NAMES.update({"ChannelsTelevision": "Channels TV", "WION": "WION", "ChannelNewsAsia": "CNA", "abcnewsaustralia": "ABC News Australia", "NBCNews": "NBC News"})
+    CHANNELS.update({"channels": "ChannelsTelevision", "wion": "WION", "cna": "ChannelNewsAsia", "channel news asia": "ChannelNewsAsia",
+                     "abc australia": "abcnewsaustralia", "nbc": "NBCNews"})
+    WHERE = {"SkyNews": "United Kingdom", "aljazeeraenglish": "Qatar", "ChannelsTelevision": "Nigeria", "dwnews": "Germany", "France24_en": "France",
+             "WION": "India", "ChannelNewsAsia": "Singapore", "abcnewsaustralia": "Australia", "NBCNews": "United States", "NASA": "Space", "EarthCam": ""}
+
+    def news_ring(handles, title):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(8) as ex: found = list(ex.map(lambda h: (h, channel_live(h)), handles))
+        items = [{"kind": "video", "video": f["id"], "title": NAMES.get(h, h), "source": "live" + (" · " + WHERE[h] if WHERE.get(h) else ""),
+                  "image": f"https://i.ytimg.com/vi/{f['id']}/hqdefault_live.jpg"} for h, f in found if f]
+        if items: panels(title, items)
+        return items
+
+    # Webcams: Windy's network of real public cameras (the place's latest picture and today's timelapse; live video where the camera
+    # streams). Needs a free Windy key, built in from the WINDY_KEY secret (or WINDY_KEY in .env).
+    def windy_key():
+        k = os.environ.get("WINDY_KEY", "").strip()
+        if k: return k
+        import sys
+        for d in (getattr(sys, "_MEIPASS", ""), os.path.dirname(os.path.abspath(__file__))):
+            p = os.path.join(d, "windy_key")
+            if d and os.path.exists(p): return open(p, encoding="utf-8").read().strip()
+        return ""
+
+    def webcams(place, n=4):
+        import requests
+        key = windy_key()
+        if not key: return None
+        loc = ns["_lookup_location"](place)
+        if not loc: return []
+        fc, cc = loc.get("feature_code") or "", (loc.get("country_code") or "").upper()
+        base = {"include": "images,location,player", "limit": 20, "sortKey": "popularity", "sortDirection": "desc", "lang": "en"}
+        tries = ([{"countries": cc}] if fc.startswith("PCL") and cc else []) + \
+                [{"nearby": f"{loc['latitude']:.4f},{loc['longitude']:.4f},{r}"} for r in (30, 120, 250)]
+        for extra in tries:
+            r = requests.get("https://api.windy.com/webcams/api/v3/webcams", params={**base, **extra}, headers={"x-windy-api-key": key}, timeout=10)
+            if r.status_code in (401, 403): print(f"[CAMS] Windy refused the key ({r.status_code})"); return None
+            cams = [w for w in r.json().get("webcams", []) if w.get("status") == "active"]
+            cams.sort(key=lambda w: not (w.get("player") or {}).get("live"))       # cameras that stream go first
+            out = []
+            for w in cams:
+                pl, wid = w.get("player") or {}, w.get("webcamId")
+                src = pl.get("live") or pl.get("day") or (f"https://webcams.windy.com/webcams/public/embed/player/{wid}/day" if wid else "")
+                if not src.startswith("https://webcams.windy.com/"): continue
+                city = (w.get("location") or {}).get("city") or ""
+                out.append({"src": src, "live": bool(pl.get("live")), "title": (w.get("title") or city or "Webcam")[:70]})
+                if len(out) == n: break
+            if out: return out
+        return []
+
+    @tool("show_public_cam", "Show live feeds on screen. Webcams of a place ('cameras in Paris', 'live cam of Lagos', 'webcams in Times Square'), "
+          "world news ('live news', 'news from around the world': live news stations as panels, the front one plays, 'next' turns to the next), "
+          "one station ('Sky News live', 'Channels TV live', 'Al Jazeera live'), or NASA live. action close puts the feeds away.",
           {"location": {"type": "string", "description": "a place, a news channel, 'news' or 'nasa'"},
            "action": {"type": "string", "enum": ["show", "close"]}}, ["location"])
     def _live_feeds(location: str = "", action: str = "show"):
-        if action == "close": send("feeds", {"cmd": "close"}); return "Feeds closed."
+        if action == "close": send("feeds", {"cmd": "close"}); send("holo", {"cmd": "clear"}); return "Feeds closed."
         q = (location or "").strip(); ql = q.lower()
         try:
             if any(k in ql for k in CHANNELS):
                 handle = next(v for k, v in CHANNELS.items() if k in ql)
-                feeds = [f for f in [channel_live(handle)] if f]
-            elif re.search(r"\bnews\b", ql):
-                feeds = [f for f in (channel_live(h) for h in NEWS) if f]
-            else:
-                feeds = live_search(f"{q} live cam")
+                items = news_ring([handle], q.title())
+                return f"{NAMES.get(handle, handle)}, live." if items else f"{NAMES.get(handle, handle)} isn't live right now."
+            if re.search(r"\bnews\b|\bworld\b", ql) or not ql:
+                items = news_ring(WORLD, "World news")
+                if not items: return "I couldn't get the news stations just now."
+                return (f"{len(items)} news stations from around the world. {items[0]['title']} is playing; say next for the next one.")
+            cams = webcams(q)
         except Exception as e:
-            print(f"[FEEDS] {type(e).__name__}: {e}"); return "I couldn't reach YouTube for live feeds just now."
-        if not feeds: return f"I couldn't find anything live for {q} right now."
-        send("feeds", {"cmd": "show", "title": q.title(), "feeds": feeds[:4]})
-        return f"{len(feeds[:4])} live feed{'s' if len(feeds) > 1 else ''} of {q}, sir. Say close the feeds when you're done."
+            print(f"[FEEDS] {type(e).__name__}: {e}"); return "I couldn't reach the live feeds just now."
+        if cams is None: return "Webcams aren't set up in this copy of Jarvis yet (it needs a Windy key)."
+        if not cams: return f"I couldn't find a public webcam near {q}."
+        send("feeds", {"cmd": "show", "title": q.title(), "feeds": cams})
+        live = sum(c["live"] for c in cams)
+        return (f"{len(cams)} webcam{'s' if len(cams) > 1 else ''} of {q}" + (f", {live} streaming live" if live else ", each showing its latest picture and today's timelapse")
+                + ". Say close the feeds when you're done.")
+
+    # ---- MUSIC: YouTube Music's catalogue, played in a small now-playing card (no account). Songs come first, then videos;
+    # after the song, its radio (similar songs) keeps playing. The page plays them and tells us what's on (/music/state). ----
+    YTM = "https://music.youtube.com/youtubei/v1/"
+    YTM_CTX = {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20251015.03.00", "hl": "en"}}
+    music_now = {"title": "", "artist": "", "playing": False}
+
+    def ytm(endpoint, body):
+        import requests
+        return requests.post(YTM + endpoint + "?prettyPrint=false", json={"context": YTM_CTX, **body}, timeout=10,
+                             headers={**YT_HEAD, "Origin": "https://music.youtube.com", "Content-Type": "application/json"}).json()
+
+    def tidy(title):      # "Rema - Charm (Official Music Video)" -> "Rema - Charm", for the card and for saying it
+        return re.sub(r"\s*[\(\[][^)\]]*\b(lyrics?|official|video|audio|visuali[sz]er|hd|4k)\b[^)\]]*[\)\]]", "", title, flags=re.I).strip()[:90]
+
+    def ytm_search(query):
+        """Search results as tracks, songs before videos (podcasts, artists and playlists left out)."""
+        songs, videos = [], []
+        def add(vid, title, sub):
+            kind, _, rest = sub.partition(" • ")
+            if not vid or kind not in ("Song", "Video"): return
+            artist = rest.split(" • ")[0]
+            (songs if kind == "Song" else videos).append({"id": vid, "title": tidy(title), "artist": artist[:60]})
+        def walk(o):
+            if isinstance(o, dict):
+                m = o.get("musicResponsiveListItemRenderer")
+                if m:
+                    cols = [runs(c["musicResponsiveListItemFlexColumnRenderer"]["text"]) for c in m.get("flexColumns", [])]
+                    if len(cols) >= 2: add((m.get("playlistItemData") or {}).get("videoId"), cols[0], cols[1])
+                    return
+                m = o.get("musicCardShelfRenderer")      # the "top result"
+                if m:
+                    ids = [r.get("navigationEndpoint", {}).get("watchEndpoint", {}).get("videoId") for r in m.get("title", {}).get("runs", [])]
+                    add(next((i for i in ids if i), None), runs(m.get("title")), runs(m.get("subtitle")))
+                for v in o.values(): walk(v)
+            elif isinstance(o, list):
+                for v in o: walk(v)
+        walk(ytm("search", {"query": query}))
+        odd = re.compile(r"\b(cover|instrumental|type beat|karaoke|sped up|slowed|8d|nightcore|reaction|tutorial)\b", re.I)
+        if not odd.search(query): videos.sort(key=lambda t: bool(odd.search(t["title"])))     # the real song before covers of it
+        return songs + videos
+
+    def ytm_radio(vid):
+        """The song's radio: it first, then up to 24 similar ones, the way YouTube Music plays on after a song."""
+        out = []
+        def walk(o):
+            if isinstance(o, dict):
+                p = o.get("playlistPanelVideoRenderer")
+                if p and p.get("videoId"):
+                    out.append({"id": p["videoId"], "title": tidy(runs(p.get("title"))), "artist": runs(p.get("longBylineText")).split(" • ")[0][:60]}); return
+                for v in o.values(): walk(v)
+            elif isinstance(o, list):
+                for v in o: walk(v)
+        try: walk(ytm("next", {"videoId": vid, "playlistId": "RDAMVM" + vid, "isAudioOnly": True}))
+        except Exception as e: print(f"[MUSIC] radio: {type(e).__name__}: {e}")
+        seen = set(); return [t for t in out if not (t["id"] in seen or seen.add(t["id"]))][:25]
+
+    @tool("play_music", "The music player (YouTube Music, plays inside Jarvis). action play with a query (a song, an artist, a mood, a genre: "
+          "'play Asake', 'play some afrobeats'), or pause, resume, next, previous, stop, louder, quieter, now_playing ('what's playing').",
+          {"action": {"type": "string", "enum": ["play", "pause", "resume", "next", "previous", "stop", "louder", "quieter", "now_playing"]},
+           "query": {"type": "string", "description": "what to play, for play"}}, ["action"])
+    def _music(action: str = "play", query: str = ""):
+        a = (action or "play").lower().strip()
+        if a == "now_playing":
+            if not music_now["title"]: return "Nothing's playing."
+            return f"{'Playing' if music_now['playing'] else 'Paused on'} {music_now['title']}" + (f" by {music_now['artist']}." if music_now["artist"] else ".")
+        if a != "play":
+            send("music", {"cmd": a})
+            return {"pause": "Paused.", "resume": "Resuming.", "next": "Next one.", "previous": "Going back.", "stop": "Music off.",
+                    "louder": "Louder.", "quieter": "Quieter."}.get(a, "Done.")
+        q = (query or "").strip()
+        if not q: send("music", {"cmd": "resume"}); return "Resuming."
+        try:
+            found = [t for t in ytm_search(q)[:6]]
+            found = keep_embeddable(found, 3)          # a few owners don't allow their videos to play inside other apps
+            if not found: return f"I couldn't find {q} on YouTube Music."
+            queue = ytm_radio(found[0]["id"]) or found
+            if queue[0]["id"] != found[0]["id"]: queue.insert(0, found[0])
+        except Exception as e:
+            print(f"[MUSIC] {type(e).__name__}: {e}"); return "I couldn't reach YouTube Music just now."
+        send("music", {"cmd": "play", "queue": queue})
+        t = queue[0]
+        return f"Playing {t['title']}" + (f" by {t['artist']}" if t["artist"] else "") + ". Similar songs will follow."
+
+    @app.post("/music/state")
+    async def music_state(payload: dict):
+        music_now.update(title=str(payload.get("title", ""))[:120], artist=str(payload.get("artist", ""))[:80], playing=bool(payload.get("playing")))
+        return {"ok": True}
 
     def public_url(u):
         """Only fetch pictures from the open internet (no localhost or home-network addresses)."""
@@ -698,5 +843,7 @@ def install(ns):
     # search_web and news_headlines were re-registered above: keep one schema per tool name (Groq rejects duplicates)
     if "_TOOL_SCHEMAS" in ns:
         last = {sc["function"]["name"]: sc for sc in ns["_TOOL_SCHEMAS"]}
+        if not ns.get("SPOTIFY_READY"):     # not set up on this PC: hide the Spotify tools, so "play X" goes to the music player
+            last = {k: v for k, v in last.items() if not k.startswith("spotify_")}
         ns["_TOOL_SCHEMAS"][:] = list(last.values())
     print("[FEATURES] globe, planner, recap, gestures, holo panels ready")

@@ -7,6 +7,25 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const hud = $('hud');
 
+// ============================================================
+// YOUTUBE PLAYERS (music and live news) through YouTube's own player API, so Jarvis can pause them, skip, and turn them down while
+// he talks. Loaded the first time it's needed.
+// ============================================================
+let ytReady = null;
+const loadYT = () => ytReady || (ytReady = new Promise(res => {
+  if (window.YT && window.YT.Player) return res(window.YT);
+  const prev = window.onYouTubeIframeAPIReady;
+  window.onYouTubeIframeAPIReady = () => { if (prev) prev(); res(window.YT); };
+  document.head.appendChild(Object.assign(el('script'), { src: 'https://www.youtube.com/iframe_api', async: true }));
+}));
+let ducked = false;
+const duckers = new Set();        // players that go quiet while he listens and talks: (on) => ...
+window.__jvOnState = s => {
+  const on = ['listening', 'thinking', 'speaking', 'session'].includes(s);
+  if (on !== ducked) { ducked = on; duckers.forEach(f => f(on)); }
+};
+
+
 document.head.appendChild(el('style', null, `
   #pc-globe { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; opacity: 0; pointer-events: none; transition: opacity .9s var(--ease); }
   #pc-globe.on { opacity: 1; pointer-events: auto; cursor: grab; }
@@ -542,7 +561,8 @@ const holo = (() => {
     return lines;
   }
   const kindOf = d => d.kind || (d.image ? 'image' : 'text');
-  const SIZE = { image: [480, 600, 0.4], text: [640, 400, 0.52], stat: [480, 400, 0.38], list: [560, 680, 0.42], note: [620, 640, 0.48] };
+  const SIZE = { image: [480, 600, 0.4], text: [640, 400, 0.52], stat: [480, 400, 0.38], list: [560, 680, 0.42], note: [620, 640, 0.48], video: [640, 452, 0.62] };
+  const VID = (() => { const W = 640, pad = 14, iw = W - pad * 2 - 24; return { x: pad + 12, y: pad + 12, w: iw, h: Math.round(iw * 9 / 16) }; })();   // the picture area a live station plays in
   function paint(it) {
     const k = kindOf(it.data), [W, H] = SIZE[k], c = it.cv || (it.cv = document.createElement('canvas'));
     c.width = W; c.height = H; const x = c.getContext('2d'), pad = 14, L = pad + 30;
@@ -551,7 +571,19 @@ const holo = (() => {
     x.beginPath(); x.roundRect(pad, pad, W - pad * 2, H - pad * 2, 26); x.fillStyle = grd; x.fill();
     x.lineWidth = 3; x.strokeStyle = it.data.tone === 'warn' ? 'rgba(255,154,61,.85)' : 'rgba(245,201,122,.75)'; x.stroke();
     const small = (t, y, col = '#d9b46e') => { x.font = "600 17px Saira, system-ui, sans-serif"; x.fillStyle = col; x.fillText(String(t || '').toUpperCase().slice(0, 40), L, y); };
-    if (k === 'image') {
+    if (k === 'video') {        // a live station: its picture (the player sits over it when it's in front), the name, LIVE
+      x.save(); x.beginPath(); x.roundRect(VID.x, VID.y, VID.w, VID.h, 16); x.clip(); x.fillStyle = '#000'; x.fillRect(VID.x, VID.y, VID.w, VID.h);
+      if (it.pic && it.pic.complete && it.pic.naturalWidth) {
+        const r = Math.max(VID.w / it.pic.naturalWidth, VID.h / it.pic.naturalHeight), dw = it.pic.naturalWidth * r, dh = it.pic.naturalHeight * r;
+        x.drawImage(it.pic, VID.x + (VID.w - dw) / 2, VID.y + (VID.h - dh) / 2, dw, dh);
+      }
+      x.restore();
+      const ty = VID.y + VID.h + 44;
+      x.beginPath(); x.roundRect(pad + 26, ty - 22, 62, 28, 14); x.fillStyle = '#e8483c'; x.fill();
+      x.font = "700 15px Saira, system-ui, sans-serif"; x.fillStyle = '#fff'; x.fillText('LIVE', pad + 38, ty - 2);
+      x.font = "600 28px Saira, system-ui, sans-serif"; x.fillStyle = '#fff6e8'; x.fillText(wrap(x, it.data.title, W - 220, 1)[0] || '', pad + 102, ty);
+      x.font = "500 17px Saira, system-ui, sans-serif"; x.fillStyle = '#c9a76a'; x.fillText(String(it.data.source || '').toUpperCase().slice(0, 40), pad + 26, ty + 32);
+    } else if (k === 'image') {
       const ih = H - 150;
       x.save(); x.beginPath(); x.roundRect(pad + 12, pad + 12, W - pad * 2 - 24, ih, 18); x.clip();
       if (it.pic && it.pic.complete && it.pic.naturalWidth) {
@@ -596,8 +628,9 @@ const holo = (() => {
       x.font = "400 22px Saira, system-ui, sans-serif"; x.fillStyle = '#d6c4a6';
       wrap(x, it.data.text, W - 76, Math.max(1, 6 - tl.length)).forEach((l, i) => x.fillText(l, L, pad + 102 + tl.length * 40 + i * 30));
     }
-    x.beginPath(); x.arc(W - pad - 34, pad + 34, 19, 0, 7); x.fillStyle = 'rgba(245,201,122,.92)'; x.fill();     // the number to say: "open number three"
-    x.font = "700 21px Saira, system-ui, sans-serif"; x.fillStyle = '#1a1006'; x.textAlign = 'center'; x.fillText(String(it.i + 1), W - pad - 34, pad + 41); x.textAlign = 'left';
+    const ny = k === 'video' ? H - pad - 44 : pad + 34;     // on a station the number sits under the picture, where the player won't cover it
+    x.beginPath(); x.arc(W - pad - 34, ny, 19, 0, 7); x.fillStyle = 'rgba(245,201,122,.92)'; x.fill();     // the number to say: "open number three"
+    x.font = "700 21px Saira, system-ui, sans-serif"; x.fillStyle = '#1a1006'; x.textAlign = 'center'; x.fillText(String(it.i + 1), W - pad - 34, ny + 7); x.textAlign = 'left';
     if (it.tex) it.tex.needsUpdate = true;
   }
 
@@ -657,6 +690,7 @@ const holo = (() => {
     hovered = -1; if (!items.length) { closingAt = 0; activate(false); }
   }
   function clear(instant) {
+    tv.stop();
     if (!items.length) return;
     if (instant) { items.forEach(dispose); items = []; return; }
     if (closingAt) return;
@@ -711,6 +745,44 @@ const holo = (() => {
   function collapse() { if (layout === 'wall') { layout = 'ring'; touch(); } else clear(); }
   function enlarge(f = 1.25) { if (focused >= 0) { focusScale = Math.min(2.4, Math.max(1.1, focusScale * f)); touch(); } }
 
+  // ---- the live station in front: a YouTube player laid exactly over that panel's picture, once the ring has stopped turning ----
+  const hasVideo = () => items.some(it => it.data.video);
+  const tv = (() => {
+    const box = el('div'); box.id = 'pc-holo-tv'; canvas.after(box);
+    document.head.appendChild(el('style', null, `#pc-holo-tv { position: fixed; z-index: 2; left: 0; top: 0; pointer-events: none; opacity: 0; border-radius: 10px;
+      overflow: hidden; background: #000; transition: opacity .35s var(--ease); } #pc-holo-tv.on { opacity: 1; } #pc-holo-tv iframe { width: 100%; height: 100%; border: 0; display: block; }`));
+    let player = null, want = null, loading = null, vol = 80;
+    const corner = new THREE.Vector3();
+    const level = () => player && player.setVolume && player.setVolume(ducked ? Math.round(vol * 0.15) : vol);
+    duckers.add(level);
+    function load(id) {
+      want = id; if (window.__jvMusic && window.__jvMusic.playing) window.__jvMusic.pause();     // one sound at a time
+      if (player && player.loadVideoById) { player.loadVideoById(id); return; }
+      if (loading) return;
+      loading = loadYT().then(YT => { player = new YT.Player(box.appendChild(el('div')), { width: '100%', height: '100%', videoId: want,
+        playerVars: { autoplay: 1, controls: 0, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
+        events: { onReady: () => { level(); player.playVideo(); } } }); });
+    }
+    function stop() { want = null; box.classList.remove('on'); try { player && player.stopVideo(); } catch (e) {} }
+    function place(now) {
+      const i = focused >= 0 ? focused : frontIndex(), it = items[i];
+      const still = it && it.data.video && !closingAt && layout === 'ring' && !coasting && Math.abs(ringT - ring) < 0.03 && now > it.born + 1200
+        && !it.held && !it.thrown && !it.leaving && (focused < 0 || Math.abs(it.scale - focusScale) < 0.03);
+      if (!still) { box.classList.remove('on'); return; }
+      if (want !== it.data.video) load(it.data.video);
+      const [W, H, w] = SIZE.video, h = w * H / W, m = it.mesh;
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (const [u, v] of [[VID.x / W, VID.y / H], [(VID.x + VID.w) / W, (VID.y + VID.h) / H]]) {
+        corner.set((u - 0.5) * w, (0.5 - v) * h, 0).applyMatrix4(m.matrixWorld).project(camera);
+        const sx = (corner.x + 1) / 2 * innerWidth, sy = (1 - corner.y) / 2 * innerHeight;
+        x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+      }
+      Object.assign(box.style, { left: x0 + 'px', top: y0 + 'px', width: (x1 - x0) + 'px', height: (y1 - y0) + 'px' });
+      box.classList.add('on');
+    }
+    return { place, stop };
+  })();
+
   const _p = new THREE.Vector3(), _m = new THREE.Vector3(), _b = new THREE.Vector3();
   function frame() {
     if (!running) return;
@@ -723,7 +795,7 @@ const holo = (() => {
 
     // the ring: coasts after a flick (slowing like a real wheel, then landing on a panel), otherwise springs to where it's sent; drifts when left alone
     if (coasting) { ringT += spinV * dt; spinV *= Math.exp(-dt * 1.3); if (Math.abs(spinV) < 0.35) { coasting = false; spinV = 0; snapRing(); } }
-    else if (items.length && !closingAt && focused < 0 && hovered < 0 && layout === 'ring' && now - lastTouch > 9000 && now > launchAt + 2500) ringT += dt * 0.07;
+    else if (items.length && !closingAt && focused < 0 && hovered < 0 && layout === 'ring' && now - lastTouch > 9000 && now > launchAt + 2500 && !hasVideo()) ringT += dt * 0.07;
     ring += (ringT - ring) * damp(coasting ? 12 : 5.5, dt);
     const ringVel = Math.abs(ring - ringPrev) / Math.max(dt, 1e-3); ringPrev = ring;
 
@@ -798,15 +870,16 @@ const holo = (() => {
       m.rotation.set(0, it.ry, 0); mat.uOpacity.value = it.op; mat.uGlow.value += (glow - mat.uGlow.value) * damp(8, dt);
       m.renderOrder = 10 + Math.round((m.position.z + 3) * 100);
     }
-    if (items.length && !closingAt && focused < 0 && now - lastTouch > 90000) clear();
+    if (items.length && !closingAt && focused < 0 && now - lastTouch > 90000 && !hasVideo()) clear();
     const keep = items.length || head.on || wave.userData.t0;
     if (!keep) { orb.visible = false; stream.visible = false; }
     renderer.render(scene, camera);
+    tv.place(now);
     if (keep) requestAnimationFrame(frame); else running = false;
   }
   return {
     show, clear: () => clear(), select: n => select(n - 1), back, rotate, drag, release, fling, twist, hover, pick, grab, movePanel, dropPanel, throwPanel,
-    explode, collapse, enlarge, has: () => items.length > 0 && !closingAt, get focused() { return focused; }, get front() { return frontIndex(); },
+    explode, collapse, enlarge, has: () => items.length > 0 && !closingAt, get tv() { return hasVideo(); }, get focused() { return focused; }, get front() { return frontIndex(); },
     get hovered() { return hovered; }, get layout() { return layout; }, get count() { return items.length; },
     setHead(on) { head.on = on; if (!on) { head.tx = head.ty = 0; head.tz = 4; window.__jvSpin = { yaw: 0, pitch: 0 }; } if (on && !renderer) init(); activate(items.length > 0); },
     headAt(cx, cy, w) {
@@ -1045,6 +1118,8 @@ const feeds = (() => {
       color: var(--ice); letter-spacing: normal; text-transform: none; text-shadow: none; }
     .pc-feed .bar i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #ff4b3e; box-shadow: 0 0 8px #ff4b3e; animation: pcLive 1.6s ease-in-out infinite; }
     @keyframes pcLive { 50% { opacity: .35; } }
+    .pc-feed .bar b { flex: none; font: 600 10.5px/1 'Saira', system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #1a1006;
+      background: var(--holo); padding: 4px 7px; border-radius: 999px; }
     .pc-feed .bar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pc-feed .bar button { flex: none; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--mist);
       font: 500 18px/1 system-ui, sans-serif; cursor: pointer; padding: 0; letter-spacing: normal; text-shadow: none; }
@@ -1059,7 +1134,8 @@ const feeds = (() => {
   const closeAll = el('button', null, 'Close feeds'); closeAll.id = 'pc-feeds-close'; closeAll.type = 'button'; document.body.appendChild(closeAll);
   let list = [];
   // the room left between the greeting / clock on top and the gauges / status pill at the bottom
-  const TOP = () => Math.max(120, ($('pc-clock')?.getBoundingClientRect().bottom || 120) + 14);
+  const TOP = () => { const m = rectOf('pc-music');     // the music card shrinks to its slim bar (58 px) while the feeds are up
+    return Math.max(120, ($('pc-clock')?.getBoundingClientRect().bottom || 120) + 14, m ? m.top + 58 + 14 : 0); };
   const rectOf = id => { const e = $(id); if (!e || getComputedStyle(e).display === 'none') return null; const r = e.getBoundingClientRect(); return r.height ? r : null; };
   let area = { top: 120, bottom: 140, inset: 24 };
   function layout() {
@@ -1090,11 +1166,15 @@ const feeds = (() => {
     if (window.__jvHolo && window.__jvHolo.has()) window.__jvHolo.clear();
     wall.innerHTML = '';
     for (const f of (msg.feeds || []).slice(0, 4)) {
-      if (!/^[\w-]{11}$/.test(f.id || '')) continue;   // only a YouTube video id ever goes into the address
-      const t = el('div', 'pc-feed', `<div class="bar"><i></i><span>${esc(f.title || msg.title || 'Live')}</span><button type="button" aria-label="Close this feed">×</button></div>`);
+      // only Windy's own camera player, or a YouTube video id, ever goes into the address
+      const src = /^https:\/\/webcams\.windy\.com\/[\w\/.-]+$/.test(f.src || '') ? f.src
+        : /^[\w-]{11}$/.test(f.id || '') ? `https://www.youtube.com/embed/${f.id}?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1` : null;
+      if (!src) continue;
+      const tag = f.src && !f.live ? '<b>Timelapse</b>' : '<i></i>';
+      const t = el('div', 'pc-feed', `<div class="bar">${tag}<span>${esc(f.title || msg.title || 'Live')}</span><button type="button" aria-label="Close this feed">×</button></div>`);
       const fr = el('iframe'); fr.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen'; fr.allowFullscreen = true;
       fr.referrerPolicy = 'strict-origin-when-cross-origin'; fr.title = f.title || 'Live feed';
-      fr.src = `https://www.youtube.com/embed/${f.id}?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1`;
+      fr.src = src;
       t.appendChild(fr); t.querySelector('button').onclick = () => remove(t);
       wall.appendChild(t);
     }
@@ -1116,6 +1196,94 @@ const feeds = (() => {
 })();
 
 // ============================================================
+// MUSIC: a now-playing card under the clock. "play X" fills a queue (the song, then its YouTube Music radio); it plays through,
+// skipping anything the owner won't let play inside other apps. Shrinks to a slim bar while the globe, panels or feeds are up.
+// ============================================================
+const music = (() => {
+  document.head.appendChild(el('style', null, `
+    #pc-music { position: absolute; right: 48px; top: 150px; width: 356px; border-radius: 18px; overflow: hidden; pointer-events: auto; display: none;
+      background: var(--glass); border: 1px solid var(--glass-hi); box-shadow: 0 18px 50px rgba(0,0,0,.5);
+      -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); opacity: 0; transform: translateY(-8px); transition: opacity .4s var(--ease), transform .4s var(--ease); }
+    #pc-music.on { display: block; }
+    #pc-music.show { opacity: 1; transform: none; }
+    #pc-music .vid { height: 200px; overflow: hidden; background: #000; transition: height .45s var(--ease); }
+    #pc-music.slim .vid { height: 0; }
+    #pc-music .vid > * { display: block; width: 356px; height: 200px; border: 0; }
+    #pc-music .row { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 8px 0 14px; }
+    #pc-music .txt { flex: 1; min-width: 0; }
+    #pc-music .t, #pc-music .a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #pc-music .t { font: 600 14px/1.25 'Saira', system-ui, sans-serif; color: var(--ice); }
+    #pc-music .a { font: 400 12.5px/1.3 'Saira', system-ui, sans-serif; color: var(--mist); }
+    #pc-music.slim.paused { opacity: 0; pointer-events: none; }     /* paused while the news or the globe has the screen: out of the way */
+    #pc-music button { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: var(--ice); cursor: pointer;
+      font: 500 15px/1 system-ui, sans-serif; padding: 0; letter-spacing: normal; text-shadow: none; }
+    #pc-music button:hover { background: rgba(255,214,150,.12); }
+    #pc-music button:focus-visible { outline: 2px solid var(--holo); outline-offset: -2px; }
+    @media (max-width: 900px) { #pc-music { right: 24px; top: 110px; width: 300px; } #pc-music .vid > * { width: 300px; } }
+  `));
+  const card = el('div', null, `<div class="vid"><div></div></div><div class="row"><div class="txt"><div class="t"></div><div class="a"></div></div>
+    <button type="button" data-k="previous" aria-label="Previous song"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button><button type="button" data-k="toggle" aria-label="Pause"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
+    <button type="button" data-k="next" aria-label="Next song"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button><button type="button" data-k="stop" aria-label="Close the music"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg></button></div>`);
+  const ICON = { play: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M7 5v14l12-7z"/></svg>', pause: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' };
+  card.id = 'pc-music'; card.setAttribute('role', 'region'); card.setAttribute('aria-label', 'Music'); hud.appendChild(card);
+  const tEl = card.querySelector('.t'), aEl = card.querySelector('.a'), toggle = card.querySelector('[data-k=toggle]');
+  let player = null, queue = [], at = 0, vol = 70, playing = false, fails = 0;
+  const report = () => { const t = queue[at] || {}; fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: t.title || '', artist: t.artist || '', playing }) }).catch(() => {}); };
+  const level = () => player && player.setVolume && player.setVolume(ducked ? Math.round(vol * 0.15) : vol);
+  duckers.add(level);
+  function paint() {
+    const t = queue[at] || {}; tEl.textContent = t.title || ''; aEl.textContent = t.artist || '';
+    toggle.innerHTML = playing ? ICON.pause : ICON.play; toggle.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    card.classList.toggle('paused', !playing);
+  }
+  function go(i) {
+    if (!queue.length) return;
+    at = (i + queue.length) % queue.length; paint();
+    if (player && player.loadVideoById) player.loadVideoById(queue[at].id);
+  }
+  async function play(list) {
+    queue = list.filter(t => /^[\w-]{11}$/.test(t.id || '')); at = 0; fails = 0;     // only a YouTube video id ever goes into the address
+    if (!queue.length) return;
+    if (window.__jvHolo && window.__jvHolo.tv) window.__jvHolo.clear();     // the news stops for the music
+    card.classList.add('on'); place(); slim(); requestAnimationFrame(() => card.classList.add('show')); paint();
+    if (player) { go(0); return; }
+    const YT = await loadYT();
+    player = new YT.Player(card.querySelector('.vid > div'), { width: 356, height: 200, videoId: queue[0].id,
+      playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
+      events: {
+        onReady: () => { level(); player.playVideo(); },
+        onStateChange: e => {
+          if (e.data === YT.PlayerState.ENDED) { go(at + 1); return; }
+          const p = e.data === YT.PlayerState.PLAYING; if (p) fails = 0;
+          if (p !== playing && e.data !== YT.PlayerState.BUFFERING) { playing = p; paint(); report(); }
+        },
+        onError: () => { if (++fails < 5) go(at + 1); },       // not allowed to play here, or gone: on to the next song
+      } });
+  }
+  function stop() {
+    playing = false; report(); card.classList.remove('show');
+    try { player && player.stopVideo(); } catch (e) {}
+    setTimeout(() => { if (!card.classList.contains('show')) card.classList.remove('on'); }, 400);
+  }
+  function cmd(c) {
+    if (!player || !queue.length) return;
+    if (c === 'pause') player.pauseVideo(); else if (c === 'resume') player.playVideo();
+    else if (c === 'toggle') playing ? player.pauseVideo() : player.playVideo();
+    else if (c === 'next') go(at + 1); else if (c === 'previous') go(at - 1); else if (c === 'stop') stop();
+    else if (c === 'louder' || c === 'quieter') { vol = Math.max(10, Math.min(100, vol + (c === 'louder' ? 15 : -15))); level(); }
+  }
+  card.addEventListener('click', e => { const b = e.target.closest('button'); if (b) cmd(b.dataset.k); });
+  const place = () => { const c = $('pc-clock'); card.style.top = Math.round((c ? c.getBoundingClientRect().bottom : 120) + 18) + 'px'; };   // just under the clock
+  addEventListener('resize', place);
+  // the slim bar while something else needs the room (and while the news is on, the music waits)
+  function slim() { card.classList.toggle('slim', !!(document.body.classList.contains('pc-holo-on') || (window.__jvGlobe && window.__jvGlobe.on) || (window.__jvFeeds && window.__jvFeeds.on))); }
+  setInterval(() => { if (card.classList.contains('on')) slim(); }, 700);
+  return { msg: m => m.cmd === 'play' ? play(m.queue || []) : cmd(m.cmd), pause: () => cmd('pause'), get on() { return card.classList.contains('show'); },
+           get playing() { return playing; } };
+})();
+
+// ============================================================
 // SERVER MESSAGES
 // ============================================================
 window.__jvExtra = data => {
@@ -1127,6 +1295,7 @@ window.__jvExtra = data => {
   else if (kind === 'gesture') autoGestures.set(msg.on);
   else if (kind === 'panels') { globe.hide(); feeds.close(); holo.show(msg); }
   else if (kind === 'feeds') msg.cmd === 'close' ? feeds.close() : feeds.show(msg);
+  else if (kind === 'music') music.msg(msg);
   else if (kind === 'holo') {
     if (msg.cmd === 'on') { holo.setHead(true); gestures.start('head'); } else if (msg.cmd === 'off') { gestures.stop('head'); holo.setHead(false); }
     else if (msg.cmd === 'clear') holo.clear(); else if (msg.cmd === 'select') holo.select(msg.n); else if (msg.cmd === 'back') holo.back();
@@ -1135,4 +1304,4 @@ window.__jvExtra = data => {
   if (globe.on) globe.layout();
 };
 (window.__jvExtraQ || []).splice(0).forEach(window.__jvExtra);
-window.__jvGlobe = globe; window.__jvGestures = gestures; window.__jvHolo = holo; window.__jvAutoGestures = autoGestures; window.__jvFeeds = feeds;
+window.__jvGlobe = globe; window.__jvGestures = gestures; window.__jvHolo = holo; window.__jvAutoGestures = autoGestures; window.__jvFeeds = feeds; window.__jvMusic = music;

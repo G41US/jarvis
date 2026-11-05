@@ -41,6 +41,10 @@ and the phone handoff (which used your Cloudflare service) is off in this app.
 
 ## Notes
 
+- **Webcams** come from Windy's public webcam network (latest picture and today's timelapse; live video where a camera streams).
+  The build puts in the key from the `WINDY_KEY` secret (free key: api.windy.com/keys, Webcams API). Without it, Jarvis says webcams aren't set up.
+  Live news stations still come from YouTube; music comes from YouTube Music (no account).
+
 - Not code-signed, hence the warnings above. Removing them needs an Apple Developer account ($99/year, for notarising)
   and a Windows code-signing certificate.
 - Windows-only parts (answering WhatsApp calls, the Spotify speaker) are quietly off on a Mac.
