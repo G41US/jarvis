@@ -185,7 +185,7 @@ jobs:
               for attempt in range(3):
                   with open(f, "rb") as fh:
                       r = call("POST", f"https://uploads.github.com/repos/{repo}/releases/{rel['id']}/assets", params={"name": name},
-                               headers={"Content-Type": "application/octet-stream"}, data=fh, timeout=1800)
+                               headers={"Content-Type": "application/octet-stream"}, data=fh, timeout=3600)   # a slow line takes 25+ min
                   if r.status_code == 201: print("uploaded", name); break
                   print("upload", name, r.status_code, r.text[:200]); time.sleep(10)
               else: raise SystemExit(f"Couldn't upload {name}.")
