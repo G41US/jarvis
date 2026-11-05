@@ -2944,20 +2944,40 @@ def _wav_bytes(a_f32):
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(pcm)
     return bio.getvalue()
 
+def _opus_bytes(a_f32):
+    """The clip as Ogg/Opus: ~23x smaller than WAV (6 KB instead of 150 KB for 5 s), so a slow upload line doesn't
+    turn a 1 s transcription into 13 s. PyAV ships with faster-whisper. None = can't encode, send WAV."""
+    try:
+        import av, io, numpy as np
+        out = io.BytesIO()
+        with av.open(out, "w", format="ogg") as c:
+            st = c.add_stream("libopus", rate=16000); st.bit_rate = 24000; st.layout = "mono"
+            fr = av.AudioFrame.from_ndarray((np.clip(a_f32, -1, 1) * 32767).astype(np.int16)[None, :], format="s16", layout="mono")
+            fr.sample_rate = 16000
+            for pk in st.encode(fr): c.mux(pk)
+            for pk in st.encode(None): c.mux(pk)
+        return out.getvalue()
+    except Exception as e:
+        print(f"[STT] opus unavailable ({type(e).__name__}); sending WAV"); return None
+
 def _stt_groq(a_f32):
     """Groq's hosted Whisper: much more accurate than tiny.en and usually faster than CPU. None = unavailable."""
     if STT_BACKEND == "local" or not _groq_usable(): return None
     if time.time() < GROQ_STATE["stt_skip_until"]: return None
-    wav = _wav_bytes(a_f32)
+    opus = None if GROQ_STATE.get("no_opus") else _opus_bytes(a_f32)
+    upload = ("speech.ogg", opus) if opus else ("speech.wav", _wav_bytes(a_f32))
+    GROQ_STATE["stt_bytes"] = len(upload[1])
     for timeout in (8.0, 14.0):     # a slow moment on the line gets one more try: Whisper on this PC's CPU can take 20 s+
         try:
             cl = groq_client
             try: cl = groq_client.with_options(timeout=timeout, max_retries=0)
             except Exception: pass
-            r = cl.audio.transcriptions.create(file=("speech.wav", wav), model=GROQ_STT_MODEL,
+            r = cl.audio.transcriptions.create(file=upload, model=GROQ_STT_MODEL,
                                                language="en", prompt=STT_PROMPT, response_format="json", temperature=0.0)
             return (getattr(r, "text", None) or "").strip()
         except Exception as e:
+            if opus and "400" in str(e) and not GROQ_STATE.get("no_opus"):   # Groq refused the format: WAV from now on
+                GROQ_STATE["no_opus"] = True; print("[STT] Groq didn't take Opus; using WAV"); return _stt_groq(a_f32)
             if "Timeout" in type(e).__name__ and timeout < 14.0: print("[STT] Groq slow; trying once more"); continue
             _groq_failed(e)
             # no connection at all: local Whisper for a minute; a timeout or a hiccup: back to Groq next time
@@ -2976,7 +2996,8 @@ def transcribe_audio(a_f32):
     text = _stt_groq(a_f32); src = "groq"
     if text is None: text = _stt_local(a_f32); src = "local"
     if text and len(text) > 25 and re.sub(r"[^a-z ]", "", text.lower()) in _STT_PROMPT_NORM: text = ""   # prompt echoed on silence
-    print(f"[STT] {src} {1000 * (time.time() - t0):.0f} ms: {text!r}")
+    print(f"[STT] {src} {1000 * (time.time() - t0):.0f} ms for {len(a_f32) / 16000:.1f} s of audio"
+          + (f" ({GROQ_STATE.get('stt_bytes', 0) // 1024} KB sent)" if src == "groq" else "") + f": {text!r}")
     return text
 
 @app.websocket("/audio")

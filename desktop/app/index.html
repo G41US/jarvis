@@ -1068,6 +1068,8 @@ async function handleServerTranscript(raw) {
     const wk = matchWakeStrict(text);
     if (wk.matched && !wk.command) { showDebug(text, 'heard'); startSession(); return; }
   } else if (clean === 'hey jarvis' || clean === 'jarvis') return;
+  // the browser hears the same "Hey Jarvis" that woke him, often misheard ("Hey, Jogies"): a bare "hey something" just after waking isn't a question
+  else if (/^(hey|hi|okay|ok) \S+$/.test(clean) && performance.now() - sessionStartedAt < 6000) { showDebug(`"${text}" wake echo`, 'rejected'); return; }
   const now = performance.now();
   if (speaking) {
     const ec = isEcho(text);
@@ -1365,8 +1367,9 @@ recognition && (recognition.onresult = async (event) => {
   await handleServerTranscript(transcript);
 });
 
+let sessionStartedAt = 0;
 async function startSession() {
-  sessionActive = true;
+  sessionActive = true; sessionStartedAt = performance.now();
   beepWake(); setState('session');
   audioStatus.textContent = 'SESSION';
   addMsg('— Session started —', 'sys');
