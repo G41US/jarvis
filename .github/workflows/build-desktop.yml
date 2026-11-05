@@ -98,32 +98,23 @@ jobs:
           mkdir dmg && cp -R dist/Jarvis.app dmg/ && ln -s /Applications dmg/Applications
           hdiutil create -volname Jarvis -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Jarvis-${{ matrix.os }}
-          path: |
-            dist/Jarvis-Setup.exe
-            dist/*.dmg
-          if-no-files-found: error
-
-  release:
-    needs: build
-    if: always()   # publish whatever was built: GitHub sometimes has no Mac machine free
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: out
-          merge-multiple: true
-      - name: Publish the downloads
+      # Straight onto the downloads page from here: handing 230 MB installers to a separate job went through GitHub's artifact
+      # storage, which is tiny for a private repo and filled up ("BlobNotFound"). Each build adds its own file to the release.
+      - name: Publish
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           REPO: ${{ vars.RELEASE_REPO || github.repository }}
         run: |
-          files=$(ls out/Jarvis-Setup.exe out/*.dmg 2>/dev/null) || true
+          TAG="desktop-v$JARVIS_VERSION"
+          files=$(ls dist/Jarvis-Setup.exe dist/*.dmg 2>/dev/null) || true
           [ -n "$files" ] || { echo "Nothing was built."; exit 1; }
-          gh release create "desktop-v$JARVIS_VERSION" $files --repo "$REPO" --latest \
-            --title "Jarvis $JARVIS_VERSION for Windows and Mac" \
-            --notes "Windows: download Jarvis-Setup.exe and run it. If Windows says it protected your PC, press More info, then Run anyway.
-          Mac: Jarvis-Mac-AppleSilicon.dmg for M1 and newer, Jarvis-Mac-Intel.dmg for older Macs (also works on M1+). Open it and drag Jarvis into Applications. The first time, open it, then go to System Settings > Privacy & Security and press Open Anyway.
-          On first start Jarvis asks for a free Groq key and downloads his voice (about 400 MB, once)."
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --latest --title "Jarvis $JARVIS_VERSION" --notes "Windows: download Jarvis-Setup.exe and run it. If Windows says it protected your PC, press More info, then Run anyway.
+          Mac: Jarvis-Mac-Intel.dmg works on every Mac (Jarvis-Mac-AppleSilicon.dmg, when there is one, is faster on M1 and newer). Open it and drag Jarvis into Applications. The first time, open it, then go to System Settings > Privacy & Security and press Open Anyway.
+          On first start Jarvis asks for a free Groq key and downloads his voice (about 400 MB, once)." || sleep 5   # two builds may race to create it
+          fi
+          for f in $files; do
+            for try in 1 2 3; do gh release upload "$TAG" "$f" --repo "$REPO" --clobber && break; sleep 10; done
+          done
+          echo "https://github.com/$REPO/releases/tag/$TAG"
