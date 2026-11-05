@@ -8,7 +8,8 @@ APP = os.path.join(HERE, "app")
 datas = [(os.path.join(APP, f), ".") for f in ("index.html", "hud_extra.js", "nav.js", "nav_core.js", "VERSION")]
 datas += [(os.path.join(APP, "models"), "models")]
 if os.path.exists(os.path.join(APP, "UPDATE_REPO")): datas += [(os.path.join(APP, "UPDATE_REPO"), ".")]   # written by the build: where updates come from
-binaries, hidden = [], ["server", "features", "wake", "nav", "delivery", "spotify_auth"]
+if os.path.exists(os.path.join(APP, "google_client.json")): datas += [(os.path.join(APP, "google_client.json"), ".")]   # written by the build: Sign in with Google
+binaries, hidden = [], ["server", "features", "wake", "nav", "delivery", "spotify_auth", "google_auth_oauthlib.flow", "google.oauth2.credentials"]
 hidden += collect_submodules("uvicorn")
 # libraries that load model files, native libraries or templates from their own folder at run time
 for pkg in ("openwakeword", "faster_whisper", "ctranslate2", "sherpa_onnx", "fastembed", "onnxruntime", "piper", "tokenizers",

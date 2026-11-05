@@ -20,3 +20,5 @@ ios/Jarvis/Info.plist
 !desktop/app/index.html
 !desktop/app/nav.js
 !desktop/app/nav_core.js
+desktop/app/google_client.json
+desktop/app/UPDATE_REPO

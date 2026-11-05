@@ -29,7 +29,7 @@ def _load_dotenv():
     print("[ENV] loaded from .env: " + (", ".join(loaded) if loaded else "nothing (all values blank?)"))
 _load_dotenv()
 
-import json, glob, sqlite3, subprocess, platform, datetime, tempfile, wave, re
+import json, glob, sqlite3, subprocess, platform, datetime, tempfile, wave, re, sys
 import shutil, threading, secrets, string, urllib.parse, webbrowser, asyncio, time, random
 import traceback, xml.etree.ElementTree as ET, base64
 from contextlib import closing, asynccontextmanager
@@ -942,6 +942,9 @@ def _kokoro_open(d):
     rtf = (time.time() - t) / max(0.1, len(a.samples) / a.sample_rate)
     print(f"[KOKORO] {os.path.basename(d)} ready on {cores} cores: {rtf:.2f}x real time (under 1 = no waiting between sentences)")
     _KOKORO["rtf"] = rtf
+    if rtf > 1.2 and CONFIG.get("natural_voice") != "always" and CONFIG.get("perf") != "full":
+        CONFIG["perf"] = "light"; save_config(CONFIG)   # this computer can't keep up with Kokoro: from the next start it isn't loaded at all
+        print("[PERF] light mode from now on: Kokoro is too slow here; the quick local voice speaks")
     return tts
 
 def _kokoro_load():
@@ -974,7 +977,9 @@ def synth_kokoro(text, voice_name=None):
         return out.getvalue()
     except Exception as e: print(f"[KOKORO] {e}"); return None
 
-threading.Thread(target=_kokoro_load, daemon=True).start()
+if CONFIG.get("perf") == "light" and CONFIG.get("natural_voice") != "always":
+    print("[PERF] light mode: Kokoro not loaded (\"perf\": \"full\" in config.json brings it back)")
+else: threading.Thread(target=_kokoro_load, daemon=True).start()
 
 def synth_elevenlabs(text):
     if not ELEVENLABS_API_KEY: return None
@@ -1140,12 +1145,17 @@ conversation = [{"role": "system", "content": build_system_prompt()}] + db_load_
 # WHISPER
 # ============================================================
 WHISPER = None
-try:
-    from faster_whisper import WhisperModel
-    print("Loading Whisper...")
-    WHISPER = WhisperModel(os.environ.get("JARVIS_WHISPER", "tiny.en"), device="cpu", compute_type="int8")
-    print("Whisper ready.")
-except Exception as e: print(f"Whisper unavailable ({e}).")
+def _load_whisper():
+    global WHISPER
+    try:
+        from faster_whisper import WhisperModel
+        print("Loading Whisper...")
+        WHISPER = WhisperModel(os.environ.get("JARVIS_WHISPER", "tiny.en"), device="cpu", compute_type="int8")
+        print("Whisper ready.")
+    except Exception as e: print(f"Whisper unavailable ({e}).")
+# with Groq it's only the fallback, so it loads in the background and Jarvis is up sooner; without Groq it's needed at once
+if GROQ_API_KEY: threading.Thread(target=_load_whisper, daemon=True).start()
+else: _load_whisper()
 
 # ============================================================
 # LIFESPAN + APP
@@ -1375,8 +1385,72 @@ def _spotify_devices():
 GOOGLE_CALENDAR_CREDS = os.environ.get("GOOGLE_CALENDAR_CREDENTIALS", "")
 _calendar_service = None
 
+# ---- "Sign in with Google": each person connects their own Calendar and Gmail (read-only). The app's Google client comes with the
+# build (google_client.json, from the GOOGLE_OAUTH_CLIENT secret); the person's sign-in is kept in google_token.json in their own folder.
+GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
+GOOGLE_TOKEN = os.path.join(_PROJECT_DIR, "google_token.json")
+_GOOGLE = {"creds": None, "busy": False, "svc": {}}
+
+def _google_client_config():
+    for p in (os.environ.get("JARVIS_GOOGLE_CLIENT", ""), os.path.join(getattr(sys, "_MEIPASS", ""), "google_client.json"),
+              os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_client.json")):
+        if p and os.path.exists(p):
+            with open(p, encoding="utf-8") as f: return json.load(f)
+    return None
+
+def _google_creds():
+    """The person's Google sign-in, refreshed when it's stale; None when not connected (or Google ended it: re-connect)."""
+    c = _GOOGLE["creds"]
+    if c is None and os.path.exists(GOOGLE_TOKEN):
+        try:
+            from google.oauth2.credentials import Credentials
+            c = Credentials.from_authorized_user_file(GOOGLE_TOKEN, GOOGLE_SCOPES)
+        except Exception as e: print(f"[GOOGLE] token unreadable: {e}"); c = None
+    if c is not None and not c.valid:
+        try:
+            from google.auth.transport.requests import Request
+            c.refresh(Request())
+            with open(GOOGLE_TOKEN, "w", encoding="utf-8") as f: f.write(c.to_json())
+        except Exception as e:      # in Google's testing mode a sign-in only lasts 7 days
+            print(f"[GOOGLE] sign-in expired ({type(e).__name__}); he needs to connect again")
+            try: os.remove(GOOGLE_TOKEN)
+            except OSError: pass
+            _GOOGLE.update(creds=None, svc={}); return None
+    _GOOGLE["creds"] = c
+    return c
+
+def _google_service(name, version):
+    c = _google_creds()
+    if c is None: return None
+    if name not in _GOOGLE["svc"]:
+        from googleapiclient.discovery import build
+        _GOOGLE["svc"][name] = build(name, version, credentials=c, cache_discovery=False)
+    return _GOOGLE["svc"][name]
+
+def _google_connect():
+    """Opens Google's sign-in in his browser; Google sends the answer back to a one-off address on this computer."""
+    cfg = _google_client_config()
+    if not cfg: return "Google sign-in isn't set up in this version of Jarvis."
+    if _GOOGLE["busy"]: return "The Google sign-in page is already open in your browser."
+    def go():
+        _GOOGLE["busy"] = True
+        try:
+            from google_auth_oauthlib.flow import InstalledAppFlow
+            flow = InstalledAppFlow.from_client_config(cfg, GOOGLE_SCOPES)
+            c = flow.run_local_server(host="127.0.0.1", port=0, open_browser=True, timeout_seconds=300,
+                                      success_message="Jarvis is connected to your Google account. You can close this tab.")
+            with open(GOOGLE_TOKEN, "w", encoding="utf-8") as f: f.write(c.to_json())
+            _GOOGLE.update(creds=c, svc={})
+            print("[GOOGLE] connected"); _broadcast_ws("proactive:Your Google account is connected, sir. Calendar and email are ready.")
+        except Exception as e: print(f"[GOOGLE] sign-in didn't finish: {type(e).__name__}: {e}")
+        finally: _GOOGLE["busy"] = False
+    threading.Thread(target=go, daemon=True).start()
+    return "I've opened Google's sign-in in your browser. Choose your account and allow access. If it says the app isn't verified, press Continue."
+
 def _calendar():
     global _calendar_service
+    svc = _google_service("calendar", "v3")          # his own sign-in first
+    if svc is not None: return svc
     if _calendar_service is not None: return _calendar_service
     if not GOOGLE_CALENDAR_CREDS or not os.path.exists(GOOGLE_CALENDAR_CREDS):
         return None
@@ -1392,6 +1466,58 @@ def _calendar():
         print(f"[CAL] init fail: {e}")
         return None
     return _calendar_service
+
+@tool("google_account", "Connect, check or disconnect his Google account (Calendar and Gmail). action: connect, status, disconnect.",
+      {"action": {"type": "string", "enum": ["connect", "status", "disconnect"]}}, ["action"])
+def _google_account(action: str = "status"):
+    if action == "connect": return _google_connect()
+    if action == "disconnect":
+        try: os.remove(GOOGLE_TOKEN)
+        except OSError: pass
+        _GOOGLE.update(creds=None, svc={}); return "Disconnected from your Google account."
+    if _google_creds() is None: return "Your Google account isn't connected. Say 'connect my Google account'."
+    try:
+        me = _google_service("gmail", "v1").users().getProfile(userId="me").execute()
+        return f"Connected to Google as {me.get('emailAddress')}."
+    except Exception: return "Your Google account is connected."
+
+@tool("gmail", "Read his Gmail (read-only). action: unread (new mail in the inbox), search (Gmail search words, e.g. 'from:amazon', "
+      "'invoice', 'newer_than:2d'), read (open message n from the last list).",
+      {"action": {"type": "string", "enum": ["unread", "search", "read"]}, "query": {"type": "string"}, "n": {"type": "number"}}, ["action"])
+def _gmail(action: str = "unread", query: str = "", n: float = 1):
+    svc = _google_service("gmail", "v1")
+    if svc is None: return "Your Gmail isn't connected. Say 'connect my Google account' first."
+    try:
+        if action == "read":
+            ids = _GOOGLE.get("last_ids") or []
+            k = int(n or 1) - 1
+            if not 0 <= k < len(ids): return "Ask for your unread mail or a search first, then say which one to read."
+            m = svc.users().messages().get(userId="me", id=ids[k], format="full").execute()
+            h = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
+            def text_of(part):
+                if part.get("mimeType") == "text/plain" and part.get("body", {}).get("data"):
+                    return base64.urlsafe_b64decode(part["body"]["data"] + "==").decode("utf-8", "ignore")
+                for sub in part.get("parts", []) or []:
+                    t = text_of(sub)
+                    if t: return t
+                return ""
+            body = re.sub(r"\s+", " ", text_of(m.get("payload", {})) or m.get("snippet", "")).strip()
+            return f"From {h.get('from', '?')}. Subject: {h.get('subject', '(none)')}. {body[:1500]}"
+        q = "is:unread in:inbox" if action == "unread" else (query or "in:inbox")
+        res = svc.users().messages().list(userId="me", q=q, maxResults=6).execute().get("messages", [])
+        if not res: return "No unread email in your inbox." if action == "unread" else f"No email matches {query}."
+        _GOOGLE["last_ids"] = [r["id"] for r in res]
+        lines = []
+        for i, r in enumerate(res, 1):
+            m = svc.users().messages().get(userId="me", id=r["id"], format="metadata", metadataHeaders=["From", "Subject"]).execute()
+            h = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
+            sender = re.sub(r"\s*<.*?>", "", h.get("from", "?")).strip('" ')
+            lines.append(f"{i}. {sender}: {h.get('subject', '(no subject)')}")
+        return ("Unread email:\n" if action == "unread" else "Matching email:\n") + "\n".join(lines) + "\nSay 'read number 2' to hear one."
+    except Exception as e:
+        print(f"[GMAIL] {type(e).__name__}: {e}")
+        if "invalid_grant" in str(e) or "401" in str(e): _GOOGLE.update(creds=None, svc={}); return "Google signed you out. Say 'connect my Google account' again."
+        return "I couldn't reach Gmail just now."
 
 @tool("get_calendar", "Get today's or tomorrow's calendar events.",
       {"day": {"type": "string", "description": "today or tomorrow"}})
@@ -1876,26 +2002,43 @@ def _list_reminders():
         return "Reminders: " + "; ".join(f"{t} at {datetime.datetime.fromtimestamp(fa).strftime('%I:%M %p').lstrip('0')}" for fa, t in rows)
     except Exception: return "Couldn't list reminders."
 
-@tool("look_at_screen", "Capture and describe the user's screen.")
-def _look_at_screen():
+# Groq's image models, newest first (they get renamed; the next one is tried when one is gone). Ollama only if Groq can't.
+GROQ_VISION_MODELS = [m for m in os.environ.get("JARVIS_VISION_MODELS", "qwen/qwen3.8-27b,meta-llama/llama-4-scout-17b-16e-instruct").split(",") if m]
+
+def _describe_image(data_url, question):
+    if _groq_usable():
+        for model in list(GROQ_VISION_MODELS):
+            try:
+                r = groq_client.with_options(timeout=30, max_retries=0).chat.completions.create(model=model, max_tokens=400, temperature=0.2,
+                    messages=[{"role": "user", "content": [{"type": "text", "text": question},
+                                                           {"type": "image_url", "image_url": {"url": data_url}}]}])
+                return (r.choices[0].message.content or "").strip()
+            except Exception as e:
+                print(f"[VISION] {model}: {_why(e)[:200]}"); _groq_failed(e)
+                if re.search(r"model_not_found|decommissioned|does not exist|not supported", str(e), re.I): GROQ_VISION_MODELS.remove(model); continue
+                break
+    try:
+        raw = base64.b64decode(data_url.split(",")[-1]); tmp = tempfile.mktemp(suffix=".png")
+        with open(tmp, "wb") as f: f.write(raw)
+        try: return ollama.chat(model=OLLAMA_VISION_MODEL, messages=[{"role": "user", "content": question, "images": [tmp]}])["message"]["content"]
+        finally: os.unlink(tmp)
+    except Exception as e: print(f"[VISION] ollama: {e}")
+    return None
+
+@tool("look_at_screen", "Look at the user's screen (he picks the window or screen to share) and describe it or answer a question about it: "
+      "'what's on my screen', 'read this error', 'what does this say'.", {"question": {"type": "string", "description": "what he wants to know about it"}})
+def _look_at_screen(question: str = ""):
     rid = secrets.token_hex(4)
     evt = threading.Event()
     _pending_vision[rid] = {"event": evt, "image_b64": None}
     _broadcast_ws(f"look_request:{rid}")
-    if not evt.wait(timeout=8.0):
-        _pending_vision.pop(rid, None); return "Screen capture timed out."
-    data = _pending_vision.pop(rid); img = data.get("image_b64")
-    if not img: return "Screen capture failed."
-    try:
-        raw = base64.b64decode(img.split(",")[-1]); tmp = tempfile.mktemp(suffix=".png")
-        with open(tmp, "wb") as f: f.write(raw)
-        try:
-            reply = ollama.chat(model=OLLAMA_VISION_MODEL,
-                messages=[{"role": "user", "content": "Briefly describe what's on this screen. Focus on the active window.", "images": [tmp]}])["message"]["content"]
-        except Exception as e: print(f"[VISION] {e}"); reply = "Couldn't analyse."
-        finally: os.unlink(tmp)
-        return reply
-    except Exception as e: return f"Vision failed: {e}"
+    if not evt.wait(timeout=45.0):     # he has to pick the window in Chrome's share picker first
+        _pending_vision.pop(rid, None); return "I didn't get a picture of the screen. Pick a window or screen in the box that pops up."
+    img = (_pending_vision.pop(rid, {}) or {}).get("image_b64")
+    if not img: return "Screen capture was cancelled."
+    ask = (question.strip() + " Answer briefly from what's on the screen." if question and question.strip()
+           else "Briefly describe what's on this screen, focusing on the main window: what app it is and what it shows.")
+    return _describe_image(img, ask) or "I couldn't analyse the screen just now."
 
 _index_lock = threading.Lock()
 def _chunk_text(text, size=500, overlap=80):
@@ -3117,6 +3260,8 @@ def _spawn_summary():
 # so sending them every time meant a second question within a minute waited. The last two things he said pick the groups.
 _TOOL_CORE = ("get_time", "get_weather", "search_web", "wikipedia", "calculate", "remember")
 _TOOL_GROUPS = [
+    (r"\b(e-?mails?|gmail|inbox|mail|unread|messages? from)\b", ("gmail", "google_account")),
+    (r"\b(google account|connect (my )?google|sign (me )?in|log ?in|disconnect)\b", ("google_account",)),
     (r"\b(time|date|day|clock|timezone|o'?clock|until|how long|countdown|days? (left|to))\b", ("get_time", "time_until")),
     (r"\b(news|headlines?|search|look (it )?up|google|who (is|was)|what (is|was)|wiki\w*|tell me about)\b", ("search_web", "news_headlines", "wikipedia", "fetch_page")),
     (r"\b(url|website|web ?page|link|\.com|\.org)\b", ("fetch_page",)),
@@ -3185,7 +3330,7 @@ def _needs_tool(text: str) -> bool:
     if len(t.split()) > 5: return True
     if re.search(r'\d', t): return True
     kws = ["search","look up","google","wikipedia","play","music","note","clipboard","file",
-           "calculate","compute","plus","minus","times","divided","cam","cams","camera","cameras","webcam","webcams","live view","live feed","live feeds","feeds","livestream","live stream",
+           "calculate","compute","plus","minus","times","divided","email","emails","e-mail","gmail","inbox","mail","unread","google account","sign in","cam","cams","camera","cameras","webcam","webcams","live view","live feed","live feeds","feeds","livestream","live stream",
            "timer","alarm","countdown","flip","coin","dice","roll","password",
            "pdf","document","docx","save","write","article","essay","report",
            "calendar","briefing","brief","spotify","track","song"]
@@ -3237,6 +3382,36 @@ def _run_tools_groq(messages):
 
 # hud panels (features.py): each tool's result, and long answers, can become 3D panels; the turn number lets one question's results share a ring
 _PANEL_HOOKS = {"tool": None, "reply": None}
+
+# ---- memory without "remember": when he says something lasting about himself, the fast model files it in the background.
+# Cheap filter first, so only messages that talk about him cost a request. Off with "auto_memory": false in config.json.
+_MEMO_HINT = re.compile(r"\b(my|mine|i'?m|i am|i have|i've|i live|i work|i study|i like|i love|i hate|i prefer|i don'?t|call me|"
+                        r"i was born|i usually|i always|i never|i'?ll be|we have|our)\b", re.I)
+def _auto_remember(user_text):
+    t = (user_text or "").strip()
+    if CONFIG.get("auto_memory", True) is False or not _groq_usable() or len(t) < 12 or not _MEMO_HINT.search(t): return
+    if re.match(r"^\W*(please )?(remember|forget|don'?t remember)\b", t, re.I): return     # the remember/forget tools handle those
+    def go():
+        try:
+            known = db_get_memories(60)
+            r = _groq_create(model=GROQ_FAST_MODEL, max_tokens=300, temperature=0, response_format={"type": "json_object"}, messages=[
+                {"role": "system", "content":
+                    "From the user's message, pick out lasting facts about the user worth remembering in future conversations: name, "
+                    "where they live, work or study, family and friends' names, likes and dislikes, projects, routines, devices. "
+                    "Not one-off requests, questions, moods or anything about this moment. Never health, money, passwords, ID numbers "
+                    "or anything private about other people. Write each as one short sentence about 'the user'. Skip facts already "
+                    "known. Reply only with JSON: {\"facts\": [..]} (an empty list when there's nothing).\nAlready known:\n- "
+                    + "\n- ".join(known[-60:] or ["(nothing yet)"])},
+                {"role": "user", "content": t[:1200]}])
+            facts = json.loads(r.choices[0].message.content or "{}").get("facts") or []
+            have = {k.strip().lower().rstrip(".") for k in known}
+            new = [f.strip() for f in facts if isinstance(f, str) and 6 <= len(f.strip()) <= 200 and f.strip().lower().rstrip(".") not in have][:3]
+            for f in new: db_save_memory(f)
+            if new:
+                conversation[0] = {"role": "system", "content": build_system_prompt()}
+                print(f"[MEM] learned: {' | '.join(new)}")
+        except Exception as e: print(f"[MEM] auto-memory skipped: {type(e).__name__}: {str(e)[:120]}")
+    threading.Thread(target=go, daemon=True).start()
 _TURN = {"id": 0, "panels": 0}
 def _after_tool(name, args, result):
     h = _PANEL_HOOKS.get("tool")
@@ -3559,6 +3734,7 @@ async def stream_chat(user_text: str):
                 conversation.append({"role": "assistant", "content": full_text})
                 if not _VOICE_HISTORY_BLOCK.search(full_text or ""): db_save("assistant", full_text)
         except Exception: pass
+        _auto_remember(user_text)
         if full_text.strip() and _PANEL_HOOKS.get("reply"):
             try: _PANEL_HOOKS["reply"](user_text, full_text)
             except Exception as e: print(f"[PANELS] reply: {e}")
@@ -3780,7 +3956,8 @@ async def speak(payload: dict):
     if not text: return Response(status_code=204)
     t0 = time.time()
     audio, media = await asyncio.to_thread(_synth_cached, text, CONFIG.get("voice"))
-    print(f"[LAT] voice {int((time.time() - t0) * 1000)} ms for {len(text)} chars")
+    ms = int((time.time() - t0) * 1000)
+    print(f"[LAT] voice {ms} ms for {len(text)} chars" + (f" (computer {psutil.cpu_percent():.0f}% busy)" if ms > 3000 else ""))
     if audio: return Response(content=audio, media_type=media)
     return Response(status_code=204)
 
@@ -3794,6 +3971,10 @@ async def download(filename: str):
 async def documents():
     files = sorted(f.name for f in DOCS_DIR.iterdir() if f.is_file())
     return {"folder": str(DOCS_DIR), "files": files}
+
+@app.get("/perf")
+async def perf_mode():
+    return {"mode": CONFIG.get("perf", "full")}
 
 @app.get("/voices")
 async def list_voices():

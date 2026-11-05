@@ -523,6 +523,88 @@ def install(ns):
         return {"on": "3D mode on. Lean around, sir.", "off": "3D mode off.", "clear": "Cleared.",
                 "select": f"Panel {int(n or 0)}.", "back": "Back in the ring.", "next": "Next.", "previous": "Back one."}.get(action, "Done.")
 
+    # ---- LIVE FEEDS: YouTube live streams on screen as a wall of up to 4 windows (news channels, city webcams, NASA) ----
+    YT_HEAD = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+               "Accept-Language": "en-US,en;q=0.9", "Cookie": "CONSENT=YES+1; SOCS=CAI"}
+    CHANNELS = {"sky news": "SkyNews", "al jazeera": "aljazeeraenglish", "aljazeera": "aljazeeraenglish", "dw": "dwnews",
+                "france 24": "France24_en", "france24": "France24_en", "nasa": "NASA", "earthcam": "EarthCam"}
+    NEWS = ["SkyNews", "aljazeeraenglish", "dwnews", "France24_en"]
+    NAMES = {"SkyNews": "Sky News", "aljazeeraenglish": "Al Jazeera English", "dwnews": "DW News", "France24_en": "France 24",
+             "NASA": "NASA", "EarthCam": "EarthCam"}
+    _live = {}   # cache key -> (time, result): a channel keeps the same stream for hours
+
+    def yt_page(url):
+        import requests
+        return requests.get(url, headers=YT_HEAD, timeout=10).text
+
+    def embeddable(vid):
+        """YouTube's oEmbed answers 401 for streams whose owner forbids showing them inside other apps."""
+        import requests
+        try: return requests.get("https://www.youtube.com/oembed", params={"format": "json", "url": f"https://www.youtube.com/watch?v={vid}"},
+                                 headers=YT_HEAD, timeout=6).status_code == 200
+        except Exception: return True   # can't tell: try it
+
+    def keep_embeddable(found, n):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(8) as ex: ok = list(ex.map(lambda f: embeddable(f["id"]), found))
+        return [f for f, good in zip(found, ok) if good][:n]
+
+    def channel_live(handle):
+        """The stream a channel is broadcasting now (its /live page names it), or None."""
+        hit = _live.get(handle)
+        if hit and time.time() - hit[0] < 600: return hit[1]
+        h = yt_page(f"https://www.youtube.com/@{handle}/live")
+        m = re.search(r'"videoId":"([\w-]{11})"', h)
+        out = {"id": m.group(1), "title": NAMES.get(handle, handle) + " · live"} if m and '"isLive":true' in h and embeddable(m.group(1)) else None
+        _live[handle] = (time.time(), out)
+        return out
+
+    def live_search(query, n=4):
+        """YouTube search with the 'Live' filter: streams on air right now."""
+        import urllib.parse
+        key = "q:" + query.lower()
+        hit = _live.get(key)
+        if hit and time.time() - hit[0] < 600: return hit[1]
+        h = yt_page("https://www.youtube.com/results?search_query=" + urllib.parse.quote(query) + "&sp=EgJAAQ%253D%253D")
+        m = re.search(r"var ytInitialData = (\{.*?\});</script>", h, re.S)
+        found, seen = [], set()
+        def walk(o):
+            if isinstance(o, dict):
+                v = o.get("videoRenderer")
+                if v and v.get("videoId") and v["videoId"] not in seen:
+                    seen.add(v["videoId"])
+                    found.append({"id": v["videoId"], "title": "".join(r.get("text", "") for r in v.get("title", {}).get("runs", []))[:80]})
+                for x in o.values(): walk(x)
+            elif isinstance(o, list):
+                for x in o: walk(x)
+        if m:
+            try: walk(json.loads(m.group(1)))
+            except ValueError: pass
+        found = keep_embeddable(found[:10], n)
+        _live[key] = (time.time(), found)
+        return found
+
+    @tool("show_public_cam", "Show LIVE video feeds on screen: live webcams of a place ('cameras in Paris', 'live feed of Times Square'), "
+          "live news ('live news', 'Sky News live', 'Al Jazeera live'), or NASA live. action close puts the feeds away.",
+          {"location": {"type": "string", "description": "a place, a news channel, 'news' or 'nasa'"},
+           "action": {"type": "string", "enum": ["show", "close"]}}, ["location"])
+    def _live_feeds(location: str = "", action: str = "show"):
+        if action == "close": send("feeds", {"cmd": "close"}); return "Feeds closed."
+        q = (location or "").strip(); ql = q.lower()
+        try:
+            if any(k in ql for k in CHANNELS):
+                handle = next(v for k, v in CHANNELS.items() if k in ql)
+                feeds = [f for f in [channel_live(handle)] if f]
+            elif re.search(r"\bnews\b", ql):
+                feeds = [f for f in (channel_live(h) for h in NEWS) if f]
+            else:
+                feeds = live_search(f"{q} live cam")
+        except Exception as e:
+            print(f"[FEEDS] {type(e).__name__}: {e}"); return "I couldn't reach YouTube for live feeds just now."
+        if not feeds: return f"I couldn't find anything live for {q} right now."
+        send("feeds", {"cmd": "show", "title": q.title(), "feeds": feeds[:4]})
+        return f"{len(feeds[:4])} live feed{'s' if len(feeds) > 1 else ''} of {q}, sir. Say close the feeds when you're done."
+
     def public_url(u):
         """Only fetch pictures from the open internet (no localhost or home-network addresses)."""
         p = urlparse(u)
@@ -547,7 +629,7 @@ def install(ns):
 
     # ---- every other answer as a 3D panel: the result of each tool he asks for, and long explanations ----
     import re as _re
-    OWN = {"search_web", "news_headlines", "show_images", "globe", "holo", "gesture_mode", "plan_my_day", "recap", "schedule", "todo", "get_calendar"}
+    OWN = {"show_public_cam", "search_web", "news_headlines", "show_images", "globe", "holo", "gesture_mode", "plan_my_day", "recap", "schedule", "todo", "get_calendar"}
     NICE = {"get_time": "Time", "time_until": "Countdown", "set_timer": "Timer", "set_reminder": "Reminder", "list_reminders": "Reminders",
             "remember": "Remembered", "recall": "Memory", "list_memories": "Memories", "take_note": "Note", "read_notes": "Notes",
             "translate": "Translation", "spotify_now_playing": "Now playing", "query_documents": "Your documents", "fetch_page": "Page",

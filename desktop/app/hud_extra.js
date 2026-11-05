@@ -109,7 +109,7 @@ function showCard(kind, html, holdMs) {
 }
 function hideCard() { card.classList.remove('on'); document.body.classList.remove('pc-card-on'); cardKind = null; clearTimeout(cardTimer); window.__jvGlobe && window.__jvGlobe.layout(); }
 card.addEventListener('dblclick', hideCard);
-addEventListener('keydown', e => { if (e.key === 'Escape') { if (cardKind) hideCard(); else if (window.__jvHolo && window.__jvHolo.has()) window.__jvHolo.clear(); else globe.hide(); } });
+addEventListener('keydown', e => { if (e.key === 'Escape') { if (feeds.on) feeds.close(); else if (cardKind) hideCard(); else if (window.__jvHolo && window.__jvHolo.has()) window.__jvHolo.clear(); else globe.hide(); } });
 
 function planHtml(p) {
   const rows = (p.rows || []).map(r => `<div class="row ${r.kind}${r.past ? ' past' : ''}"><b>${esc(r.t)}</b><div>${esc(r.title)}<small>until ${esc(r.end)}</small></div></div>`).join('');
@@ -329,8 +329,11 @@ const globe = (() => {
     hudBoxes = HUD_IDS.map(id => document.getElementById(id)).filter(e => e && parseFloat(getComputedStyle(e).opacity) > 0.05 && getComputedStyle(e).display !== 'none')
       .map(e => e.getBoundingClientRect()).filter(r => r.width > 0);
   }
+  let lastDraw = 0;
   function frame() {
     if (!running) return;
+    if (window.__jvLight && performance.now() - lastDraw < 31) { requestAnimationFrame(frame); return; }   // light mode: the globe at 30 fps
+    lastDraw = performance.now();
     const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
     mode += (modeWant - mode) * Math.min(1, dt * 2.5); shared.uMode.value = mode; shared.uTime.value += dt;
     atmo.material.uniforms.uC.value.set(0xf5c97a).lerp(new THREE.Color(0x6aa8ff), mode);
@@ -966,7 +969,8 @@ const gestures = (() => {
         sfx.whoosh();
       } else if (vy > 1.6 && vy > Math.abs(vx) * 2) {
         S.swipeAt = now; S.hist = [];
-        if (holo.has() && holo.focused >= 0) { holo.back(); sfx.back(); say('Back'); }
+        if (feeds.on) { feeds.close(); sfx.close(); say('Closed'); }
+        else if (holo.has() && holo.focused >= 0) { holo.back(); sfx.back(); say('Back'); }
         else if (holo.has()) { holo.clear(); sfx.close(); say('Closed'); }
         else if (cardKind) { hideCard(); sfx.close(); say('Closed'); }
         else if (globe.on) { globe.hide(); sfx.close(); say('Closed'); }
@@ -1024,16 +1028,105 @@ const autoGestures = (() => {
 })();
 
 // ============================================================
+// LIVE FEEDS: up to 4 YouTube live streams as glass windows (city webcams, live news, NASA), between the greeting/clock and the
+// bottom bar. One main view at a time: feeds, the globe and the floating panels push each other away.
+// ============================================================
+const feeds = (() => {
+  document.head.appendChild(el('style', null, `
+    #pc-feeds { position: fixed; z-index: 15; left: 0; right: 0; display: none; justify-content: center; align-content: center; flex-wrap: wrap;
+      gap: 14px; padding: 0 24px; pointer-events: none; opacity: 0; transition: opacity .5s var(--ease); }
+    #pc-feeds.on { display: flex; }
+    #pc-feeds.show { opacity: 1; }
+    .pc-feed { pointer-events: auto; display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; background: var(--glass);
+      border: 1px solid var(--glass-hi); box-shadow: 0 18px 50px rgba(0,0,0,.55), 0 0 30px rgba(245,201,122,.08);
+      -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); transform: translateY(14px) scale(.97); transition: transform .5s var(--ease); }
+    #pc-feeds.show .pc-feed { transform: none; }
+    .pc-feed .bar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; font: 600 13px/1 'Saira', system-ui, sans-serif;
+      color: var(--ice); letter-spacing: normal; text-transform: none; text-shadow: none; }
+    .pc-feed .bar i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #ff4b3e; box-shadow: 0 0 8px #ff4b3e; animation: pcLive 1.6s ease-in-out infinite; }
+    @keyframes pcLive { 50% { opacity: .35; } }
+    .pc-feed .bar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pc-feed .bar button { flex: none; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--mist);
+      font: 500 18px/1 system-ui, sans-serif; cursor: pointer; padding: 0; letter-spacing: normal; text-shadow: none; }
+    .pc-feed .bar button:hover { background: rgba(255,214,150,.12); color: var(--ice); }
+    .pc-feed iframe { display: block; border: 0; width: 100%; flex: 1; background: #000; }
+    #pc-feeds-close { position: fixed; z-index: 16; display: none; pointer-events: auto; padding: 8px 16px; border-radius: 999px;
+      background: var(--glass); border: 1px solid var(--glass-hi); color: var(--live); font: 600 13px/1.2 'Saira', system-ui, sans-serif;
+      letter-spacing: normal; text-transform: none; text-shadow: none; cursor: pointer; transform: translateX(-50%); left: 50%; }
+    #pc-feeds-close.on { display: block; }
+  `));
+  const wall = el('div'); wall.id = 'pc-feeds'; document.body.appendChild(wall);
+  const closeAll = el('button', null, 'Close feeds'); closeAll.id = 'pc-feeds-close'; closeAll.type = 'button'; document.body.appendChild(closeAll);
+  let list = [];
+  // the room left between the greeting / clock on top and the gauges / status pill at the bottom
+  const TOP = () => Math.max(120, ($('pc-clock')?.getBoundingClientRect().bottom || 120) + 14);
+  const rectOf = id => { const e = $(id); if (!e || getComputedStyle(e).display === 'none') return null; const r = e.getBoundingClientRect(); return r.height ? r : null; };
+  let area = { top: 120, bottom: 140, inset: 24 };
+  function layout() {
+    if (!list.length) return;
+    const n = list.length, gap = 14, bar = 34, top = TOP(), pill = rectOf('pc-pill'), gauges = rectOf('pc-gauges'), cam = rectOf('pc-cam');
+    const above = r => r ? innerHeight - r.top + 14 : 96;
+    // two ways to use the screen: full width above everything at the bottom, or narrower (between the gauges on the left and the
+    // camera preview on the right) going down to the status pill. Every row/column split of each; the biggest windows win.
+    const side = Math.max(24, gauges ? gauges.right + 14 : 0, cam ? innerWidth - cam.left + 14 : 0);
+    const options = [{ inset: 24, bottom: Math.max(above(pill) + 34, above(gauges), above(cam)) + 44 }, { inset: side, bottom: above(pill) + 44 + 34 }];
+    let w = 0;
+    for (const o of options) for (let cols = 1; cols <= n; cols++) {
+      const rows = Math.ceil(n / cols), W = innerWidth - 2 * o.inset - gap * (cols - 1), H = innerHeight - top - o.bottom - gap * (rows - 1);
+      const fit = Math.min(W / cols, ((H / rows) - bar) * 16 / 9, n === 1 ? 1100 : 760);
+      if (fit > w) { w = fit; area = { top, bottom: o.bottom, inset: o.inset }; }
+    }
+    w = Math.max(160, Math.floor(w));
+    wall.style.top = area.top + 'px'; wall.style.bottom = area.bottom + 'px'; wall.style.padding = `0 ${area.inset}px`;
+    for (const t of wall.children) { t.style.width = w + 'px'; t.style.height = (w * 9 / 16 + bar) + 'px'; }
+    closeAll.style.top = (innerHeight - area.bottom + 8) + 'px';
+  }
+  function remove(tile) {
+    tile.remove(); list = [...wall.children];
+    if (!list.length) close(); else layout();
+  }
+  function show(msg) {
+    if (window.__jvGlobe && window.__jvGlobe.on) window.__jvGlobe.hide();
+    if (window.__jvHolo && window.__jvHolo.has()) window.__jvHolo.clear();
+    wall.innerHTML = '';
+    for (const f of (msg.feeds || []).slice(0, 4)) {
+      if (!/^[\w-]{11}$/.test(f.id || '')) continue;   // only a YouTube video id ever goes into the address
+      const t = el('div', 'pc-feed', `<div class="bar"><i></i><span>${esc(f.title || msg.title || 'Live')}</span><button type="button" aria-label="Close this feed">×</button></div>`);
+      const fr = el('iframe'); fr.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen'; fr.allowFullscreen = true;
+      fr.referrerPolicy = 'strict-origin-when-cross-origin'; fr.title = f.title || 'Live feed';
+      fr.src = `https://www.youtube.com/embed/${f.id}?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1`;
+      t.appendChild(fr); t.querySelector('button').onclick = () => remove(t);
+      wall.appendChild(t);
+    }
+    list = [...wall.children];
+    if (!list.length) return;
+    wall.classList.add('on'); closeAll.classList.add('on'); layout();
+    requestAnimationFrame(() => wall.classList.add('show'));
+    window.__jvFaceOff = true;          // the face is behind the wall: don't spend the processor drawing it
+  }
+  function close() {
+    if (!wall.classList.contains('on')) return;
+    wall.classList.remove('show'); closeAll.classList.remove('on');
+    setTimeout(() => { if (!wall.classList.contains('show')) { wall.classList.remove('on'); wall.innerHTML = ''; list = []; } }, 500);
+    window.__jvFaceOff = !!((window.__jvGlobe && window.__jvGlobe.on) || (window.__jvHolo && window.__jvHolo.has()));
+  }
+  closeAll.onclick = close;
+  addEventListener('resize', layout);
+  return { show, close, get on() { return wall.classList.contains('on') && list.length > 0; } };
+})();
+
+// ============================================================
 // SERVER MESSAGES
 // ============================================================
 window.__jvExtra = data => {
   const i = data.indexOf(':'), kind = data.slice(0, i); let msg = {};
   try { msg = JSON.parse(data.slice(i + 1)); } catch (e) { return; }
-  if (kind === 'globe') { if (msg.cmd === 'hide') globe.hide(); else { holo.clear(); globe.show(msg); } }   // one main view at a time
+  if (kind === 'globe') { if (msg.cmd === 'hide') globe.hide(); else { holo.clear(); feeds.close(); globe.show(msg); } }   // one main view at a time
   else if (kind === 'plan') showCard('plan', planHtml(msg), 60000);
   else if (kind === 'recap') showCard('recap', recapHtml(msg), 60000);
   else if (kind === 'gesture') autoGestures.set(msg.on);
-  else if (kind === 'panels') { globe.hide(); holo.show(msg); }
+  else if (kind === 'panels') { globe.hide(); feeds.close(); holo.show(msg); }
+  else if (kind === 'feeds') msg.cmd === 'close' ? feeds.close() : feeds.show(msg);
   else if (kind === 'holo') {
     if (msg.cmd === 'on') { holo.setHead(true); gestures.start('head'); } else if (msg.cmd === 'off') { gestures.stop('head'); holo.setHead(false); }
     else if (msg.cmd === 'clear') holo.clear(); else if (msg.cmd === 'select') holo.select(msg.n); else if (msg.cmd === 'back') holo.back();
@@ -1042,4 +1135,4 @@ window.__jvExtra = data => {
   if (globe.on) globe.layout();
 };
 (window.__jvExtraQ || []).splice(0).forEach(window.__jvExtra);
-window.__jvGlobe = globe; window.__jvGestures = gestures; window.__jvHolo = holo; window.__jvAutoGestures = autoGestures;
+window.__jvGlobe = globe; window.__jvGestures = gestures; window.__jvHolo = holo; window.__jvAutoGestures = autoGestures; window.__jvFeeds = feeds;
