@@ -40,8 +40,25 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
+        if: matrix.os != 'laptop'
         with:
           python-version: '3.13'
+
+      # On the laptop: Python's ready-made package from NuGet, just unzipped (setup-python's installer needs administrator
+      # rights, and the runner service deliberately runs as a limited account). Fetched once, kept in the runner's tool folder.
+      - name: Python (laptop)
+        if: matrix.os == 'laptop'
+        shell: cmd
+        run: |
+          set PY=%RUNNER_TOOL_CACHE%\python-3.13.17
+          if not exist "%PY%\tools\python.exe" (
+            curl -sSL -o "%RUNNER_TEMP%\python.zip" https://www.nuget.org/api/v2/package/python/3.13.17 || exit /b 1
+            mkdir "%PY%"
+            tar -xf "%RUNNER_TEMP%\python.zip" -C "%PY%" || exit /b 1
+          )
+          echo %PY%\tools>>"%GITHUB_PATH%"
+          echo %PY%\tools\Scripts>>"%GITHUB_PATH%"
+          "%PY%\tools\python.exe" --version
 
       - name: Version and Google sign-in client
         shell: python
