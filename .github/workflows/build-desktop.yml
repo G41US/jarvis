@@ -26,6 +26,7 @@ permissions:
 
 env:
   JARVIS_VERSION: 1.0.${{ github.run_number }}
+  PYTHONIOENCODING: utf-8          # the laptop's console encoding (cp1252) can't print everything in Jarvis's log
   REPO: ${{ vars.RELEASE_REPO || github.repository }}
 
 jobs:
@@ -100,22 +101,24 @@ jobs:
         run: |
           import os, subprocess, sys, time, urllib.request
           exe = os.path.abspath("dist/Jarvis/Jarvis.exe" if sys.platform == "win32" else "dist/Jarvis.app/Contents/MacOS/Jarvis")
-          proc = subprocess.Popen([exe])
+          sys.stdout.reconfigure(encoding="utf-8", errors="replace")
           ok = False
-          for _ in range(120):
-              try: print(urllib.request.urlopen("http://127.0.0.1:8010/setup/status", timeout=3).read().decode()); ok = True; break
-              except Exception: time.sleep(3)
-          home = os.environ["JARVIS_HOME"]
-          for log in ("jarvis.log", "wake.log"):
-              p = os.path.join(home, log)
-              if os.path.exists(p): print(f"---- {log}"); print("".join(open(p, encoding="utf-8", errors="replace").readlines()[-50:]))
-          # stop only this test copy (and its listener), never the Jarvis he is using
-          if sys.platform == "win32":
-              subprocess.run(["powershell", "-NoProfile", "-Command",
-                              f"Get-Process Jarvis -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -eq '{exe}' }} | Stop-Process -Force"])
-          else:
-              subprocess.run(["pkill", "-f", exe])
-          time.sleep(3)
+          try:
+              proc = subprocess.Popen([exe])
+              for _ in range(120):
+                  try: print(urllib.request.urlopen("http://127.0.0.1:8010/setup/status", timeout=3).read().decode()); ok = True; break
+                  except Exception: time.sleep(3)
+              home = os.environ["JARVIS_HOME"]
+              for log in ("jarvis.log", "wake.log"):
+                  p = os.path.join(home, log)
+                  if os.path.exists(p): print(f"---- {log}"); print("".join(open(p, encoding="utf-8", errors="replace").readlines()[-50:]))
+          finally:   # stop only this test copy (and its listener), never the Jarvis he is using, even if the check itself failed
+              if sys.platform == "win32":
+                  subprocess.run(["powershell", "-NoProfile", "-Command",
+                                  f"Get-Process Jarvis -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -eq '{exe}' }} | Stop-Process -Force"])
+              else:
+                  subprocess.run(["pkill", "-f", exe])
+              time.sleep(3)
           sys.exit(0 if ok else 1)
 
       - name: Windows installer
