@@ -125,15 +125,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: python
         run: |
-          import os, subprocess, urllib.request
+          import io, os, subprocess, urllib.request, zipfile
+          cached = os.path.join(os.environ["RUNNER_TOOL_CACHE"], "innosetup-6.7.3")
           iscc = next((p for p in [os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Inno Setup 6", "ISCC.exe"),
-                                   os.path.join(os.environ["RUNNER_TOOL_CACHE"], "InnoSetup6", "ISCC.exe")] if os.path.exists(p)), None)
-          if not iscc:   # first build on the laptop: install Inno Setup once, into the runner's own tool folder
-              setup = os.path.join(os.environ["RUNNER_TEMP"], "innosetup.exe")
-              urllib.request.urlretrieve("https://jrsoftware.org/download.php/is.exe", setup)
-              target = os.path.join(os.environ["RUNNER_TOOL_CACHE"], "InnoSetup6")
-              subprocess.run([setup, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/CURRENTUSER", f"/DIR={target}"], check=True)
-              iscc = os.path.join(target, "ISCC.exe")
+                                   os.path.join(cached, "tools", "ISCC.exe")] if os.path.exists(p)), None)
+          if not iscc:   # first build on the laptop: Inno Setup's ready-made package (NuGet zip), no installer to run, kept for next time
+              data = urllib.request.urlopen("https://www.nuget.org/api/v2/package/Tools.InnoSetup/6.7.3", timeout=120).read()
+              zipfile.ZipFile(io.BytesIO(data)).extractall(cached)
+              iscc = os.path.join(cached, "tools", "ISCC.exe")
+          print("Inno Setup:", iscc)
           subprocess.run([iscc, r"desktop\installer.iss"], check=True)
 
       - name: Mac disk image
