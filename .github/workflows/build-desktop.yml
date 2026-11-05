@@ -164,23 +164,31 @@ jobs:
                    "Mac: Jarvis-Mac-Intel.dmg works on every Mac (Jarvis-Mac-AppleSilicon.dmg, when there is one, is faster on M1 and newer). "
                    "Open it and drag Jarvis into Applications. The first time, open it, then System Settings > Privacy & Security > Open Anyway.\n"
                    "On first start Jarvis asks for a free Groq key and downloads his voice (about 400 MB, once).")
-          for attempt in range(3):
-              r = requests.get(f"https://api.github.com/repos/{repo}/releases/tags/{tag}", headers=H, timeout=30)
-              if r.status_code == 200: rel = r.json(); break
-              r = requests.post(f"https://api.github.com/repos/{repo}/releases", headers=H, timeout=30,
-                                json={"tag_name": tag, "name": f"Jarvis {ver}", "body": notes, "make_latest": "true"})
-              if r.status_code == 201: rel = r.json(); break
-              print("create release:", r.status_code, r.text[:200]); time.sleep(5)
-          else: raise SystemExit("Couldn't create the release.")
+          def call(method, url, **k):      # the laptop's internet drops now and then: wait for it rather than fail the whole build
+              for attempt in range(12):
+                  try: return requests.request(method, url, headers={**H, **k.pop("headers", {})}, **k)
+                  except requests.RequestException as e:
+                      print(f"{method} {url.split('/repos/')[-1]}: {type(e).__name__}, trying again in 30 s"); time.sleep(30)
+                      if "data" in k and hasattr(k["data"], "seek"): k["data"].seek(0)
+              raise SystemExit("No internet connection for 6 minutes.")
+          # a new release is a draft until its files are on it, so the downloads page and the Update button never see an empty one
+          rel = next((x for x in call("GET", f"https://api.github.com/repos/{repo}/releases?per_page=20", timeout=30).json() if x.get("tag_name") == tag), None)
+          if not rel:
+              r = call("POST", f"https://api.github.com/repos/{repo}/releases", timeout=30,
+                       json={"tag_name": tag, "name": f"Jarvis {ver}", "body": notes, "draft": True})
+              if r.status_code != 201: raise SystemExit(f"Couldn't create the release: {r.status_code} {r.text[:200]}")
+              rel = r.json()
           for f in files:
               name = os.path.basename(f)
               for old in rel.get("assets", []):
-                  if old["name"] == name: requests.delete(old["url"], headers=H, timeout=30)
+                  if old["name"] == name: call("DELETE", old["url"], timeout=30)
               for attempt in range(3):
                   with open(f, "rb") as fh:
-                      r = requests.post(f"https://uploads.github.com/repos/{repo}/releases/{rel['id']}/assets", params={"name": name},
-                                        headers={**H, "Content-Type": "application/octet-stream"}, data=fh, timeout=1800)
+                      r = call("POST", f"https://uploads.github.com/repos/{repo}/releases/{rel['id']}/assets", params={"name": name},
+                               headers={"Content-Type": "application/octet-stream"}, data=fh, timeout=1800)
                   if r.status_code == 201: print("uploaded", name); break
                   print("upload", name, r.status_code, r.text[:200]); time.sleep(10)
               else: raise SystemExit(f"Couldn't upload {name}.")
+          r = call("PATCH", f"https://api.github.com/repos/{repo}/releases/{rel['id']}", timeout=30, json={"draft": False, "make_latest": "true"})
+          if r.status_code != 200: raise SystemExit(f"Couldn't publish the release: {r.status_code} {r.text[:200]}")
           print(f"https://github.com/{repo}/releases/tag/{tag}")
