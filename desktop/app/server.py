@@ -1754,7 +1754,9 @@ PUBLIC_CAMS = {
     "las vegas":"https://www.earthcam.com/usa/nevada/lasvegas/?cam=vegas",
 }
 
-@tool("show_public_cam", "Open a LIVE public webcam.", {"location": {"type": "string"}}, ["location"])
+@tool("show_public_cam", "Open a LIVE public webcam / live camera feed of a place (Times Square, London, Tokyo, Paris, Rome, Sydney, "
+      "Miami, Las Vegas, or a search for anywhere else). Use it for 'show me cameras in X', 'live feeds of X'.",
+      {"location": {"type": "string"}}, ["location"])
 def _show_public_cam(location: str):
     import urllib.parse, webbrowser
     key = location.lower().strip()
@@ -3134,7 +3136,7 @@ _TOOL_GROUPS = [
     (r"\b(convert|currency|dollars?|naira|euros?|pounds?|exchange rate|usd|ngn|gbp)\b", ("currency_convert",)),
     (r"\b(translate|in (french|spanish|german|yoruba|igbo|hausa|chinese|japanese|arabic|portuguese|italian))\b", ("translate",)),
     (r"\b(flip|coin|dice|roll|password)\b", ("flip_coin", "roll_dice", "generate_password")),
-    (r"\b(cams?|camera|webcam|live view)\b", ("show_public_cam",)),
+    (r"\b(cams?|cameras?|webcams?|live (views?|feeds?|streams?|footage)|livestreams?|feeds?)\b", ("show_public_cam",)),
     (r"\b(voices?|accent)\b", ("list_voices", "set_voice")),
     (r"\b(navigat\w*|directions?|maps?|gps|route|reroute|take me|drive|walk to|how far|eta|where am i|traffic|tolls?|highways?|save (this|it) as|home|work)\b",
      ("navigate_to", "stop_navigation", "navigation_status", "map_control", "open_in_maps_app", "save_place", "where_am_i", "set_my_location")),
@@ -3183,7 +3185,7 @@ def _needs_tool(text: str) -> bool:
     if len(t.split()) > 5: return True
     if re.search(r'\d', t): return True
     kws = ["search","look up","google","wikipedia","play","music","note","clipboard","file",
-           "calculate","compute","plus","minus","times","divided","cam","camera","webcam","live view",
+           "calculate","compute","plus","minus","times","divided","cam","cams","camera","cameras","webcam","webcams","live view","live feed","live feeds","feeds","livestream","live stream",
            "timer","alarm","countdown","flip","coin","dice","roll","password",
            "pdf","document","docx","save","write","article","essay","report",
            "calendar","briefing","brief","spotify","track","song"]
@@ -3304,14 +3306,18 @@ def _stream_groq_tools(messages, scratch):
         if GROQ_STATE["bad"] or spoke: return
         break
     if scratch:     # tools already ran: ask once more for the answer, without tools
+        said = False
         try:
             for chunk in _groq_create(model=GROQ_MODEL, messages=messages, stream=True, max_tokens=1200):
                 try:
                     t = chunk.choices[0].delta.content or ""
-                    if t: yield t
+                    if t: said = True; yield t
                 except Exception: continue
         except Exception as e:
             print(f"[GROQ STREAM] retry: {_why(e)}"); _groq_failed(e)
+        if not said:   # gpt-oss sometimes insists on calling another tool here ("tool choice is none"): say what the tool said
+            short = [m["content"] for m in scratch if m.get("role") == "tool" and 0 < len(m.get("content") or "") <= 300]
+            if short: yield " ".join(short)
         return
     yield from _stream_groq_sync(messages)
 
