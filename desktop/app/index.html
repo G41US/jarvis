@@ -1113,7 +1113,7 @@ async function handleServerTranscript(raw) {
     // with music or a station playing the open mic hears songs and presenters: "Hey Jarvis" again for the next thing
     // (this also lets the music back up to full volume: it's turned down for the whole session, and a song started by this very command
     // used to stay at 15% for the 35 s the session waits, which sounded like nothing was playing)
-    if (sessionActive && ((window.__jvMusic && window.__jvMusic.on) || (window.__jvHolo && window.__jvHolo.tv))) endSession();
+    if (sessionActive && ((window.__jvMusic && window.__jvMusic.on) || (window.__jvHolo && window.__jvHolo.tvSound))) endSession();
     return;
   }
   const { matched, command } = matchWakeStrict(text);
@@ -1122,7 +1122,7 @@ async function handleServerTranscript(raw) {
   startSession();
   if (command) {
     if (hasEndPhrase(command)) { await handleCommand(command); endSession(); }
-    else { await handleCommand(command); if (sessionActive && ((window.__jvMusic && window.__jvMusic.on) || (window.__jvHolo && window.__jvHolo.tv))) endSession(); }
+    else { await handleCommand(command); if (sessionActive && ((window.__jvMusic && window.__jvMusic.on) || (window.__jvHolo && window.__jvHolo.tvSound))) endSession(); }
   } else { armSessionSilenceTimer(); }
 }
 

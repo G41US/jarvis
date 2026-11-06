@@ -793,7 +793,7 @@ const holo = (() => {
       Object.assign(box.style, { left: x0 + 'px', top: y0 + 'px', width: (x1 - x0) + 'px', height: (y1 - y0) + 'px' });
       box.classList.add('on');
     }
-    return { place, stop };
+    return { place, stop, get sound() { return !!want && want.startsWith('yt:') && box.classList.contains('on'); } };
   })();
 
   const _p = new THREE.Vector3(), _m = new THREE.Vector3(), _b = new THREE.Vector3();
@@ -892,7 +892,7 @@ const holo = (() => {
   }
   return {
     show, clear: () => clear(), select: n => select(n - 1), back, rotate, drag, release, fling, twist, hover, pick, grab, movePanel, dropPanel, throwPanel,
-    explode, collapse, enlarge, has: () => items.length > 0 && !closingAt, get tv() { return hasVideo(); }, get focused() { return focused; }, get front() { return frontIndex(); },
+    explode, collapse, enlarge, has: () => items.length > 0 && !closingAt, get tv() { return hasVideo(); }, get tvSound() { return tv.sound; }, get focused() { return focused; }, get front() { return frontIndex(); },
     get hovered() { return hovered; }, get layout() { return layout; }, get count() { return items.length; },
     setHead(on) { head.on = on; if (!on) { head.tx = head.ty = 0; head.tz = 4; window.__jvSpin = { yaw: 0, pitch: 0 }; } if (on && !renderer) init(); activate(items.length > 0); },
     headAt(cx, cy, w) {
@@ -1240,7 +1240,7 @@ const music = (() => {
   const ICON = { play: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M7 5v14l12-7z"/></svg>', pause: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' };
   card.id = 'pc-music'; card.setAttribute('role', 'region'); card.setAttribute('aria-label', 'Music'); hud.appendChild(card);
   const tEl = card.querySelector('.t'), aEl = card.querySelector('.a'), toggle = card.querySelector('[data-k=toggle]');
-  let player = null, queue = [], at = 0, k = 0, vol = 70, playing = false, dead = 0, altAsked = false;
+  let player = null, queue = [], at = 0, k = 0, vol = 70, playing = false, dead = 0, altAsked = false, windowTried = false;
   const report = (error = '') => { const t = queue[at] || {}; fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: t.title || '', artist: t.artist || '', playing, error }) }).catch(() => {}); };
   const level = () => player && player.setVolume && player.setVolume(ducked ? Math.round(vol * 0.15) : vol);
@@ -1269,6 +1269,17 @@ const music = (() => {
         if (more.length && queue[at] === t) { t.ids = ids.concat(more); k = ids.length; load(); return; }
       } catch (e) {}
     }
+    // nothing of this song would play in here: YouTube Music's own window plays it instead (and the rest of the session's music)
+    if (t && okId(t.id) && !windowTried) {
+      windowTried = true;
+      try {
+        const r = await (await fetch('/music/window', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id }) })).json();
+        if (r.ok) {
+          stop(); if (window.__jvSay) window.__jvSay("YouTube won't play it inside Jarvis, so it's playing in a YouTube Music window, sir.");
+          return;
+        }
+      } catch (e) {}
+    }
     if (++dead >= 3) {          // three songs in a row with nothing playable: say so instead of going quiet
       const msg = "YouTube won't let these songs play inside Jarvis.";
       stop(msg); if (window.__jvSay) window.__jvSay(msg + ' Try another song or artist, sir.');
@@ -1279,7 +1290,7 @@ const music = (() => {
   async function play(list) {
     queue = list.filter(t => idsOf(t).length); at = 0; k = 0; dead = 0; altAsked = false;
     if (!queue.length) return;
-    if (window.__jvHolo && window.__jvHolo.tv) window.__jvHolo.clear();     // the news stops for the music
+    if (window.__jvHolo && window.__jvHolo.tvSound) window.__jvHolo.clear();     // the news stops for the music (webcams are silent: they stay)
     card.classList.add('on'); place(); slim(); requestAnimationFrame(() => card.classList.add('show')); paint();
     if (player) { load(); return; }
     const YT = await loadYT();
@@ -1292,7 +1303,11 @@ const music = (() => {
           const p = e.data === YT.PlayerState.PLAYING; if (p) dead = 0;
           if (p !== playing && e.data !== YT.PlayerState.BUFFERING) { playing = p; paint(); report(); }
         },
-        onError: () => failed(),
+        onError: e => {      // tell the log why (101/150: the owner blocks other apps, 153: player setup), then try the next upload
+          fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: e && e.data, id: idsOf(queue[at])[k] || '' }) }).catch(() => {});
+          failed();
+        },
       } });
   }
   function stop(error = '') {

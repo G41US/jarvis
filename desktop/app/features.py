@@ -182,6 +182,7 @@ def install(ns):
             return "Today's satellite view, sir." if a == "satellite" else "The Earth, sir."
         if a == "zoom_out":
             globe_at["label"] = ""; send("globe", {"cmd": "show", "fly": {"dist": 5.6}}); return "The whole Earth."
+        place = re.sub(r"\d+\s*(%|percent|times|x)?|\b(more|closer|than this|further|further in|in)\b", "", place or "", flags=re.I).strip(" ,.")   # "Abuja 1000%"
         if a == "zoom" and not place:
             send("globe", {"cmd": "show", "fly": {"scale": 0.4}}); return "Closer."
         if a in ("focus", "zoom"):
@@ -628,12 +629,16 @@ def install(ns):
         import requests
         key = windy_key()
         if not key: return None
-        loc = ns["_lookup_location"](place) or ns["_lookup_location"](where_is(place))
-        if not loc: return []
-        fc, cc = loc.get("feature_code") or "", (loc.get("country_code") or "").upper()
-        base = {"include": "images,location,player", "limit": 20, "sortKey": "popularity", "sortDirection": "desc", "lang": "en"}
-        tries = ([{"countries": cc}] if fc.startswith("PCL") and cc else []) + \
-                [{"nearby": f"{loc['latitude']:.4f},{loc['longitude']:.4f},{r}"} for r in (30, 120, 250)]
+        base = {"include": "images,location,player", "limit": 50, "sortKey": "popularity", "sortDirection": "desc", "lang": "en"}
+        if not place:
+            tries = [{}]                 # nowhere named: the world's most-watched cameras (the streaming ones come first below)
+        else:
+            alias = where_is(place) if re.fullmatch(r"(the )?(usa|us|u\.s\.a?\.?|america|uk|britain|uae)", place.strip().lower()) else place
+            loc = ns["_lookup_location"](alias) or ns["_lookup_location"](where_is(place))     # "USA" alone found a town called Usa in Japan
+            if not loc: return []
+            fc, cc = loc.get("feature_code") or "", (loc.get("country_code") or "").upper()
+            tries = ([{"countries": cc}] if fc.startswith("PCL") and cc else []) + \
+                    [{"nearby": f"{loc['latitude']:.4f},{loc['longitude']:.4f},{r}"} for r in (30, 120, 250)]
         for extra in tries:
             r = requests.get("https://api.windy.com/webcams/api/v3/webcams", params={**base, **extra}, headers={"x-windy-api-key": key}, timeout=10)
             if r.status_code in (401, 403): print(f"[CAMS] Windy refused the key ({r.status_code})"); return None
@@ -654,39 +659,43 @@ def install(ns):
 
     @tool("show_public_cam", "Show live feeds on screen as panels in the ring (the one in front plays, 'next' turns to the next). Webcams of a place ('cameras in Paris', 'live cam of Lagos', 'webcams in Times Square'), "
           "world news ('live news', 'news from around the world': live news stations as panels, the front one plays, 'next' turns to the next), "
-          "one station ('Sky News live', 'Channels TV live', 'Al Jazeera live'), or NASA live. action close puts the feeds away.",
+          "one station ('Sky News live', 'Channels TV live', 'Al Jazeera live'), or NASA live. No place ('show me live cameras'): location '' gives "
+          "popular webcams worldwide. action close puts the feeds, cameras or news away.",
           {"location": {"type": "string", "description": "a place, a news channel, 'news' or 'nasa'"},
            "action": {"type": "string", "enum": ["show", "close"]}}, ["location"])
     def _live_feeds(location: str = "", action: str = "show"):
         if action == "close": send("feeds", {"cmd": "close"}); send("holo", {"cmd": "clear"}); return "Feeds closed."
         q = (location or "").strip(); ql = q.lower()
+        # "live cameras available", "some webcams": no place in it
+        place = re.sub(r"\b(live|public|web)?\s*(cams?|cameras?|webcams?|feeds?)\b|\b(available|anywhere|any|some|popular|around the world|in the world|the)\b",
+                       "", ql).strip(" ,.?")
         try:
             if any(k in ql for k in CHANNELS):
                 handle = next(v for k, v in CHANNELS.items() if k in ql)
                 items = news_ring([handle], q.title())
                 return f"{NAMES.get(handle, handle)}, live." if items else f"{NAMES.get(handle, handle)} isn't live right now."
-            if re.search(r"\bnews\b|\bworld\b", ql) or not ql:
+            if re.search(r"\bnews\b|\b(stations?|channels?)\b", ql):
                 items = news_ring(WORLD, "World news")
                 if not items: return "I couldn't get the news stations just now."
                 return (f"{len(items)} news stations from around the world. {items[0]['title']} is playing; say next for the next one.")
-            cams = webcams(q)
+            cams = webcams(q if place else "")
         except Exception as e:
             print(f"[FEEDS] {type(e).__name__}: {e}"); return "I couldn't reach the live feeds just now."
         if cams is None: return "Webcams aren't set up in this copy of Jarvis yet (it needs a Windy key)."
-        if not cams: return f"I couldn't find a public webcam near {q}."
+        if not cams: return f"Windy's network has no public webcams in or near {q} right now (it only covers cameras people have shared with it)."
         # in the ring like the news: the camera in front plays, "next" turns to the next one
-        panels(f"Webcams: {q.title()}", [{"kind": "video", "cam": c["src"], "live": c["live"], "title": c["title"],
+        panels(f"Webcams: {q.title() if place else 'around the world'}", [{"kind": "video", "cam": c["src"], "live": c["live"], "title": c["title"],
                                           "source": ("live" if c["live"] else "timelapse") + (" · " + c["where"] if c["where"] else ""),
                                           **({"image": c["image"]} if c["image"].startswith("https://") else {})} for c in cams])
         live = sum(c["live"] for c in cams)
-        return (f"{len(cams)} webcam{'s' if len(cams) > 1 else ''} of {q}" + (f", {live} streaming live" if live else ", each showing its latest picture and today's timelapse")
+        return (f"{len(cams)} webcam{'s' if len(cams) > 1 else ''} " + (f"of {q}" if place else "from around the world") + (f", {live} streaming live" if live else ", each showing its latest picture and today's timelapse")
                 + ". Say next for the next camera, or close them when you're done.")
 
     # ---- MUSIC: YouTube Music's catalogue, played in a small now-playing card (no account). Songs come first, then videos;
     # after the song, its radio (similar songs) keeps playing. The page plays them and tells us what's on (/music/state). ----
     YTM = "https://music.youtube.com/youtubei/v1/"
     YTM_CTX = {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20251015.03.00", "hl": "en"}}
-    music_now = {"title": "", "artist": "", "playing": False, "error": ""}
+    music_now = {"title": "", "artist": "", "playing": False, "error": "", "mode": ""}
 
     def ytm(endpoint, body):
         import requests
@@ -765,6 +774,41 @@ def install(ns):
         h = yt_page("https://www.youtube.com/results?search_query=" + quote_plus(q))
         return list(dict.fromkeys(re.findall(r'"videoRenderer":\{"videoId":"([\w-]{11})"', h)))[:n]
 
+    # Plan B: when YouTube won't let its player work inside Jarvis at all (every upload of a song refused), the song opens in a small
+    # YouTube Music window instead. It plays on into its radio by itself; pause/next/previous go to it as media keys, stop closes it.
+    def open_ytm_window(vid):
+        import subprocess, webbrowser
+        url = f"https://music.youtube.com/watch?v={vid}&list=RDAMVM{vid}"
+        exe, prof = os.environ.get("JARVIS_BROWSER", ""), os.environ.get("JARVIS_BROWSER_PROFILE", "")
+        if music_now.get("mode") == "window": close_ytm_window(); time.sleep(0.6)
+        if exe and os.path.exists(exe):
+            subprocess.Popen([exe, f"--app={url}", *([f"--user-data-dir={prof}"] if prof else []), "--window-size=460,620", "--window-position=40,60"])
+        else: webbrowser.open(url)
+        music_now.update(mode="window", playing=True, error="")
+        print(f"[MUSIC] playing {vid} in a YouTube Music window")
+
+    def close_ytm_window():
+        if sys_win(): ns["_window_control"]("close", "youtube music")
+
+    def sys_win():
+        import platform
+        return platform.system() == "Windows"
+
+    def window_cmd(a):
+        if a == "stop": close_ytm_window(); music_now.update(mode="", playing=False, title=""); return "Music off."
+        if not sys_win(): return "The YouTube Music window has its own buttons."
+        key = {"pause": "play_pause", "resume": "play_pause", "next": "next", "previous": "previous", "louder": "volume_up", "quieter": "volume_down"}.get(a)
+        if not key: return "Done."
+        ns["_press"](ns["_VK"][key], 4 if key.startswith("volume") else 1)
+        return {"pause": "Paused.", "resume": "Resuming.", "next": "Next one.", "previous": "Going back.", "louder": "Louder.", "quieter": "Quieter."}[a]
+
+    @app.post("/music/window")
+    async def music_window(payload: dict):
+        vid = str(payload.get("id", ""))
+        if not re.fullmatch(r"[\w-]{11}", vid): return {"ok": False}
+        await asyncio.to_thread(open_ytm_window, vid)
+        return {"ok": True}
+
     @tool("play_music", "The music player (YouTube Music, plays inside Jarvis). action play with a query (a song, an artist, a mood, a genre: "
           "'play Asake', 'play some afrobeats'); with no query it plays popular songs. Also pause, resume, next, previous, stop "
           "('stop the music', 'close the player'), louder, quieter, now_playing ('what's playing'). Spell artists the way they're known "
@@ -777,6 +821,7 @@ def install(ns):
             if music_now.get("error"): return music_now["error"]
             if not music_now["title"]: return "Nothing's playing."
             return f"{'Playing' if music_now['playing'] else 'Paused on'} {music_now['title']}" + (f" by {music_now['artist']}." if music_now["artist"] else ".")
+        if a != "play" and music_now.get("mode") == "window": return window_cmd(a)
         if a != "play":
             send("music", {"cmd": a})
             return {"pause": "Paused.", "resume": "Resuming.", "next": "Next one.", "previous": "Going back.", "stop": "Music off.",
@@ -789,6 +834,9 @@ def install(ns):
             print(f"[MUSIC] {type(e).__name__}: {e}"); return "I couldn't reach YouTube Music just now."
         if not first: return f"I couldn't find {q} on YouTube Music."
         music_now.update(error="")
+        if music_now.get("mode") == "window":                   # the player inside Jarvis didn't work earlier this run: straight to the window
+            open_ytm_window(first["id"])
+            return f"Playing {first['title']}" + (f" by {first['artist']}" if first["artist"] else "") + " in YouTube Music."
         send("music", {"cmd": "play", "queue": [first]})       # it starts now; the similar songs follow a moment later
         def more():
             rest = [t for t in ytm_radio(first["id"]) if t["id"] != first["id"]]
@@ -804,6 +852,8 @@ def install(ns):
 
     @app.post("/music/state")
     async def music_state(payload: dict):
+        if payload.get("code") is not None:           # why the player inside Jarvis refused a video (101/150: owner blocks it, 153: config)
+            print(f"[MUSIC] player error {payload.get('code')} on {str(payload.get('id', ''))[:11]}"); return {"ok": True}
         music_now.update(title=str(payload.get("title", ""))[:120], artist=str(payload.get("artist", ""))[:80], playing=bool(payload.get("playing")),
                          error=str(payload.get("error", ""))[:200])
         if music_now["error"]: print(f"[MUSIC] {music_now['error']}")

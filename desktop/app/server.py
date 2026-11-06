@@ -1116,6 +1116,8 @@ def build_system_prompt():
         "- Music: 'play X' / 'play some afrobeats' / 'pause' / 'next song' / 'louder' / 'what's playing'->play_music (YouTube Music, inside Jarvis, no account needed). "
         "'close the player' / 'stop the music' / 'turn it off' while a song plays->play_music stop (never window_control). "
         "'play a song' with nothing named->play_music with no query (it picks popular songs; don't ask which). media_control is only for other apps' players.\n"
+        "- Cameras / webcams / live cams anywhere ('live cameras available', 'a public one in New York')->show_public_cam, never search_web; "
+        "no place named->show_public_cam with location '' (popular live ones). 'close/clear the cameras, feeds, news'->show_public_cam action close.\n"
         "- MAP/NAVIGATION works anywhere in the world: 'navigate to X' or 'take me to X'->navigate_to (the face shrinks to a corner orb and a "
         "car-style map with turn-by-turn voice takes over), 'stop navigation'->stop_navigation, "
         "'how far'->navigation_status, show/hide/mini map, zoom, night mode, mute guidance, avoid tolls or highways, Google or Apple or Jarvis map->map_control, "
@@ -3102,7 +3104,7 @@ def _has_speech(a_f32):
 STT_BACKEND = os.environ.get("JARVIS_STT", "auto").lower()        # auto | groq | local
 GROQ_STT_MODEL = os.environ.get("JARVIS_GROQ_STT_MODEL", "whisper-large-v3-turbo")
 STT_PROMPT = ("Hey Jarvis. Gesture mode, globe, zoom in, zoom out, live feeds, webcams, next camera, panels, close the card, check my email, "
-              "play Asake, Burna Boy, Wizkid, Davido, Rema, Tems, Ayra Starr, Olamide, stop the music, Lagos, Abuja.")
+              "open panel four, play Asake, Burna Boy, Wizkid, Davido, Rema, Tems, Ayra Starr, Olamide, stop the music, Lagos, Abuja.")
 # what Whisper keeps making of "gesture mode" ("just show mode", "just your mood", "Jarvis show mode", "so no, just show")
 _GESTURE_HEARD = re.compile(r"\b(?:just|jess|jester|gesture|gestures|justice|jest|chester|jarvis|chess)[,.]?\s+(?:(?:show|your|no|sure|chair|ya|you)\s+)?(?:mode|mood|mod|mold|moat)\b"
                             r"|\b(?:just|jarvis)[,.]?\s+show[.!?]?$", re.I)
@@ -3208,6 +3210,7 @@ def transcribe_audio(a_f32):
     if text:
         text = _GESTURE_HEARD.sub("gesture mode", text)
         text = re.sub(r"^(?:don'?t know|so no|turn of|tone off|done off|turn off)[,.]?\s+gesture mode", "Turn off gesture mode", text, flags=re.I)
+        text = re.sub(r"\bpane(?:l|o|lo)?\s*(?:fo|for|four|4)\b(?!\s+(?:the|a|my|your|it)\b)", "panel four", text, flags=re.I)    # "Open Paneofo."
     print(f"[STT] {src} {1000 * (time.time() - t0):.0f} ms for {len(a_f32) / 16000:.1f} s of audio"
           + (f" ({GROQ_STATE.get('stt_bytes', 0) // 1024} KB sent)" if src == "groq" else "") + f": {text!r}")
     return text
@@ -3356,9 +3359,10 @@ _TOOL_GROUPS = [
      ("navigate_to", "stop_navigation", "navigation_status", "map_control", "open_in_maps_app", "save_place", "where_am_i", "set_my_location")),
     (r"\b(calls?|whatsapp|busy)\b", ("take_calls",)),
     (r"\b(phone|link|unlink|continue|carry on|left off)\b", ("link_phone", "continue_from_phone", "unlink_phone")),
-    (r"\b(calendar|schedule|meetings?|appointments?|events?|plan\w*|organi[sz]e|tasks?|to-?dos?|lock it in|dodged|my day|tomorrow|tonight|move|cancel)\b",
-     ("schedule", "todo", "plan_my_day", "get_calendar")),
-    (r"\b(recap|numbers|stats|how'?s my day)\b", ("recap",)),
+    (r"\b(calendar|schedule|meetings?|appointments?|events?|plan\w*|organi[sz]e|tasks?|to-?dos?|lock it in|dodged|my day|tomorrow|tonight|move|cancel|"
+     r"today|implemented|supposed to|going to do|got on|agenda|what'?s (on|up|next))\b",
+     ("schedule", "todo", "plan_my_day", "get_calendar", "recap")),
+    (r"\b(recap|numbers|stats|how'?s my day|done today|did (i|we) do)\b", ("recap",)),
     (r"\b(brief|briefing|morning report)\b", ("morning_briefing",)),
     (r"\b(globe|earth|world|satellite|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|zoom\w*|borders?|provinces?|states?|country|countries|show me|go to|back to you|hologram)\b",
      ("globe",)),
@@ -3367,9 +3371,9 @@ _TOOL_GROUPS = [
     (r"\b(panels?|3d|three d|pop out|holo\w*|open (the )?(first|second|third|fourth|fifth|sixth|number|one|two|three|four|five|six)|"
      r"the (first|second|third|fourth|fifth|sixth|last) one|put (them|those|it) away|close (them|those|it)|go back|next|previous|spin (them|it)|turn (them|it))\b", ("holo",)),
 ]
-def _pick_tools(messages):
+def _pick_tools(messages, extra=()):
     said = " ".join(str(m.get("content") or "") for m in [m for m in messages if m.get("role") == "user"][-2:]).lower()
-    want = set(_TOOL_CORE)
+    want = set(_TOOL_CORE) | set(extra)
     for pat, names in _TOOL_GROUPS:
         if re.search(pat, said): want.update(names)
     return [s for s in _TOOL_SCHEMAS if s["function"]["name"] in want]
@@ -3377,7 +3381,8 @@ def _pick_tools(messages):
 def _needs_tool(text: str) -> bool:
     t = text.lower().strip()
     if re.search(r'\b(phone|link|unlink|continue|carry on|left off)\b', t): return True    # phone handoff
-    if re.search(r'\b(close|take away|remove|hide|dismiss|clear|get rid of|put away)\b.*\b(card|cards|panel|panels|this|that|it|them|those|everything|feeds?|globe|window)\b'
+    if re.search(r'\b(close|take away|remove|hide|dismiss|clear|get rid of|put away|turn off|stop)\b.*\b(card|cards|panel|panels|this|that|it|them|those|everything|feeds?|globe|window|'
+                 r'cameras?|cams?|webcams?|stations?|news|music|player|song)\b'
                  r'|\b(bring back|show) (your|the) face\b|\bzoom\w*\b', t): return True
     if re.search(r'\b(globe|earth|world map|satellite|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|'
                  r'plan|planner|organi[sz]e|tasks?|to-?dos?|lock it in|recap|numbers|gestures?|hand control|back to you|zoom|borders?|provinces?|pictures?|images?|photos?|panels?|3d|pop out|put (them|those) away|close (them|those)|(first|second|third|fourth|fifth|last) one)\b', t): return True
@@ -3514,7 +3519,7 @@ def _stream_groq_tools(messages, scratch):
     it asks for tools they run and the next streamed round carries the answer. (The old way waited for the
     whole reply to be written before the first word could be spoken.) Tool messages added to `messages`
     are recorded in `scratch` so the caller can drop them from history afterwards."""
-    spoke = False
+    spoke = False; extra = set()
     for attempt in range(2):
       try:
           for rnd in range(4):
@@ -3524,7 +3529,7 @@ def _stream_groq_tools(messages, scratch):
               kw = dict(model=model, messages=messages, stream=True, max_tokens=2000)
               # one round of tools, then the answer from their results with no tool list at all: with the list (even switched off) the fast
               # model re-called tools, invented arguments and said its answer twice; leaving it out also saves ~4,000 tokens a question
-              if rnd == 0: kw.update(tools=_pick_tools(messages), tool_choice="auto", parallel_tool_calls=True)
+              if rnd == 0: kw.update(tools=_pick_tools(messages, extra), tool_choice="auto", parallel_tool_calls=True)
               text = []; calls = {}
               for chunk in _groq_create(**kw):
                   try: d = chunk.choices[0].delta
@@ -3558,6 +3563,10 @@ def _stream_groq_tools(messages, scratch):
       except Exception as e:
         print(f"[GROQ STREAM] {_why(e)}")
         if attempt == 0 and not spoke and not scratch and "parse tool call" in str(e): continue
+        # it wanted a tool the word-matching didn't offer ("what are we doing today" -> plan_my_day): offer that one too and ask again
+        m = re.search(r"attempted to call tool '([\w-]+)' which was not in request\.tools", str(e))
+        if m and attempt == 0 and not spoke and not scratch and m.group(1) in _TOOL_REGISTRY:
+            extra.add(m.group(1)); print(f"[GROQ STREAM] adding {m.group(1)} and asking again"); continue
         _groq_failed(e)
         if GROQ_STATE["bad"] or spoke: return
         break
@@ -3575,7 +3584,7 @@ def _stream_groq_tools(messages, scratch):
             short = [m["content"] for m in scratch if m.get("role") == "tool" and 0 < len(m.get("content") or "") <= 300]
             if short: yield " ".join(short)
         return
-    yield from _stream_groq_sync(messages)
+    yield from _stream_groq_sync(messages, from_tools=True)
 
 def _clean_messages_for_stream(messages):
     out = []
@@ -3588,7 +3597,7 @@ def _clean_messages_for_stream(messages):
         else: out.append(m)
     return out
 
-def _stream_groq_sync(messages, fast=False):
+def _stream_groq_sync(messages, fast=False, from_tools=False):
     clean = _clean_messages_for_stream(messages)
     fast = fast and not GROQ_STATE.get("fast_off")
     try:
@@ -3606,7 +3615,7 @@ def _stream_groq_sync(messages, fast=False):
     except Exception as e:
         print(f"[GROQ STREAM] attempt 1 fail: {_why(e)}")
         # the chat model reached for a tool ("Zooming on Abuja", "kayisho mi Belgium"): it was a request after all, so do it with tools
-        if re.search(r"called a tool|could not be parsed|tool_use_failed", str(e), re.I) and _groq_usable():
+        if re.search(r"called a tool|could not be parsed|tool_use_failed|not in request\.tools", str(e), re.I) and _groq_usable() and not from_tools:
             print("[GROQ STREAM] it wanted a tool: answering with tools"); yield from _stream_groq_tools(clean, []); return
         # only a missing model switches the quick one off for good ("model called a tool" used to match and did it by mistake)
         if fast and re.search(r"model_not_found|does not exist|decommission|\b404\b", str(e), re.I):
@@ -3863,6 +3872,10 @@ def _meant_for_me(text):
     """An open-mic line said without "Hey Jarvis": was it said to him, or is it song lyrics, the TV, someone on the phone?
     One tiny question to the fast model; when unsure (or it can't be asked) it counts as meant for him."""
     if not _groq_usable(): return True
+    # a question, or something said like a request, is for him (lyrics and presenters seldom start "can you" or end in a question mark)
+    if "?" in text or re.match(r"\s*(ok(ay)?|please|so|and|now|can|could|would|will|what|where|when|who|how|why|is|are|do|does|did|show|open|close|"
+                                 r"play|stop|pause|next|tell|give|find|zoom|go|turn|take|bring|put|clear|check|read|let'?s|i (want|need|would like))\b", text, re.I):
+        return True
     last = next((m.get("content") or "" for m in reversed(conversation) if m.get("role") == "assistant" and isinstance(m.get("content"), str)), "")
     try:
         cl = groq_client

@@ -73,6 +73,8 @@ def open_window(home):
     exe = find_browser()
     if not exe:
         webbrowser.open(start); return None
+    # the music player's plan B opens YouTube Music in a window of this same browser (and profile, so sound is allowed there too)
+    os.environ["JARVIS_BROWSER"], os.environ["JARVIS_BROWSER_PROFILE"] = exe, os.path.join(home, "browser")
     return subprocess.Popen([exe, f"--app={start}", f"--user-data-dir={os.path.join(home, 'browser')}", "--autoplay-policy=no-user-gesture-required",
                              "--start-maximized", "--no-first-run", "--no-default-browser-check"])
 
