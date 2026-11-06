@@ -116,7 +116,8 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        WebView.setWebContentsDebuggingEnabled(true);   // chrome://inspect works for troubleshooting
+        // chrome://inspect for troubleshooting, only in debuggable builds: in a release build it would let anyone with a USB cable read the app token
+        WebView.setWebContentsDebuggingEnabled((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0);
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/", new WwwHandler(this))
