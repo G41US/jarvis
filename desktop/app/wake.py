@@ -45,11 +45,15 @@ def log(*a):
 
 
 def load_model():
+    res = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
+    have = os.path.isdir(res) and any(f.startswith("hey_jarvis") for f in os.listdir(res)) and any(f.startswith("melspectrogram") for f in os.listdir(res))
     try:
+        if have: raise FileExistsError     # shipped with the app: nothing to fetch (on a slow line that download kept him deaf for minutes)
         try:
             openwakeword.utils.download_models(model_names=["hey_jarvis"])
         except TypeError:                      # older openwakeword versions
             openwakeword.utils.download_models()
+    except FileExistsError: pass
     except Exception as e:
         log(f"model download skipped ({type(e).__name__}); using cached files if present")
     for framework in ("onnx", None):
