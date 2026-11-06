@@ -146,6 +146,13 @@ jobs:
               iscc = os.path.join(cached, "tools", "ISCC.exe")
           print("Inno Setup:", iscc)
           subprocess.run([iscc, r"desktop\installer.iss"], check=True)
+          # what takes the room: the installer's size and the biggest parts of the app (to keep the upload small)
+          print(f"Installer: {os.path.getsize('dist/Jarvis-Setup.exe') / 1048576:.0f} MB")
+          sizes = {}
+          for root, _, files in os.walk("dist/Jarvis/_internal"):
+              top = os.path.relpath(root, "dist/Jarvis/_internal").split(os.sep)[0]
+              for f in files: sizes[top if top != "." else f] = sizes.get(top if top != "." else f, 0) + os.path.getsize(os.path.join(root, f))
+          for k, v in sorted(sizes.items(), key=lambda kv: -kv[1])[:25]: print(f"  {v / 1048576:7.1f} MB  {k}")
 
       - name: Mac disk image
         if: runner.os == 'macOS'
@@ -161,6 +168,7 @@ jobs:
         shell: python
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          UPLOAD_MBIT: ${{ vars.UPLOAD_MBIT }}
         run: |
           import glob, os, time, requests
           repo, tag, ver = os.environ["REPO"], "desktop-v" + os.environ["JARVIS_VERSION"], os.environ["JARVIS_VERSION"]
@@ -190,14 +198,27 @@ jobs:
               for old in rel.get("assets", []):
                   if old["name"] == name: call("DELETE", old["url"], timeout=30)
               size = os.path.getsize(f); print(f"uploading {name}: {size / 1048576:.0f} MB")
-              class Progress:          # a line every 10%, so a slow or stuck upload shows in the log
-                  def __init__(self, fh): self.fh, self.sent, self.mark, self.t0 = fh, 0, 0.1, time.time()
+              # The laptop's upload is slow: sent flat out, it filled the line so completely that the runner's own check-ins with GitHub
+              # couldn't get through, and GitHub dropped the job ("runner lost communication") mid-upload. So: two minutes flat out to
+              # measure the line, then 65% of that, leaving room for everything else. UPLOAD_MBIT (a repo variable) sets it by hand.
+              fixed = float(os.environ.get("UPLOAD_MBIT") or 0) * 1e6 / 8
+              class Progress:          # paced as above, with a line every 10% so a slow or stuck upload shows in the log
+                  def __init__(self, fh): self.fh = fh; self.seek(0)
                   def read(self, n=-1):
-                      b = self.fh.read(1 << 20 if n is None or n < 0 else n); self.sent += len(b)
+                      b = self.fh.read(256 << 10 if n is None or n < 0 else min(n, 256 << 10)); self.sent += len(b)
+                      now = time.time(); el = now - self.t0
+                      if not self.cap and (fixed or el > 120):
+                          self.cap = fixed or 0.65 * self.sent / el; self.c0, self.ct = self.sent, now
+                          print(f"  line measured at {self.sent / el * 8 / 1e6:.2f} Mbit/s: sending at {self.cap * 8 / 1e6:.2f} Mbit/s")
+                      if self.cap:
+                          ahead = (self.sent - self.c0) / self.cap - (now - self.ct)
+                          if ahead > 0: time.sleep(ahead)
                       if self.sent >= size * self.mark:
-                          print(f"  {self.mark:.0%} ({(self.sent / 1048576) / max(1, time.time() - self.t0) * 8:.1f} Mbit/s)"); self.mark += 0.1
+                          print(f"  {self.mark:.0%} after {(time.time() - self.t0) / 60:.1f} min"); self.mark += 0.1
                       return b
-                  def seek(self, *a): self.sent, self.mark, self.t0 = 0, 0.1, time.time(); return self.fh.seek(*a)
+                  def seek(self, *a):
+                      self.sent, self.mark, self.t0, self.cap = 0, 0.1, time.time(), 0
+                      return self.fh.seek(*a) if a else None
                   def __len__(self): return size
               for attempt in range(3):
                   with open(f, "rb") as raw:
