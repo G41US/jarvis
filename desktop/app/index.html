@@ -559,7 +559,7 @@ function makeLongHair(model, skin, skinGeo, browMeshes, eyeMeshes, invRoot, head
     if (y > browY && y < browY + span * 0.25 && Math.abs(x) < span * 0.12) frontZ = Math.max(frontZ, z);
   }
   if (!isFinite(frontZ) || !halfW) return null;
-  const hairline = browY + span * 0.2, pts = [], base = [], swayW = [], phase = [], bright = [], roots = [];
+  const hairline = browY + span * 0.2, pts = [], base = [], swayW = [], phase = [], bright = [];
   // the forehead under the fringe goes dim, so the fringe reads as hair over it rather than more of the same dots
   const sc = skinGeo.attributes.color.array;
   for (let i = 0; i < n0; i++) {
@@ -577,29 +577,41 @@ function makeLongHair(model, skin, skinGeo, browMeshes, eyeMeshes, invRoot, head
     const oy = y - midY, oz = z - cz, o = Math.hypot(dx, oy, oz) || 1, lift = span * (0.03 + Math.random() * 0.035);
     const px = x + dx / o * lift, py = y + oy / o * lift, pz = z + oz / o * lift;
     add(px, py, pz, 0.12, Math.random() * 6.28, 0.55 + Math.random() * 0.35);
-    if (y < head.neck + span * 0.78 && (Math.abs(dx) > halfW * 0.7 || z < cz - span * 0.05)) roots.push(px, py, pz);
   }
-  // long strands from the sides and back of the head down past the shoulders
-  const nr = roots.length / 3, len = span * 1.75;
-  for (let s = 0; nr && s < 300; s++) {
-    const r = Math.floor(Math.random() * nr) * 3, rx = roots[r], ry = roots[r + 1], rz = roots[r + 2];
-    const out = Math.sign(rx - cx || 1), L = len * (0.55 + Math.random() * 0.5), n = 32, ph = Math.random() * 6.28;
-    for (let k = 1; k <= n; k++) {
-      const u = k / n;           // falls straight down, easing out over the shoulders and a little back, with a gentle wave
-      add(rx + out * span * (0.03 * u + 0.16 * u * u) + Math.sin(u * 7 + ph) * span * 0.012, ry - L * u, rz - span * 0.08 * u * u,
-          u, ph, (1.0 - 0.55 * u) * (0.8 + Math.random() * 0.2));
-    }
+  // the mane: one continuous sheet of strands all the way round, from beside one cheek, across the back, to beside the other
+  // (spaced evenly round the head, so there are no gaps), falling past the jaw and fanning out over the shoulders.
+  // Longest at the back, layered shorter towards the face. Behind the face it's kept faint so it never clouds it.
+  const depth = Math.max(span * 0.2, cz - backZ), light = !!window.__jvLight, N = light ? 650 : 1100, per = light ? 26 : 38;
+  // how wide the face is at each height: hair is only faint where the face itself is in front of it (beside the jaw it shows fully)
+  const BINS = 40, prof = new Float32Array(BINS), binOf = y => Math.max(0, Math.min(BINS - 1, Math.floor((y - head.neck) / span * BINS)));
+  for (let i = 0; i < n0; i++) { const y = skin[i * 3 + 1]; if (y >= head.neck && skin[i * 3 + 2] > cz) { const b = binOf(y); prof[b] = Math.max(prof[b], Math.abs(skin[i * 3] - cx)); } }
+  const inFace = (x, y) => y > head.neck && Math.abs(x - cx) < prof[binOf(y)] * 0.97;
+  const S = { x: [], y: [], z: [], side: [], L: [], ph: [], br: [], th: [] };
+  for (let s = 0; s < N; s++) {
+    const th = (s / (N - 1) - 0.5) * 2 * 2.05 + (Math.random() - 0.5) * 0.02;        // about ±117° from the back of the head
+    const sinT = Math.sin(th), cosT = Math.cos(th);
+    const rx = cx + halfW * 1.04 * sinT, rz = cz - depth * 1.02 * cosT + span * 0.02;
+    const ry = head.neck + span * (0.72 - 0.25 * Math.abs(sinT)) + (Math.random() - 0.5) * span * 0.05;
+    const L = span * (1.15 + 0.75 * Math.max(0, cosT) + 0.35 * Math.random() - 0.25 * Math.max(0, Math.abs(th) - 1.6));
+    const hi = Math.random() < 0.09 ? 1.45 : 0.75 + Math.random() * 0.4;          // a few bright locks catch the light
+    S.x.push(rx); S.y.push(ry); S.z.push(rz); S.side.push(sinT); S.L.push(L); S.ph.push(Math.random() * 6.28); S.br.push(hi); S.th.push(th);
   }
-  // the back: a curtain of strands from the back of the head, falling behind her face and on below the chin (there's no neck in
-  // the way), so the hair is long all round, not just at the sides. Where it passes behind the face it's kept faint.
-  for (let s = 0; s < 420; s++) {
-    const f = (Math.random() - 0.5) * 1.7, rx = cx + f * halfW, ry = head.neck + span * (0.45 + Math.random() * 0.3), rz = backZ + span * (0.04 + Math.random() * 0.06);
-    const L = span * (1.3 + Math.random() * 0.6), n = 34, ph = Math.random() * 6.28;
-    for (let k = 1; k <= n; k++) {
-      const u = k / n, y = ry - L * u;
-      const x = rx + f * span * 0.18 * u * u + Math.sin(u * 6 + ph) * span * 0.012;      // fans out a little towards the ends
-      const hidden = y > head.neck + span * 0.05;                                          // behind the face: faint, so it doesn't cloud it
-      add(x, y, rz - span * 0.04 * u, u, ph, (hidden ? 0.15 : 1.05 - 0.55 * u) * (0.8 + Math.random() * 0.2));
+  // where strand s is u of the way down (0 root, 1 tip): straight down, then out over the shoulders and slightly back, with a soft wave
+  const strandAt = (s, u, out) => {
+    const sd = S.side[s], ph = S.ph[s];
+    out[0] = S.x[s] + sd * span * (0.05 * u + 0.30 * u * u) + Math.sin(u * 6 + ph) * span * 0.012;
+    out[1] = S.y[s] - S.L[s] * u;
+    out[2] = S.z[s] - span * 0.07 * u * u * (1 - Math.abs(sd)) + span * 0.04 * u * Math.abs(sd) * Math.sign(-Math.cos(S.th[s]) + 0.6);
+    return out;
+  };
+  const tmp = [0, 0, 0];
+  for (let s = 0; s < N; s++) {
+    for (let k = 1; k <= per; k++) {
+      const u = k / per; strandAt(s, u, tmp);
+      const behind = Math.abs(S.side[s]) < 0.97 && inFace(tmp[0], tmp[1]);
+      const jit = span * 0.006;
+      add(tmp[0] + (Math.random() - 0.5) * jit, tmp[1], tmp[2] + (Math.random() - 0.5) * jit, u, S.ph[s],
+          (behind ? 0.1 : (1.1 - 0.5 * u) * S.br[s]) * (0.82 + Math.random() * 0.18));
     }
   }
   // the fringe: from the hairline, sweeping down and to one side across the forehead, stopping just above the brows
@@ -618,19 +630,36 @@ function makeLongHair(model, skin, skinGeo, browMeshes, eyeMeshes, invRoot, head
   for (let i = 0; i < count; i++) { col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = bright[i]; }
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const mat = new THREE.PointsMaterial({ vertexColors: true, color: 0xf6c870, size: 0.013, map: glowTex, transparent: true, opacity: 1,
+  const mat = new THREE.PointsMaterial({ vertexColors: true, color: 0xf6c870, size: 0.012, map: glowTex, transparent: true, opacity: 1,
     blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
   const cloud = new THREE.Points(geo, mat); cloud.frustumCulled = false; model.add(cloud);
-  const P = geo.attributes.position.array;
+  // glints: sparks of light that run down the strands, like light catching moving hair
+  const G = light ? 140 : 320, gs = new Int32Array(G), gu = new Float32Array(G), gv = new Float32Array(G), gp = new Float32Array(G * 3);
+  for (let g = 0; g < G; g++) { gs[g] = Math.floor(Math.random() * N); gu[g] = Math.random(); gv[g] = 0.08 + Math.random() * 0.14; }
+  const ggeo = new THREE.BufferGeometry(); ggeo.setAttribute('position', new THREE.BufferAttribute(gp, 3));
+  const gmat = new THREE.PointsMaterial({ color: 0xfff1cf, size: 0.026, map: glowTex, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+  const glints = new THREE.Points(ggeo, gmat); glints.frustumCulled = false; model.add(glints);
+  const P = geo.attributes.position.array; let last = 0;
+  const wave = (t, u, ph, a) => Math.sin(t * 1.1 + ph * 0.3 - u * 3.2) * a * Math.pow(u, 1.3);   // travels from the roots to the tips
   return {
-    sway(t, talk) {                                            // a slow drift, a little livelier while he speaks
-      const a = span * (0.022 + talk * 0.01);
+    sway(t, talk) {                                            // the hair moves as if in a light breeze, a little livelier while he speaks
+      const a = span * (0.028 + talk * 0.012), dt = Math.min(0.1, last ? t - last : 0); last = t;
       for (let i = 0; i < count; i++) {
         const w = swayW[i]; if (!w) continue;
-        P[i * 3] = base[i * 3] + Math.sin(t * 0.7 + phase[i]) * a * w * w;
-        P[i * 3 + 2] = base[i * 3 + 2] + Math.cos(t * 0.5 + phase[i]) * a * 0.6 * w * w;
+        P[i * 3] = base[i * 3] + wave(t, w, phase[i], a);
+        P[i * 3 + 2] = base[i * 3 + 2] + Math.cos(t * 0.8 + phase[i] - w * 2.6) * a * 0.5 * w * w;
       }
       geo.attributes.position.needsUpdate = true;
+      for (let g = 0; g < G; g++) {
+        gu[g] += gv[g] * dt; if (gu[g] > 1) { gu[g] = 0.02; gs[g] = Math.floor(Math.random() * N); }
+        const sIdx = gs[g], u = gu[g]; strandAt(sIdx, u, tmp);
+        const behind = Math.abs(S.side[sIdx]) < 0.97 && inFace(tmp[0], tmp[1]);
+        gp[g * 3] = tmp[0] + wave(t, u, S.ph[sIdx], a); gp[g * 3 + 1] = behind ? -999 : tmp[1];      // none behind the face
+        gp[g * 3 + 2] = tmp[2] + Math.cos(t * 0.8 + S.ph[sIdx] - u * 2.6) * a * 0.5 * u * u;
+      }
+      ggeo.attributes.position.needsUpdate = true;
+      gmat.opacity = 0.65 + 0.25 * Math.sin(t * 2.3);
     },
   };
 }
