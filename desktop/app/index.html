@@ -664,35 +664,36 @@ function makeLongHair(model, skin, skinGeo, browMeshes, eyeMeshes, invRoot, head
   };
 }
 
-// A short, full beard and moustache in dots: on the jaw, chin and upper lip, lifted a touch off the skin and a little warmer, with the
-// lips left clear so the mouth still reads when he talks. The skin under it dims so the beard shows as its own texture.
+// A short, groomed beard in dots that grows out of his face rather than sitting on it: thickest along the jaw and round the chin,
+// thinning up the cheeks along a soft line (no hard edge), a neat moustache over the lips, and the lips themselves left clear so his
+// mouth still reads. Same gold as his face, a shade warmer; the chin rounds off a little below the jaw.
 function makeBeard(model, skin, skinGeo, eyeMeshes, invRoot, head, span) {
   const cx = head.cx || 0, cz = head.cz || 0, n0 = skin.length / 3;
   let eyeY = head.neck + span * 0.6;
   if (eyeMeshes.length) { const b = new THREE.Box3(); eyeMeshes.forEach(m => b.expandByObject(m)); b.applyMatrix4(invRoot); eyeY = (b.min.y + b.max.y) / 2; }
-  let frontZ = -Infinity, halfW = 0;
-  for (let i = 0; i < n0; i++) {
-    const y = skin[i * 3 + 1]; frontZ = Math.max(frontZ, skin[i * 3 + 2]);
-    if (y > head.neck + span * 0.15 && y < eyeY) halfW = Math.max(halfW, Math.abs(skin[i * 3] - cx));
-  }
+  let halfW = 0;
+  for (let i = 0; i < n0; i++) { const y = skin[i * 3 + 1]; if (y > head.neck + span * 0.15 && y < eyeY) halfW = Math.max(halfW, Math.abs(skin[i * 3] - cx)); }
   const chin = head.neck, faceH = eyeY - chin;
-  const mouthY = chin + faceH * 0.36, mouthW = halfW * 0.34, mouthH = faceH * 0.06;      // where the lips are, from the eyes and chin
-  const cheekTop = chin + faceH * 0.55, pts = [], col = [], sc = skinGeo.attributes.color.array;
+  const mouthY = chin + faceH * 0.36, mouthW = halfW * 0.3, mouthH = faceH * 0.05;      // where the lips are, from the eyes and chin
+  const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const pts = [], col = [], sc = skinGeo.attributes.color.array;
   for (let i = 0; i < n0; i++) {
-    const x = skin[i * 3], y = skin[i * 3 + 1], z = skin[i * 3 + 2], dx = x - cx;
-    if (z < cz - span * 0.02 || y > cheekTop) continue;                                   // the front and sides of the lower face only
-    const sideLine = cheekTop - (cheekTop - mouthY) * Math.min(1, Math.abs(dx) / halfW) * 0.15;   // up the cheeks along a soft line
-    const moustache = y > mouthY + mouthH && y < mouthY + mouthH + faceH * 0.1 && Math.abs(dx) < mouthW * 1.25;
-    const jaw = y < mouthY - mouthH * 0.5 || (Math.abs(dx) > mouthW * 1.3 && y < sideLine);
-    if (!(moustache || jaw)) continue;
-    if (Math.abs(dx) < mouthW && Math.abs(y - mouthY) < mouthH * 1.6) continue;          // the lips stay clear
-    sc[i * 3] *= 0.5; sc[i * 3 + 1] *= 0.5; sc[i * 3 + 2] *= 0.5;
-    const low = y < chin + faceH * 0.14;                                                   // round the chin the beard has some length
-    for (let k = 0; k < 3; k++) {                                                          // three hairs per spot: full, a little bushy
-      const lift = span * (0.01 + Math.random() * 0.022), ox = dx, oz = z - cz, o = Math.hypot(ox, oz) || 1;
-      const drop = low ? Math.random() * span * 0.07 : Math.random() * span * 0.012;
-      pts.push(x + ox / o * lift + (Math.random() - 0.5) * span * 0.01, y - drop, z + oz / o * lift + (Math.random() - 0.5) * span * 0.008);
-      const b = 0.95 + Math.random() * 0.4; col.push(b, b * 0.9, b * 0.74);
+    const x = skin[i * 3], y = skin[i * 3 + 1], z = skin[i * 3 + 2], dx = Math.abs(x - cx), side = Math.min(1, dx / halfW);
+    if (z < cz - span * 0.06) continue;                                                   // the face and jaw, not the back of the head
+    // the beard line: just under the lips at the middle, rising up the cheeks towards the ears
+    const line = mouthY - mouthH * 1.2 + faceH * 0.3 * Math.pow(side, 1.3);
+    let w = 1 - smooth(line - faceH * 0.08, line + faceH * 0.04, y);                       // full below the line, fading out above it
+    const moustache = Math.abs(y - (mouthY + mouthH * 1.9)) < mouthH * 0.9 && dx < mouthW * 1.15 && dx > mouthW * 0.08;
+    if (moustache) w = Math.max(w, 0.85);
+    if (dx < mouthW * 0.95 && Math.abs(y - mouthY) < mouthH * 1.2) w = 0;                  // the lips stay clear
+    if (w <= 0.02) continue;
+    sc[i * 3] *= 1 - 0.3 * w; sc[i * 3 + 1] *= 1 - 0.3 * w; sc[i * 3 + 2] *= 1 - 0.32 * w;  // the skin under it a touch darker
+    const hairs = Math.random() < w ? (w > 0.7 ? 2 : 1) : 0;
+    for (let k = 0; k < hairs; k++) {
+      const ox = x - cx, oz = z - cz, o = Math.hypot(ox, oz) || 1, lift = span * (0.006 + Math.random() * 0.014) * w;
+      const drop = y < chin + faceH * 0.16 ? Math.random() * span * 0.032 * (1 - side * side) * w : Math.random() * span * 0.006;   // rounded at the chin
+      pts.push(x + ox / o * lift + (Math.random() - 0.5) * span * 0.006, y - drop, z + oz / o * lift);
+      const b = (0.75 + Math.random() * 0.35) * (0.7 + 0.3 * w); col.push(b, b * 0.94, b * 0.82);
     }
   }
   skinGeo.attributes.color.needsUpdate = true;
@@ -700,7 +701,7 @@ function makeBeard(model, skin, skinGeo, eyeMeshes, invRoot, head, span) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
-  const cloud = new THREE.Points(geo, new THREE.PointsMaterial({ vertexColors: true, color: 0xe9b45e, size: 0.012, map: glowTex, transparent: true,
+  const cloud = new THREE.Points(geo, new THREE.PointsMaterial({ vertexColors: true, color: 0xf7cd7a, size: 0.012, map: glowTex, transparent: true,
     opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }));
   cloud.frustumCulled = false; model.add(cloud);
   return cloud;
