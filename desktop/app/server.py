@@ -1113,7 +1113,9 @@ def build_system_prompt():
         + ("- Spotify tools ARE real and connected: spotify_play, spotify_pause, spotify_next, "
         "spotify_previous, spotify_now_playing, spotify_devices. Use them when the user says Spotify. The Spotify "
         "player runs automatically in the background — never tell the user to open Spotify or activate a device.\n" if SPOTIFY_READY else "") +
-        "- Music: 'play X' / 'play some afrobeats' / 'pause' / 'next song' / 'louder' / 'what's playing'->play_music (YouTube Music, inside Jarvis, no account needed). "
+        "- Music: 'play X' / 'play some afrobeats' / 'pause' / 'next song' / 'louder' / 'what's playing'->play_music (YouTube Music inside Jarvis; "
+        "Spotify instead once they've said 'connect Spotify', or when they say 'on Spotify': put 'on Spotify' in the query). "
+        "'connect Spotify' / 'sign in to Spotify' / 'use YouTube Music again'->connect_spotify. "
         "'close the player' / 'stop the music' / 'turn it off' while a song plays->play_music stop (never window_control). "
         "'play a song' with nothing named->play_music with no query (it picks popular songs; don't ask which). media_control is only for other apps' players.\n"
         "- Cameras / webcams / live cams anywhere ('live cameras available', 'a public one in New York')->show_public_cam, never search_web; "
@@ -3337,7 +3339,7 @@ _TOOL_GROUPS = [
     (r"\b(news|headlines?|search|look (it )?up|google|who (is|was)|what (is|was)|wiki\w*|tell me about)\b", ("search_web", "news_headlines", "wikipedia", "fetch_page")),
     (r"\b(url|website|web ?page|link|\.com|\.org)\b", ("fetch_page",)),
     (r"\b(spotify|music|songs?|play|player|track|album|playlist|pause|resume|skip|next|previous|volume|louder|quieter|softer|mute|unmute)\b",
-     ("spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "spotify_now_playing", "spotify_devices", "play_music", "media_control", "set_volume")),
+     ("spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "spotify_now_playing", "spotify_devices", "play_music", "connect_spotify", "media_control", "set_volume")),
     (r"\b(open|launch|start|close|minimi[sz]e|maximi[sz]e|window|app)\b", ("open_app", "window_control")),
     (r"\b(lock|screenshot|screen ?shot|screen|look at|what'?s on)\b", ("lock_pc", "take_screenshot", "look_at_screen")),
     (r"\b(cpu|ram|battery|system|computer|laptop|pc|disk|storage)\b", ("system_info",)),
@@ -3509,7 +3511,7 @@ def _exec_tool(name, raw_args):
 
 # tools whose result is already the sentence to say ("Abuja, sir.", "Playing Bad Blood by Taylor Swift."): said as they are, with no second
 # request for the model to reword them. That's a second sooner, and the second request is where gpt-oss kept "calling a tool" and failing.
-SAY_AS_IS = {"globe", "holo", "show_public_cam", "play_music", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
+SAY_AS_IS = {"globe", "holo", "show_public_cam", "play_music", "connect_spotify", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
              "lock_pc", "take_screenshot", "set_timer", "remember", "forget_memory", "set_preference", "forget_preference", "set_reminder",
              "flip_coin", "roll_dice", "take_note", "set_voice", "map_control", "stop_navigation", "show_images", "google_account",
              "spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "link_phone", "unlink_phone", "take_calls"}

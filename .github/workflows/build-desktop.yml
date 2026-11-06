@@ -61,11 +61,13 @@ jobs:
           echo %PY%\tools\Scripts>>"%GITHUB_PATH%"
           "%PY%\tools\python.exe" --version
 
-      - name: Version, Google sign-in client and webcam key
+      - name: Version and built-in keys (Google sign-in, webcams, Spotify)
         shell: python
         env:
           GOOGLE_OAUTH_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT }}
           WINDY_KEY: ${{ secrets.WINDY_KEY }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
         run: |
           import json, os
           open("desktop/app/VERSION", "w").write(os.environ["JARVIS_VERSION"])
@@ -79,6 +81,9 @@ jobs:
           w = os.environ.get("WINDY_KEY", "").strip()
           if w: open("desktop/app/windy_key", "w").write(w); print("Windy webcams: key built in")
           else: print("No WINDY_KEY secret: webcams are left out")
+          sid, ssec = os.environ.get("SPOTIFY_CLIENT_ID", "").strip(), os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip()
+          if sid and ssec: json.dump({"id": sid, "secret": ssec}, open("desktop/app/spotify_client.json", "w")); print("Spotify: app keys built in")
+          else: print("No SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET secrets: Spotify is left out")
 
       - name: Microphone library (Mac)
         if: runner.os == 'macOS'
