@@ -1114,7 +1114,8 @@ def build_system_prompt():
         "spotify_previous, spotify_now_playing, spotify_devices. Use them when the user says Spotify. The Spotify "
         "player runs automatically in the background — never tell the user to open Spotify or activate a device.\n" if SPOTIFY_READY else "") +
         "- Music: 'play X' / 'play some afrobeats' / 'pause' / 'next song' / 'louder' / 'what's playing'->play_music (YouTube Music, inside Jarvis, no account needed). "
-        "media_control is only for other apps' players.\n"
+        "'close the player' / 'stop the music' / 'turn it off' while a song plays->play_music stop (never window_control). "
+        "'play a song' with nothing named->play_music with no query (it picks popular songs; don't ask which). media_control is only for other apps' players.\n"
         "- MAP/NAVIGATION works anywhere in the world: 'navigate to X' or 'take me to X'->navigate_to (the face shrinks to a corner orb and a "
         "car-style map with turn-by-turn voice takes over), 'stop navigation'->stop_navigation, "
         "'how far'->navigation_status, show/hide/mini map, zoom, night mode, mute guidance, avoid tolls or highways, Google or Apple or Jarvis map->map_control, "
@@ -1190,8 +1191,9 @@ async def _lifespan(app: FastAPI):
     threading.Thread(target=_verify_groq_key, daemon=True).start()
     threading.Thread(target=_doc_index_worker, daemon=True).start()
     print("[DOCS] Background indexer started.")
-    threading.Thread(target=_start_librespot_async, daemon=True).start()
-    print("[LIBRESPOT] background launcher started.")
+    if SPOTIFY_READY and os.path.exists("go-librespot.exe"):     # only where Spotify is actually set up
+        threading.Thread(target=_start_librespot_async, daemon=True).start()
+        print("[LIBRESPOT] background launcher started.")
     yield
 
 app = FastAPI(lifespan=_lifespan)
@@ -1865,7 +1867,7 @@ def _take_calls(on: bool):
     has_app = any("whatsapp" in (p.info.get("name") or "").lower() for p in psutil.process_iter(["name"]))
     return "I'll take your WhatsApp calls and say you'll call back." + ("" if has_app else " WhatsApp Desktop isn't running, though; I can only answer calls in the desktop app.")
 
-@tool("window_control", "Minimize, maximize, restore, focus, or close a window.",
+@tool("window_control", "Minimize, maximize, restore, focus, or close a window of another app (not Jarvis's music player: play_music stop).",
       {"action": {"type": "string", "enum": ["minimize","maximize","restore","focus","close"]}, "app": {"type": "string"}}, ["action","app"])
 def _window_control(action: str, app: str = ""):
     if platform.system() != "Windows": return "Windows only."
@@ -2035,24 +2037,32 @@ def _list_reminders():
 # Groq's image models, newest first (they get renamed; the next one is tried when one is gone). Ollama only if Groq can't.
 GROQ_VISION_MODELS = [m for m in os.environ.get("JARVIS_VISION_MODELS", "qwen/qwen3.8-27b,meta-llama/llama-4-scout-17b-16e-instruct").split(",") if m]
 
+_OLLAMA_VISION = {"ok": True}
+
 def _describe_image(data_url, question):
     if _groq_usable():
         for model in list(GROQ_VISION_MODELS):
-            try:
-                r = groq_client.with_options(timeout=30, max_retries=0).chat.completions.create(model=model, max_tokens=400, temperature=0.2,
-                    messages=[{"role": "user", "content": [{"type": "text", "text": question},
-                                                           {"type": "image_url", "image_url": {"url": data_url}}]}])
-                return (r.choices[0].message.content or "").strip()
-            except Exception as e:
-                print(f"[VISION] {model}: {_why(e)[:200]}"); _groq_failed(e)
-                if re.search(r"model_not_found|decommissioned|does not exist|not supported", str(e), re.I): GROQ_VISION_MODELS.remove(model); continue
-                break
+            for attempt in (1, 2):
+                try:
+                    r = groq_client.with_options(timeout=30, max_retries=0).chat.completions.create(model=model, max_tokens=400, temperature=0.2,
+                        messages=[{"role": "user", "content": [{"type": "text", "text": question},
+                                                               {"type": "image_url", "image_url": {"url": data_url}}]}])
+                    return (r.choices[0].message.content or "").strip()
+                except Exception as e:
+                    print(f"[VISION] {model}: {_why(e)[:200]}")
+                    if "Connection" in type(e).__name__ and attempt == 1: time.sleep(1.0); continue     # an internet blip: once more
+                    _groq_failed(e)
+                    if re.search(r"model_not_found|decommissioned|does not exist|not supported", str(e), re.I):
+                        GROQ_VISION_MODELS.remove(model); break                                         # renamed: the next model
+                    return None      # Groq is there but failed, or the internet is down: a local model would only tie up the PC
+    # Ollama only when Groq can't be used at all, and only until it fails once (a model it can't run kept the processor busy for nothing)
+    if _groq_usable() or not _OLLAMA_VISION["ok"]: return None
     try:
         raw = base64.b64decode(data_url.split(",")[-1]); tmp = tempfile.mktemp(suffix=".png")
         with open(tmp, "wb") as f: f.write(raw)
         try: return ollama.chat(model=OLLAMA_VISION_MODEL, messages=[{"role": "user", "content": question, "images": [tmp]}])["message"]["content"]
         finally: os.unlink(tmp)
-    except Exception as e: print(f"[VISION] ollama: {e}")
+    except Exception as e: print(f"[VISION] ollama: {str(e)[:160]} (not tried again this run)"); _OLLAMA_VISION["ok"] = False
     return None
 
 @tool("look_at_screen", "Look at the user's screen (he picks the window or screen to share) and describe it or answer a question about it: "
@@ -3091,7 +3101,11 @@ def _has_speech(a_f32):
 
 STT_BACKEND = os.environ.get("JARVIS_STT", "auto").lower()        # auto | groq | local
 GROQ_STT_MODEL = os.environ.get("JARVIS_GROQ_STT_MODEL", "whisper-large-v3-turbo")
-STT_PROMPT = "Hey Jarvis. Gesture mode, globe, zoom in, zoom out, live feeds, panels, close the card, check my email, Lagos, Abuja."
+STT_PROMPT = ("Hey Jarvis. Gesture mode, globe, zoom in, zoom out, live feeds, webcams, next camera, panels, close the card, check my email, "
+              "play Asake, Burna Boy, Wizkid, Davido, Rema, Tems, Ayra Starr, Olamide, stop the music, Lagos, Abuja.")
+# what Whisper keeps making of "gesture mode" ("just show mode", "just your mood", "Jarvis show mode", "so no, just show")
+_GESTURE_HEARD = re.compile(r"\b(?:just|jess|jester|gesture|gestures|justice|jest|chester|jarvis|chess)[,.]?\s+(?:(?:show|your|no|sure|chair|ya|you)\s+)?(?:mode|mood|mod|mold|moat)\b"
+                            r"|\b(?:just|jarvis)[,.]?\s+show[.!?]?$", re.I)
 _STT_PROMPT_NORM = re.sub(r"[^a-z ]", "", STT_PROMPT.lower())
 
 def _normalize_pcm(a, target=0.7, max_gain=20.0):
@@ -3168,23 +3182,32 @@ def _stt_groq(a_f32):
             if opus and "400" in str(e) and not GROQ_STATE.get("no_opus"):   # Groq refused the format: WAV from now on
                 GROQ_STATE["no_opus"] = True; print("[STT] Groq didn't take Opus; using WAV"); return _stt_groq(a_f32)
             if "Timeout" in type(e).__name__ and timeout < 14.0: print("[STT] Groq slow; trying once more"); continue
+            if "Connection" in type(e).__name__ and timeout < 14.0:     # usually a one-second blip in the internet: try again before giving up
+                time.sleep(1.0); print("[STT] Groq unreachable; trying once more"); continue
             _groq_failed(e)
-            # no connection at all: local Whisper for a minute; a timeout or a hiccup: back to Groq next time
-            GROQ_STATE["stt_skip_until"] = time.time() + (45 if "Connection" in type(e).__name__ else 0)
-            print(f"[STT] Groq transcription failed ({type(e).__name__}); using local Whisper" + (" for a minute." if "Connection" in type(e).__name__ else " this once."))
+            # no connection: local Whisper for a short while, unless it's so slow on this PC that waiting for the internet is better
+            slow = GROQ_STATE.get("local_rtf", 0) > 2.0
+            GROQ_STATE["stt_skip_until"] = time.time() + (15 if "Connection" in type(e).__name__ and not slow else 0)
+            print(f"[STT] Groq transcription failed ({type(e).__name__}); using local Whisper" + (" for 15 s." if GROQ_STATE["stt_skip_until"] > time.time() else " this once."))
             return None
 
 def _stt_local(a_f32):
     if WHISPER is None: return ""
+    t0 = time.time()
     segs, _ = WHISPER.transcribe(a_f32, language="en", beam_size=1, condition_on_previous_text=False,
                                  vad_filter=False, without_timestamps=True)
-    return " ".join(s.text for s in segs).strip()
+    text = " ".join(s.text for s in segs).strip()
+    GROQ_STATE["local_rtf"] = (time.time() - t0) / max(0.5, len(a_f32) / 16000)     # > 2: slower than twice real time on this PC
+    return text
 
 def transcribe_audio(a_f32):
     t0 = time.time()
     text = _stt_groq(a_f32); src = "groq"
     if text is None: text = _stt_local(a_f32); src = "local"
     if text and len(text) > 25 and re.sub(r"[^a-z ]", "", text.lower()) in _STT_PROMPT_NORM: text = ""   # prompt echoed on silence
+    if text:
+        text = _GESTURE_HEARD.sub("gesture mode", text)
+        text = re.sub(r"^(?:don'?t know|so no|turn of|tone off|done off|turn off)[,.]?\s+gesture mode", "Turn off gesture mode", text, flags=re.I)
     print(f"[STT] {src} {1000 * (time.time() - t0):.0f} ms for {len(a_f32) / 16000:.1f} s of audio"
           + (f" ({GROQ_STATE.get('stt_bytes', 0) // 1024} KB sent)" if src == "groq" else "") + f": {text!r}")
     return text
@@ -3310,7 +3333,7 @@ _TOOL_GROUPS = [
     (r"\b(time|date|day|clock|timezone|o'?clock|until|how long|countdown|days? (left|to))\b", ("get_time", "time_until")),
     (r"\b(news|headlines?|search|look (it )?up|google|who (is|was)|what (is|was)|wiki\w*|tell me about)\b", ("search_web", "news_headlines", "wikipedia", "fetch_page")),
     (r"\b(url|website|web ?page|link|\.com|\.org)\b", ("fetch_page",)),
-    (r"\b(spotify|music|songs?|play|track|album|playlist|pause|resume|skip|next|previous|volume|louder|quieter|softer|mute|unmute)\b",
+    (r"\b(spotify|music|songs?|play|player|track|album|playlist|pause|resume|skip|next|previous|volume|louder|quieter|softer|mute|unmute)\b",
      ("spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "spotify_now_playing", "spotify_devices", "play_music", "media_control", "set_volume")),
     (r"\b(open|launch|start|close|minimi[sz]e|maximi[sz]e|window|app)\b", ("open_app", "window_control")),
     (r"\b(lock|screenshot|screen ?shot|screen|look at|what'?s on)\b", ("lock_pc", "take_screenshot", "look_at_screen")),
@@ -3371,7 +3394,7 @@ def _needs_tool(text: str) -> bool:
     if re.search(r'\b(screen|my screen|the screen)\b', t): return True
     if re.search(r'\b(calendar|schedule|appointment|meeting|event)\b', t): return True
     if re.search(r'\b(brief|briefing|morning report)\b', t): return True
-    if re.search(r'\b(spotify|music|song|track|album|playlist|pause|resume|skip|next|previous)\b', t): return True
+    if re.search(r'\b(spotify|music|songs?|track|album|playlist|player|pause|resume|skip|next|previous)\b', t): return True
     if re.search(r'\b(volume|louder|quieter|softer|mute|unmute|lock|screenshot|screen ?shot)\b', t): return True
     if re.search(r'\b(calls?|busy)\b', t): return True
     if re.search(r'\b(navigat\w*|directions?|map|maps|gps|route|reroute|zoom|mini ?map|take me|drive to|walk to|how far|eta)\b', t): return True
@@ -3479,6 +3502,13 @@ def _exec_tool(name, raw_args):
     _after_tool(name, args, result)
     return str(result)
 
+# tools whose result is already the sentence to say ("Abuja, sir.", "Playing Bad Blood by Taylor Swift."): said as they are, with no second
+# request for the model to reword them. That's a second sooner, and the second request is where gpt-oss kept "calling a tool" and failing.
+SAY_AS_IS = {"globe", "holo", "show_public_cam", "play_music", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
+             "lock_pc", "take_screenshot", "set_timer", "remember", "forget_memory", "set_preference", "forget_preference", "set_reminder",
+             "flip_coin", "roll_dice", "take_note", "set_voice", "map_control", "stop_navigation", "show_images", "google_account",
+             "spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "link_phone", "unlink_phone", "take_calls"}
+
 def _stream_groq_tools(messages, scratch):
     """Speed: ONE streaming request per round. The model's words are spoken the moment they arrive, and if
     it asks for tools they run and the next streamed round carries the answer. (The old way waited for the
@@ -3521,6 +3551,9 @@ def _stream_groq_tools(messages, scratch):
                   tm = {"role": "tool", "tool_call_id": calls[i]["id"] or f"call_{i}", "name": calls[i]["name"],
                         "content": _exec_tool(calls[i]["name"], calls[i]["args"])}
                   messages.append(tm); scratch.append(tm)
+              ran = [m for m in scratch[-len(calls):]]
+              if all(m["name"] in SAY_AS_IS and len(m["content"]) <= 240 and not re.match(r"(Unknown tool|Tool \w+ (got bad|failed))", m["content"]) for m in ran):
+                  yield (" " if spoke else "") + " ".join(m["content"] for m in ran); return
           return
       except Exception as e:
         print(f"[GROQ STREAM] {_why(e)}")
@@ -3818,8 +3851,32 @@ async def chat_stream(payload: dict):
     if not user_text:
         async def _empty(): yield _sse({"type": "done"})
         return StreamingResponse(_empty(), media_type="text/event-stream")
+    if payload.get("followup") and not await asyncio.to_thread(_meant_for_me, user_text):
+        print(f"[HEARD] not for Jarvis (lyrics, TV or someone else): {user_text!r}")
+        async def _ignored():
+            yield _sse({"type": "ignored"}); yield _sse({"type": "done"})
+        return StreamingResponse(_ignored(), media_type="text/event-stream")
     return StreamingResponse(stream_chat(user_text), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+def _meant_for_me(text):
+    """An open-mic line said without "Hey Jarvis": was it said to him, or is it song lyrics, the TV, someone on the phone?
+    One tiny question to the fast model; when unsure (or it can't be asked) it counts as meant for him."""
+    if not _groq_usable(): return True
+    last = next((m.get("content") or "" for m in reversed(conversation) if m.get("role") == "assistant" and isinstance(m.get("content"), str)), "")
+    try:
+        cl = groq_client
+        try: cl = groq_client.with_options(timeout=3.0, max_retries=0)
+        except Exception: pass
+        r = cl.chat.completions.create(model=GROQ_FAST_MODEL, temperature=0, max_tokens=200, **({} if GROQ_STATE.get("no_effort") else {"reasoning_effort": "low"}),
+            messages=[{"role": "system", "content": "A voice assistant's microphone heard the line below in a room where music, TV or other people may "
+                       "be audible. Decide if the person was talking TO the assistant (a request, a question, a reply to what it last said, "
+                       "thanks) or if it's background: song lyrics, a TV or video, someone talking to somebody else. Answer with one word: yes "
+                       "(meant for the assistant) or no (background). If unsure, yes."},
+                      {"role": "user", "content": f"The assistant last said: {last[:300]!r}\nHeard: {text!r}"}])
+        return not re.match(r"\s*no\b", (r.choices[0].message.content or "").lower())
+    except Exception as e:
+        print(f"[HEARD] check skipped: {type(e).__name__}"); return True
 
 # ============================================================
 # ROUTES

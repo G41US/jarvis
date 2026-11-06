@@ -132,6 +132,7 @@ def install(ns):
         return (loc["latitude"], loc["longitude"], loc.get("name") or name, kind)
 
     ZOOM = {"country": 2.4, "state": 1.75, "city": 1.3}      # camera distance in Earth radii for each kind of place
+    globe_at = {"label": ""}                                  # the place the globe last flew to
 
     def quakes(place=None):
         feed = "2.5_week" if place else "2.5_day"
@@ -175,19 +176,22 @@ def install(ns):
            "place": {"type": "string"}}, ["action"])
     def _globe(action: str, place: str = ""):
         a = (action or "show").lower().strip()
-        if a == "hide": send("globe", {"cmd": "hide"}); return "Globe away."
+        if a == "hide": globe_at["label"] = ""; send("globe", {"cmd": "hide"}); return "Globe away."
         if a in ("show", "holo", "satellite"):
             send("globe", {"cmd": "show", "mode": "sat" if a == "satellite" else "holo"})
             return "Today's satellite view, sir." if a == "satellite" else "The Earth, sir."
         if a == "zoom_out":
-            send("globe", {"cmd": "show", "fly": {"dist": 5.6}}); return "The whole Earth."
+            globe_at["label"] = ""; send("globe", {"cmd": "show", "fly": {"dist": 5.6}}); return "The whole Earth."
         if a == "zoom" and not place:
-            send("globe", {"cmd": "show", "fly": {"scale": 0.5}}); return "Closer."
+            send("globe", {"cmd": "show", "fly": {"scale": 0.4}}); return "Closer."
         if a in ("focus", "zoom"):
             w = place_of(place)
             if not w: return f"I couldn't find {place}."
+            if a == "zoom" and w[2] == globe_at["label"]:      # "zoom in more on Abuja" while already over Abuja: closer still, not the same view again
+                send("globe", {"cmd": "show", "fly": {"lat": w[0], "lon": w[1], "scale": 0.4, "label": w[2]}}); return f"Closer on {w[2]}."
             dist = ZOOM[w[3]] if a == "zoom" else max(ZOOM[w[3]], 2.4 if w[3] == "country" else 1.9)
             send("globe", {"cmd": "show", "fly": {"lat": w[0], "lon": w[1], "dist": dist, "label": w[2]}})
+            globe_at["label"] = w[2]
             return f"{w[2]}, sir."
         if a == "earthquakes":
             qs, where = quakes(place)
@@ -265,13 +269,16 @@ def install(ns):
 
     @app.get("/globe/patch")
     async def globe_patch(kind: str = "blue", w: float = 0, s: float = 0, e: float = 1, n: float = 1):
-        path = await asyncio.to_thread(ensure_patch, "sat" if kind == "sat" else "blue", w, s, e, n)
+        try: path = await asyncio.to_thread(ensure_patch, "sat" if kind == "sat" else "blue", w, s, e, n)
+        except Exception as ex:          # no internet just now: the globe keeps its normal picture (one line in the log, not a traceback)
+            print(f"[GLOBE] close-up picture unavailable: {type(ex).__name__}"); path = None
         if not path: return Response(status_code=502)
         return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
 
     @app.get("/globe/tex/{kind}")
     async def globe_tex(kind: str):
-        path = await asyncio.to_thread(ensure_tex, "sat" if kind == "sat" else "blue")
+        try: path = await asyncio.to_thread(ensure_tex, "sat" if kind == "sat" else "blue")
+        except Exception as ex: print(f"[GLOBE] picture unavailable: {type(ex).__name__}"); path = None
         if not path: return Response(status_code=502)
         return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
 
@@ -546,11 +553,6 @@ def install(ns):
                                  headers=YT_HEAD, timeout=6).status_code == 200
         except Exception: return True   # can't tell: try it
 
-    def keep_embeddable(found, n):
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(8) as ex: ok = list(ex.map(lambda f: embeddable(f["id"]), found))
-        return [f for f, good in zip(found, ok) if good][:n]
-
     def channel_live(handle):
         """The stream a channel is broadcasting now, from its Live tab: the round-the-clock one if it runs several. None if nothing's on air."""
         hit = _live.get(handle)
@@ -609,11 +611,24 @@ def install(ns):
             if d and os.path.exists(p): return open(p, encoding="utf-8").read().strip()
         return ""
 
+    REGIONS = {"east coast": "New York", "west coast": "Los Angeles", "midwest": "Chicago", "the south": "Atlanta", "new england": "Boston",
+               "usa": "United States", "us": "United States", "america": "United States", "uk": "United Kingdom", "britain": "United Kingdom",
+               "uae": "United Arab Emirates", "middle east": "Dubai", "europe": "Paris", "west africa": "Lagos", "east africa": "Nairobi",
+               "the alps": "Zermatt", "caribbean": "Jamaica", "scandinavia": "Stockholm", "south east asia": "Bangkok", "southeast asia": "Bangkok"}
+
+    def where_is(place):
+        """A region the map can't place ("East Coast USA", "somewhere in Europe"): a well-known city in it, or the country it names."""
+        p = re.sub(r"[^a-z ]", " ", place.lower())
+        for k, v in sorted(REGIONS.items(), key=lambda kv: -len(kv[0])):
+            if re.search(rf"\b{k}\b", p): return v
+        parts = [w for w in re.split(r"\s+(?:in|of|near|around)\s+|,", place) if w.strip()]
+        return parts[-1].strip() if len(parts) > 1 else place
+
     def webcams(place, n=8):
         import requests
         key = windy_key()
         if not key: return None
-        loc = ns["_lookup_location"](place)
+        loc = ns["_lookup_location"](place) or ns["_lookup_location"](where_is(place))
         if not loc: return []
         fc, cc = loc.get("feature_code") or "", (loc.get("country_code") or "").upper()
         base = {"include": "images,location,player", "limit": 20, "sortKey": "popularity", "sortDirection": "desc", "lang": "en"}
@@ -671,7 +686,7 @@ def install(ns):
     # after the song, its radio (similar songs) keeps playing. The page plays them and tells us what's on (/music/state). ----
     YTM = "https://music.youtube.com/youtubei/v1/"
     YTM_CTX = {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20251015.03.00", "hl": "en"}}
-    music_now = {"title": "", "artist": "", "playing": False}
+    music_now = {"title": "", "artist": "", "playing": False, "error": ""}
 
     def ytm(endpoint, body):
         import requests
@@ -680,6 +695,8 @@ def install(ns):
 
     def tidy(title):      # "Rema - Charm (Official Music Video)" -> "Rema - Charm", for the card and for saying it
         return re.sub(r"\s*[\(\[][^)\]]*\b(lyrics?|official|video|audio|visuali[sz]er|hd|4k)\b[^)\]]*[\)\]]", "", title, flags=re.I).strip()[:90]
+
+    def words(t): return set(re.findall(r"[a-z0-9']+", (t or "").lower()))
 
     def ytm_search(query):
         """Search results as tracks, songs before videos (podcasts, artists and playlists left out)."""
@@ -704,18 +721,37 @@ def install(ns):
             elif isinstance(o, list):
                 for v in o: walk(v)
         walk(ytm("search", {"query": query}))
-        odd = re.compile(r"\b(cover|instrumental|type beat|karaoke|sped up|slowed|8d|nightcore|reaction|tutorial)\b", re.I)
-        if not odd.search(query): videos.sort(key=lambda t: bool(odd.search(t["title"])))     # the real song before covers of it
-        return songs + videos
+        odd = re.compile(r"\b(cover|instrumental|type beat|karaoke|sped up|slowed|8d|nightcore|reaction|tutorial|mix|compilation|nonstop|playlist|"
+                         r"hours?|top \d+|full album)\b", re.I)      # (and an hour-long mix isn't "a song")
+        if not odd.search(query):           # the real song before covers and mixes of it
+            songs.sort(key=lambda t: bool(odd.search(t["title"]))); videos.sort(key=lambda t: bool(odd.search(t["title"])))
+        return songs, videos
+
+    def first_track(query):
+        """The song asked for, with every upload of it found: labels often block their audio-only 'song' from playing inside other
+        apps while their music video (or a lyric video) is allowed, so the page tries them in turn. Videos first for that reason."""
+        songs, videos = ytm_search(query)
+        top = (songs + videos)[:1]
+        if not top: return None
+        t = dict(top[0]); name = words(t["title"]) - {"feat", "ft", "the", "a"}
+        same = [v["id"] for v in videos if name and name <= words(v["title"])] + [s_["id"] for s_ in songs if name and name <= words(s_["title"])]
+        t["ids"] = list(dict.fromkeys(same + [t["id"]]))[:5]
+        return t
 
     def ytm_radio(vid):
-        """The song's radio: it first, then up to 24 similar ones, the way YouTube Music plays on after a song."""
+        """The song's radio: up to 24 similar ones, the way YouTube Music plays on after a song. Each with its music-video version too."""
         out = []
+        def item(p): return {"id": p["videoId"], "title": tidy(runs(p.get("title"))), "artist": runs(p.get("longBylineText")).split(" • ")[0][:60]}
         def walk(o):
             if isinstance(o, dict):
+                w = o.get("playlistPanelVideoWrapperRenderer")       # a song that also has a music video
+                if w:
+                    p = (w.get("primaryRenderer") or {}).get("playlistPanelVideoRenderer") or {}
+                    alt = [((c.get("counterpartRenderer") or {}).get("playlistPanelVideoRenderer") or {}).get("videoId") for c in w.get("counterpart") or []]
+                    if p.get("videoId"): out.append({**item(p), "ids": [i for i in alt if i] + [p["videoId"]]})
+                    return
                 p = o.get("playlistPanelVideoRenderer")
-                if p and p.get("videoId"):
-                    out.append({"id": p["videoId"], "title": tidy(runs(p.get("title"))), "artist": runs(p.get("longBylineText")).split(" • ")[0][:60]}); return
+                if p and p.get("videoId"): out.append({**item(p), "ids": [p["videoId"]]}); return
                 for v in o.values(): walk(v)
             elif isinstance(o, list):
                 for v in o: walk(v)
@@ -723,13 +759,22 @@ def install(ns):
         except Exception as e: print(f"[MUSIC] radio: {type(e).__name__}: {e}")
         seen = set(); return [t for t in out if not (t["id"] in seen or seen.add(t["id"]))][:25]
 
+    def yt_search_ids(q, n=4):
+        """Plain YouTube search (lyric videos, official audio): the last try for a song whose own uploads won't play inside Jarvis."""
+        from urllib.parse import quote_plus
+        h = yt_page("https://www.youtube.com/results?search_query=" + quote_plus(q))
+        return list(dict.fromkeys(re.findall(r'"videoRenderer":\{"videoId":"([\w-]{11})"', h)))[:n]
+
     @tool("play_music", "The music player (YouTube Music, plays inside Jarvis). action play with a query (a song, an artist, a mood, a genre: "
-          "'play Asake', 'play some afrobeats'), or pause, resume, next, previous, stop, louder, quieter, now_playing ('what's playing').",
+          "'play Asake', 'play some afrobeats'); with no query it plays popular songs. Also pause, resume, next, previous, stop "
+          "('stop the music', 'close the player'), louder, quieter, now_playing ('what's playing'). Spell artists the way they're known "
+          "(they said 'Ajayke' -> 'Asake', 'Bona Boy' -> 'Burna Boy').",
           {"action": {"type": "string", "enum": ["play", "pause", "resume", "next", "previous", "stop", "louder", "quieter", "now_playing"]},
            "query": {"type": "string", "description": "what to play, for play"}}, ["action"])
     def _music(action: str = "play", query: str = ""):
         a = (action or "play").lower().strip()
         if a == "now_playing":
+            if music_now.get("error"): return music_now["error"]
             if not music_now["title"]: return "Nothing's playing."
             return f"{'Playing' if music_now['playing'] else 'Paused on'} {music_now['title']}" + (f" by {music_now['artist']}." if music_now["artist"] else ".")
         if a != "play":
@@ -737,22 +782,31 @@ def install(ns):
             return {"pause": "Paused.", "resume": "Resuming.", "next": "Next one.", "previous": "Going back.", "stop": "Music off.",
                     "louder": "Louder.", "quieter": "Quieter."}.get(a, "Done.")
         q = (query or "").strip()
-        if not q: send("music", {"cmd": "resume"}); return "Resuming."
-        try:
-            found = [t for t in ytm_search(q)[:6]]
-            found = keep_embeddable(found, 3)          # a few owners don't allow their videos to play inside other apps
-            if not found: return f"I couldn't find {q} on YouTube Music."
-            queue = ytm_radio(found[0]["id"]) or found
-            if queue[0]["id"] != found[0]["id"]: queue.insert(0, found[0])
+        if not q and music_now["title"]: send("music", {"cmd": "resume"}); return "Resuming."
+        q = q or "popular songs this week"
+        try: first = first_track(q)
         except Exception as e:
             print(f"[MUSIC] {type(e).__name__}: {e}"); return "I couldn't reach YouTube Music just now."
-        send("music", {"cmd": "play", "queue": queue})
-        t = queue[0]
-        return f"Playing {t['title']}" + (f" by {t['artist']}" if t["artist"] else "") + ". Similar songs will follow."
+        if not first: return f"I couldn't find {q} on YouTube Music."
+        music_now.update(error="")
+        send("music", {"cmd": "play", "queue": [first]})       # it starts now; the similar songs follow a moment later
+        def more():
+            rest = [t for t in ytm_radio(first["id"]) if t["id"] != first["id"]]
+            if rest: send("music", {"cmd": "append", "queue": rest})
+        threading.Thread(target=more, daemon=True).start()
+        return f"Playing {first['title']}" + (f" by {first['artist']}" if first["artist"] else "") + "."
+
+    @app.get("/music/alt")
+    async def music_alt(q: str = ""):
+        """Other uploads of a song none of whose own versions would play here."""
+        try: return {"ids": await asyncio.to_thread(yt_search_ids, q[:120] + " lyrics")}
+        except Exception as e: print(f"[MUSIC] alt: {type(e).__name__}: {e}"); return {"ids": []}
 
     @app.post("/music/state")
     async def music_state(payload: dict):
-        music_now.update(title=str(payload.get("title", ""))[:120], artist=str(payload.get("artist", ""))[:80], playing=bool(payload.get("playing")))
+        music_now.update(title=str(payload.get("title", ""))[:120], artist=str(payload.get("artist", ""))[:80], playing=bool(payload.get("playing")),
+                         error=str(payload.get("error", ""))[:200])
+        if music_now["error"]: print(f"[MUSIC] {music_now['error']}")
         return {"ok": True}
 
     def public_url(u):

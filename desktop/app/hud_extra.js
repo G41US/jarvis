@@ -154,7 +154,7 @@ const globe = (() => {
   const canvas = el('canvas'); canvas.id = 'pc-globe'; $('three').after(canvas);
   let renderer = null, scene, camera, earth, group, mat, atmo, layer = null, line = null, issDot = null, labels = [], running = false;
   let mode = 0, modeWant = 0, rotX = 0.35, rotY = 0, spin = true, satTex = null, issTimer = null;
-  const HOME = 5.6, NEAR = 1.12, FAR = 8;                 // camera distance in Earth radii: whole Earth, closest, farthest
+  const HOME = 5.6, NEAR = 1.04, FAR = 8;                 // camera distance in Earth radii: whole Earth, closest (about 250 km up), farthest
   let dist = HOME, fly = null, px = 0, pxWant = 0, lastDrag = 0;
   const DEG = Math.PI / 180, R = 1;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -223,7 +223,7 @@ const globe = (() => {
   const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   function flyTo(o) {
     const c = center(), lat = o.lat ?? c.lat, lon = o.lon ?? c.lon;
-    const d1 = clamp(o.dist ?? (o.scale ? dist * o.scale : dist), NEAR, FAR);
+    const d1 = clamp(o.dist ?? (o.scale ? 1 + (dist - 1) * o.scale : dist), NEAR, FAR);     // "closer" shrinks the height above the ground
     let y1 = -(lon + 90) * DEG; const dy = y1 - rotY; y1 = rotY + Math.atan2(Math.sin(dy), Math.cos(dy));
     const x1 = clamp(lat * DEG, -1.45, 1.45);
     const ang = vec(c.lat, c.lon).angleTo(vec(lat, lon));
@@ -1240,42 +1240,63 @@ const music = (() => {
   const ICON = { play: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M7 5v14l12-7z"/></svg>', pause: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' };
   card.id = 'pc-music'; card.setAttribute('role', 'region'); card.setAttribute('aria-label', 'Music'); hud.appendChild(card);
   const tEl = card.querySelector('.t'), aEl = card.querySelector('.a'), toggle = card.querySelector('[data-k=toggle]');
-  let player = null, queue = [], at = 0, vol = 70, playing = false, fails = 0;
-  const report = () => { const t = queue[at] || {}; fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: t.title || '', artist: t.artist || '', playing }) }).catch(() => {}); };
+  let player = null, queue = [], at = 0, k = 0, vol = 70, playing = false, dead = 0, altAsked = false;
+  const report = (error = '') => { const t = queue[at] || {}; fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: t.title || '', artist: t.artist || '', playing, error }) }).catch(() => {}); };
   const level = () => player && player.setVolume && player.setVolume(ducked ? Math.round(vol * 0.15) : vol);
   duckers.add(level);
+  const okId = id => /^[\w-]{11}$/.test(id || '');          // only a YouTube video id ever goes into the address
+  const idsOf = t => ((t && t.ids && t.ids.length) ? t.ids : [t && t.id]).filter(okId);
   function paint() {
     const t = queue[at] || {}; tEl.textContent = t.title || ''; aEl.textContent = t.artist || '';
     toggle.innerHTML = playing ? ICON.pause : ICON.play; toggle.setAttribute('aria-label', playing ? 'Pause' : 'Play');
     card.classList.toggle('paused', !playing);
   }
+  function load() { paint(); const id = idsOf(queue[at])[k]; if (id && player && player.loadVideoById) player.loadVideoById(id); }
   function go(i) {
     if (!queue.length) return;
-    at = (i + queue.length) % queue.length; paint();
-    if (player && player.loadVideoById) player.loadVideoById(queue[at].id);
+    at = (i + queue.length) % queue.length; k = 0; altAsked = false; load();
+  }
+  // this upload won't play inside Jarvis (labels often allow only YouTube itself): its other uploads, then a lyric video, then the next song
+  async function failed() {
+    const t = queue[at], ids = idsOf(t);
+    if (k + 1 < ids.length) { k++; load(); return; }
+    if (t && !altAsked) {
+      altAsked = true;
+      try {
+        const r = await (await fetch('/music/alt?q=' + encodeURIComponent(`${t.title} ${t.artist || ''}`.trim()))).json();
+        const more = (r.ids || []).filter(i => okId(i) && !ids.includes(i));
+        if (more.length && queue[at] === t) { t.ids = ids.concat(more); k = ids.length; load(); return; }
+      } catch (e) {}
+    }
+    if (++dead >= 3) {          // three songs in a row with nothing playable: say so instead of going quiet
+      const msg = "YouTube won't let these songs play inside Jarvis.";
+      stop(msg); if (window.__jvSay) window.__jvSay(msg + ' Try another song or artist, sir.');
+      return;
+    }
+    go(at + 1);
   }
   async function play(list) {
-    queue = list.filter(t => /^[\w-]{11}$/.test(t.id || '')); at = 0; fails = 0;     // only a YouTube video id ever goes into the address
+    queue = list.filter(t => idsOf(t).length); at = 0; k = 0; dead = 0; altAsked = false;
     if (!queue.length) return;
     if (window.__jvHolo && window.__jvHolo.tv) window.__jvHolo.clear();     // the news stops for the music
     card.classList.add('on'); place(); slim(); requestAnimationFrame(() => card.classList.add('show')); paint();
-    if (player) { go(0); return; }
+    if (player) { load(); return; }
     const YT = await loadYT();
-    player = new YT.Player(card.querySelector('.vid > div'), { width: 356, height: 200, videoId: queue[0].id,
+    player = new YT.Player(card.querySelector('.vid > div'), { width: 356, height: 200, videoId: idsOf(queue[0])[0],
       playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
       events: {
-        onReady: () => { level(); player.playVideo(); },
+        onReady: () => { level(); if (idsOf(queue[at])[k] !== idsOf(queue[0])[0]) load(); else player.playVideo(); },
         onStateChange: e => {
           if (e.data === YT.PlayerState.ENDED) { go(at + 1); return; }
-          const p = e.data === YT.PlayerState.PLAYING; if (p) fails = 0;
+          const p = e.data === YT.PlayerState.PLAYING; if (p) dead = 0;
           if (p !== playing && e.data !== YT.PlayerState.BUFFERING) { playing = p; paint(); report(); }
         },
-        onError: () => { if (++fails < 5) go(at + 1); },       // not allowed to play here, or gone: on to the next song
+        onError: () => failed(),
       } });
   }
-  function stop() {
-    playing = false; report(); card.classList.remove('show');
+  function stop(error = '') {
+    playing = false; report(error); queue = []; card.classList.remove('show');
     try { player && player.stopVideo(); } catch (e) {}
     setTimeout(() => { if (!card.classList.contains('show')) card.classList.remove('on'); }, 400);
   }
@@ -1292,7 +1313,8 @@ const music = (() => {
   // the slim bar while something else needs the room (and while the news is on, the music waits)
   function slim() { card.classList.toggle('slim', !!(document.body.classList.contains('pc-holo-on') || (window.__jvGlobe && window.__jvGlobe.on) || (window.__jvFeeds && window.__jvFeeds.on))); }
   setInterval(() => { if (card.classList.contains('on')) slim(); }, 700);
-  return { msg: m => m.cmd === 'play' ? play(m.queue || []) : cmd(m.cmd), pause: () => cmd('pause'), get on() { return card.classList.contains('show'); },
+  const append = list => { if (queue.length) queue.push(...list.filter(t => idsOf(t).length)); };      // the similar songs, a moment after the first
+  return { msg: m => m.cmd === 'play' ? play(m.queue || []) : m.cmd === 'append' ? append(m.queue || []) : cmd(m.cmd), pause: () => cmd('pause'), get on() { return card.classList.contains('show'); },
            get playing() { return playing; } };
 })();
 

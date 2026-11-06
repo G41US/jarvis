@@ -1094,18 +1094,26 @@ async function handleServerTranscript(raw) {
   if (speaking) {
     const ec = isEcho(text);
     if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
-    if (!containsWakeWord(text)) { showDebug(`"${text}" ignored`, 'rejected'); return; }
+    // a short command ("next", "stop", "go to the next camera") interrupts him too, not only "Hey Jarvis"
+    if (!containsWakeWord(text) && !(BARGE.test(cleanPunct(text)) && cleanPunct(text).split(' ').length <= 6)) { showDebug(`"${text}" ignored`, 'rejected'); return; }
     beep(1200, 0.08); cancelAllSpeech();
   } else if (now - lastCommandTime < COMMAND_COOLDOWN_MS) { showDebug(text + ' cooldown', 'rejected'); return; }
   const words = cleanPunct(text).split(' ').filter(Boolean);
-  if (words.length < MIN_WORDS) { showDebug(`"${text}" too short`, 'rejected'); return; }
+  const answering = performance.now() - lastAskAt < 20000;      // he just asked something: "Lagos." is an answer
+  if (words.length < (answering ? 1 : MIN_WORDS)) { showDebug(`"${text}" too short`, 'rejected'); return; }
   const ec = !speaking ? isEcho(text) : { echo: false };
   if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
   if (sessionActive) {
     showDebug(text, 'heard');
     armSessionSilenceTimer();
     if (hasEndPhrase(text)) { await handleCommand(text); endSession(); return; }
-    await handleCommand(text);
+    // said without "Hey Jarvis", a while into the session, not answering him: the server checks it was meant for him (not lyrics or the TV)
+    const followup = performance.now() - sessionStartedAt > 8000 && !containsWakeWord(text) && !answering;
+    await handleCommand(text, { followup });
+    // with music or a station playing the open mic hears songs and presenters: "Hey Jarvis" again for the next thing
+    // (this also lets the music back up to full volume: it's turned down for the whole session, and a song started by this very command
+    // used to stay at 15% for the 35 s the session waits, which sounded like nothing was playing)
+    if (sessionActive && ((window.__jvMusic && window.__jvMusic.on) || (window.__jvHolo && window.__jvHolo.tv))) endSession();
     return;
   }
   const { matched, command } = matchWakeStrict(text);
@@ -1114,7 +1122,7 @@ async function handleServerTranscript(raw) {
   startSession();
   if (command) {
     if (hasEndPhrase(command)) { await handleCommand(command); endSession(); }
-    else { await handleCommand(command); }
+    else { await handleCommand(command); if (sessionActive && ((window.__jvMusic && window.__jvMusic.on) || (window.__jvHolo && window.__jvHolo.tv))) endSession(); }
   } else { armSessionSilenceTimer(); }
 }
 
@@ -1247,6 +1255,7 @@ function speakUnprompted(text) {
   ch.then(() => { if (speakChain === ch && speaking) { speaking = false; if (active && !muted) { if (sessionActive) { setState('session'); armSessionSilenceTimer(); } else setState('standby'); } } });
   return ch;
 }
+window.__jvSay = text => { addMsg(text, 'jarvis'); speakUnprompted(text); };     // for the HUD's own news ("that song won't play here")
 
 function connectWS() {
   try {
@@ -1303,6 +1312,8 @@ const HEY_WORDS = ['hey','hi','ok','okay','hay'];
 const END_PHRASES = ['thank you','thanks jarvis','thank you jarvis','goodbye jarvis','good bye jarvis','bye jarvis',"that's all","that's it",'we are done',"we're done",'stop listening'];
 const MIN_CONFIDENCE = 0.15, MIN_WORDS = 2;
 const COMMAND_COOLDOWN_MS = 900, SESSION_SILENCE_MS = 35000;
+const BARGE = /\b(next|stop|pause|skip|previous|close|cancel|enough|quiet)\b/;
+let lastAskAt = 0;
 const ECHO_SIMILARITY_THRESHOLD = 0.40, POST_TTS_DELAY_MS = 50, ECHO_MEMORY_MS = 15000;
 // Talking over Jarvis. Was 3500 for 4 frames (you had to shout); saying "Hey Jarvis" also interrupts him.
 // Greet out loud only after you've been away a while; otherwise just chime and listen (no waiting through a greeting).
@@ -1399,10 +1410,12 @@ async function startSession() {
   armSessionSilenceTimer();
   sessionCount++;
 
-  if (!currentUser) identifyUser().catch(() => {});   // in the background; never hold the session for the camera
+  const looking = !currentUser ? identifyUser().catch(() => {}) : null;   // in the background; never hold the session for the camera
 
   if (Date.now() - lastGreetAt < GREET_EVERY_MS) { speaking = false; setState('session'); armSessionSilenceTimer(); return; }
   lastGreetAt = Date.now();
+  // a stranger's first greeting waits (2.5 s at most) for that look, so it's "Good evening, ma'am" rather than a plain "Good evening"
+  if (looking && !window.__jvAddress) await Promise.race([looking, new Promise(r => setTimeout(r, 2500))]);
 
   const user = currentUser;
   const myId = ++commandId;
@@ -1432,7 +1445,7 @@ function endSession() {
   if (active && !muted) { setState('standby'); audioStatus.textContent = 'STANDBY'; }
 }
 
-async function handleCommand(text) {
+async function handleCommand(text, opts = {}) {
   const myId = ++commandId;
   cancelAllSpeech();
   bargeAbort = new AbortController();
@@ -1453,7 +1466,7 @@ async function handleCommand(text) {
   try {
     const response = await fetch('/chat_stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: cleaned }), signal: bargeAbort.signal,
+      body: JSON.stringify({ text: cleaned, followup: !!opts.followup }), signal: bargeAbort.signal,
     });
     if (!response.ok || !response.body) throw new Error('stream failed');
     const reader = response.body.getReader();
@@ -1470,6 +1483,10 @@ async function handleCommand(text) {
         const line = frame.trim();
         if (!line.startsWith('data:')) continue;
         let evt; try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (evt.type === 'ignored') {          // not meant for him: take the line back off the screen, say nothing
+          const last = logEl.lastElementChild; if (last && last.classList.contains('user')) last.remove();
+          showDebug(`"${cleaned}" not for Jarvis`, 'rejected');
+        }
         if (evt.type === 'sentence') {
           evt.text = fixAddress(evt.text);
           fullReply += (fullReply ? ' ' : '') + evt.text;
@@ -1483,6 +1500,7 @@ async function handleCommand(text) {
   } catch (e) { if (e.name !== 'AbortError') { console.error('[STREAM]', e); if (!fullReply) addMsg("Neural link unstable. Please repeat.", 'jarvis'); } }
   if (myId !== commandId) return;
   if (fullReply) rememberJarvisReply(fullReply);
+  if (/\?\s*$/.test(fullReply)) lastAskAt = performance.now();
   try { await speakChain; } catch (e) {}
   if (myId !== commandId) return;
   speaking = false;
