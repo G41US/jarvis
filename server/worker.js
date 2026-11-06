@@ -55,9 +55,11 @@ export default {
     const route = new URL(req.url).pathname.replace(/^\/v1(?=\/)/, '');
     if (route === '/update' || route === '/update/apk') return update(route, new URL(req.url), env, ctx);
     if (route === '/ping') return new Response(null, { status: 204, headers: CORS });   // the app warms its connection on "Hey Jarvis"
-    const device = (req.headers.get('x-jarvis-device') || 'anonymous').slice(0, 64);
+    // limit by the caller's real IP (Cloudflare sets it; callers can't fake it). The device header is only a fallback
+    // for local tests: anyone can send a new device id on every request to dodge a per-device limit.
+    const caller = req.headers.get('cf-connecting-ip') || (req.headers.get('x-jarvis-device') || 'anonymous').slice(0, 64);
     if (env.LIMITER) {
-      const { success } = await env.LIMITER.limit({ key: device });
+      const { success } = await env.LIMITER.limit({ key: caller });
       if (!success) return fail(429, 'Too many requests from this phone. Try again in a minute.');
     }
 
