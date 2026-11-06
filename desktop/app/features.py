@@ -777,13 +777,8 @@ def install(ns):
     # Plan B: when YouTube won't let its player work inside Jarvis at all (every upload of a song refused), the song opens in a small
     # YouTube Music window instead. It plays on into its radio by itself; pause/next/previous go to it as media keys, stop closes it.
     def open_ytm_window(vid):
-        import subprocess, webbrowser
-        url = f"https://music.youtube.com/watch?v={vid}&list=RDAMVM{vid}"
-        exe, prof = os.environ.get("JARVIS_BROWSER", ""), os.environ.get("JARVIS_BROWSER_PROFILE", "")
         if music_now.get("mode") == "window": close_ytm_window(); time.sleep(0.6)
-        if exe and os.path.exists(exe):
-            subprocess.Popen([exe, f"--app={url}", *([f"--user-data-dir={prof}"] if prof else []), "--window-size=460,620", "--window-position=40,60"])
-        else: webbrowser.open(url)
+        open_app_window(f"https://music.youtube.com/watch?v={vid}&list=RDAMVM{vid}")
         music_now.update(mode="window", playing=True, error="")
         print(f"[MUSIC] playing {vid} in a YouTube Music window")
 
@@ -809,6 +804,68 @@ def install(ns):
         await asyncio.to_thread(open_ytm_window, vid)
         return {"ok": True}
 
+    # ---- SPOTIFY for people with Premium: Jarvis finds the song with its own Spotify app (app-only access, so Spotify's 5-user limit
+    # doesn't apply), and Spotify's own player inside Jarvis plays it for whoever is signed in to Spotify in Jarvis's window. ----
+    SP = {"token": "", "until": 0.0}
+    CONFIG, save_config = ns["CONFIG"], ns["save_config"]
+
+    def spotify_keys():
+        cid, sec = os.environ.get("SPOTIFY_CLIENT_ID", "").strip(), os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip()
+        if cid and sec: return cid, sec
+        import sys
+        for d in (getattr(sys, "_MEIPASS", ""), os.path.dirname(os.path.abspath(__file__))):
+            p = os.path.join(d, "spotify_client.json")       # written by the build from the SPOTIFY_CLIENT_ID / _SECRET secrets
+            if d and os.path.exists(p):
+                with open(p, encoding="utf-8") as f: j = json.load(f)
+                return j.get("id", ""), j.get("secret", "")
+        return "", ""
+
+    def spotify_get(path, params):
+        import requests, base64
+        if time.time() > SP["until"]:
+            cid, sec = spotify_keys()
+            if not cid: return None
+            r = requests.post("https://accounts.spotify.com/api/token", data={"grant_type": "client_credentials"}, timeout=10,
+                              headers={"Authorization": "Basic " + base64.b64encode(f"{cid}:{sec}".encode()).decode()})
+            r.raise_for_status(); j = r.json()
+            SP.update(token=j["access_token"], until=time.time() + int(j.get("expires_in", 3600)) - 60)
+        return requests.get("https://api.spotify.com/v1/" + path, params=params, timeout=10, headers={"Authorization": "Bearer " + SP["token"]}).json()
+
+    def spotify_track(q):
+        items = (((spotify_get("search", {"q": q[:200], "type": "track", "limit": 5}) or {}).get("tracks") or {}).get("items")) or []
+        if not items: return None
+        t = items[0]
+        return {"sp": t["uri"], "title": t["name"][:90], "artist": ", ".join(a["name"] for a in t.get("artists", [])[:2])[:60]}
+
+    @app.get("/music/sp")
+    async def music_sp(q: str = ""):
+        try: t = await asyncio.to_thread(spotify_track, q)
+        except Exception as e: print(f"[SPOTIFY] search: {type(e).__name__}: {e}"); t = None
+        return {"uri": (t or {}).get("sp", "")}
+
+    def open_app_window(url, size="460,620"):
+        """A window of Jarvis's own browser (same profile: what you sign in to there, Jarvis's players see too)."""
+        import subprocess, webbrowser
+        exe, prof = os.environ.get("JARVIS_BROWSER", ""), os.environ.get("JARVIS_BROWSER_PROFILE", "")
+        if exe and os.path.exists(exe):
+            subprocess.Popen([exe, f"--app={url}", *([f"--user-data-dir={prof}"] if prof else []), f"--window-size={size}", "--window-position=40,60"])
+        else: webbrowser.open(url)
+
+    @tool("connect_spotify", "Spotify for people with Spotify Premium: action connect (opens Spotify's sign-in in Jarvis's window; after that "
+          "'play X' plays on Spotify), disconnect (back to YouTube Music), status.",
+          {"action": {"type": "string", "enum": ["connect", "disconnect", "status"]}}, ["action"])
+    def _connect_spotify(action: str = "connect"):
+        a = (action or "connect").lower()
+        if not spotify_keys()[0]: return "Spotify isn't set up in this copy of Jarvis."
+        if a == "status":
+            return "Music plays from Spotify." if CONFIG.get("music_source") == "spotify" else "Music plays from YouTube Music. Say connect Spotify to switch."
+        if a == "disconnect":
+            CONFIG["music_source"] = "youtube"; save_config(CONFIG); return "Back to YouTube Music for songs."
+        open_app_window("https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F", "520,720")
+        CONFIG["music_source"] = "spotify"; save_config(CONFIG); music_now.update(sp_off=False)
+        return ("Spotify's sign-in is open. Sign in with your Premium account, then close that window. "
+                "After that, songs play from Spotify.")
+
     @tool("play_music", "The music player (YouTube Music, plays inside Jarvis). action play with a query (a song, an artist, a mood, a genre: "
           "'play Asake', 'play some afrobeats'); with no query it plays popular songs. Also pause, resume, next, previous, stop "
           "('stop the music', 'close the player'), louder, quieter, now_playing ('what's playing'). Spell artists the way they're known "
@@ -822,6 +879,8 @@ def install(ns):
             if not music_now["title"]: return "Nothing's playing."
             return f"{'Playing' if music_now['playing'] else 'Paused on'} {music_now['title']}" + (f" by {music_now['artist']}." if music_now["artist"] else ".")
         if a != "play" and music_now.get("mode") == "window": return window_cmd(a)
+        if a in ("louder", "quieter") and music_now.get("src") == "spotify" and sys_win():     # Spotify's player has no volume of its own
+            ns["_press"](ns["_VK"]["volume_up" if a == "louder" else "volume_down"], 4); return "Louder." if a == "louder" else "Quieter."
         if a != "play":
             send("music", {"cmd": a})
             return {"pause": "Paused.", "resume": "Resuming.", "next": "Next one.", "previous": "Going back.", "stop": "Music off.",
@@ -829,6 +888,23 @@ def install(ns):
         q = (query or "").strip()
         if not q and music_now["title"]: send("music", {"cmd": "resume"}); return "Resuming."
         q = q or "popular songs this week"
+        on_sp = re.search(r"\bon spotify\b|\bspotify\b", q, re.I)
+        q = re.sub(r"\s*\b(on|from|in)?\s*spotify\b", "", q, flags=re.I).strip() or "popular songs this week"
+        if spotify_keys()[0] and not music_now.get("sp_off") and (on_sp or CONFIG.get("music_source") == "spotify"):
+            try: first = spotify_track(q)
+            except Exception as e: print(f"[SPOTIFY] {type(e).__name__}: {e}"); first = None
+            if first:
+                music_now.update(error="", src="spotify")
+                send("music", {"cmd": "play", "src": "sp", "queue": [first]})
+                def more_sp():           # similar songs: YouTube Music's radio for it, each found on Spotify by the page as it comes up
+                    try:
+                        y = first_track(f"{first['title']} {first['artist']}")
+                        rest = [{"title": t["title"], "artist": t["artist"]} for t in (ytm_radio(y["id"]) if y else [])][1:]
+                        if rest: send("music", {"cmd": "append", "queue": rest})
+                    except Exception as e: print(f"[SPOTIFY] similar songs: {type(e).__name__}: {e}")
+                threading.Thread(target=more_sp, daemon=True).start()
+                return f"Playing {first['title']}" + (f" by {first['artist']}" if first["artist"] else "") + " on Spotify."
+        music_now.update(src="youtube")
         try: first = first_track(q)
         except Exception as e:
             print(f"[MUSIC] {type(e).__name__}: {e}"); return "I couldn't reach YouTube Music just now."
@@ -852,6 +928,12 @@ def install(ns):
 
     @app.post("/music/state")
     async def music_state(payload: dict):
+        if payload.get("preview"):        # Spotify only played a 30 s preview: not signed in (or not Premium) in Jarvis's window
+            print("[SPOTIFY] previews only (not signed in to Premium here): YouTube Music for the rest of this run")
+            music_now.update(sp_off=True)
+            q = f"{payload.get('title', '')} {payload.get('artist', '')}".strip()
+            if q: threading.Thread(target=_music, args=("play", q), daemon=True).start()
+            return {"ok": True}
         if payload.get("code") is not None:           # why the player inside Jarvis refused a video (101/150: owner blocks it, 153: config)
             print(f"[MUSIC] player error {payload.get('code')} on {str(payload.get('id', ''))[:11]}"); return {"ok": True}
         music_now.update(title=str(payload.get("title", ""))[:120], artist=str(payload.get("artist", ""))[:80], playing=bool(payload.get("playing")),

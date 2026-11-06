@@ -1221,7 +1221,10 @@ const music = (() => {
     #pc-music.show { opacity: 1; transform: none; }
     #pc-music .vid { height: 200px; overflow: hidden; background: #000; transition: height .45s var(--ease); }
     #pc-music.slim .vid { height: 0; }
-    #pc-music .vid > * { display: block; width: 356px; height: 200px; border: 0; }
+    #pc-music .vid .yt, #pc-music .vid .yt > *, #pc-music .vid .sp { display: block; width: 356px; height: 200px; border: 0; }
+    #pc-music .vid .sp { display: none; height: 152px; } #pc-music .vid .sp iframe { display: block; width: 100%; height: 152px; border: 0; }
+    #pc-music.spotify .vid { height: 152px; } #pc-music.spotify .vid .yt { display: none; } #pc-music.spotify .vid .sp { display: block; }
+    #pc-music.spotify.slim .vid { height: 0; }
     #pc-music .row { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 8px 0 14px; }
     #pc-music .txt { flex: 1; min-width: 0; }
     #pc-music .t, #pc-music .a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1232,31 +1235,78 @@ const music = (() => {
       font: 500 15px/1 system-ui, sans-serif; padding: 0; letter-spacing: normal; text-shadow: none; }
     #pc-music button:hover { background: rgba(255,214,150,.12); }
     #pc-music button:focus-visible { outline: 2px solid var(--holo); outline-offset: -2px; }
-    @media (max-width: 900px) { #pc-music { right: 24px; top: 110px; width: 300px; } #pc-music .vid > * { width: 300px; } }
+    @media (max-width: 900px) { #pc-music { right: 24px; top: 110px; width: 300px; } #pc-music .vid .yt, #pc-music .vid .yt > *, #pc-music .vid .sp { width: 300px; } }
   `));
-  const card = el('div', null, `<div class="vid"><div></div></div><div class="row"><div class="txt"><div class="t"></div><div class="a"></div></div>
+  const card = el('div', null, `<div class="vid"><div class="yt"><div></div></div><div class="sp"><div></div></div></div><div class="row"><div class="txt"><div class="t"></div><div class="a"></div></div>
     <button type="button" data-k="previous" aria-label="Previous song"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button><button type="button" data-k="toggle" aria-label="Pause"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
     <button type="button" data-k="next" aria-label="Next song"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button><button type="button" data-k="stop" aria-label="Close the music"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg></button></div>`);
   const ICON = { play: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M7 5v14l12-7z"/></svg>', pause: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' };
   card.id = 'pc-music'; card.setAttribute('role', 'region'); card.setAttribute('aria-label', 'Music'); hud.appendChild(card);
   const tEl = card.querySelector('.t'), aEl = card.querySelector('.a'), toggle = card.querySelector('[data-k=toggle]');
   let player = null, queue = [], at = 0, k = 0, vol = 70, playing = false, dead = 0, altAsked = false, windowTried = false;
-  const report = (error = '') => { const t = queue[at] || {}; fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: t.title || '', artist: t.artist || '', playing, error }) }).catch(() => {}); };
+  let src = 'yt', sp = null, spWant = '', spLast = { pos: 0, dur: 0 };     // src: whose player this queue plays in (YouTube or Spotify)
+  const post = body => fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+  const report = (error = '') => { const t = queue[at] || {}; post({ title: t.title || '', artist: t.artist || '', playing, error }); };
   const level = () => player && player.setVolume && player.setVolume(ducked ? Math.round(vol * 0.15) : vol);
   duckers.add(level);
   const okId = id => /^[\w-]{11}$/.test(id || '');          // only a YouTube video id ever goes into the address
+  const okSp = u => /^spotify:track:[A-Za-z0-9]{22}$/.test(u || '');
   const idsOf = t => ((t && t.ids && t.ids.length) ? t.ids : [t && t.id]).filter(okId);
+  const usable = t => src === 'sp' ? !!(t && (okSp(t.sp) || t.title)) : idsOf(t).length > 0;
   function paint() {
     const t = queue[at] || {}; tEl.textContent = t.title || ''; aEl.textContent = t.artist || '';
     toggle.innerHTML = playing ? ICON.pause : ICON.play; toggle.setAttribute('aria-label', playing ? 'Pause' : 'Play');
-    card.classList.toggle('paused', !playing);
+    card.classList.toggle('paused', !playing); card.classList.toggle('spotify', src === 'sp');
   }
-  function load() { paint(); const id = idsOf(queue[at])[k]; if (id && player && player.loadVideoById) player.loadVideoById(id); }
+  function load() {
+    paint();
+    if (src === 'sp') { loadSp(); return; }
+    const id = idsOf(queue[at])[k]; if (id && player && player.loadVideoById) player.loadVideoById(id);
+  }
   function go(i) {
     if (!queue.length) return;
     at = (i + queue.length) % queue.length; k = 0; altAsked = false; load();
   }
+
+  // ---- Spotify's own player (Premium users signed in to Spotify in Jarvis's window hear whole songs; others get 30 s previews) ----
+  let spReady = null;
+  const loadSpApi = () => spReady || (spReady = new Promise(res => {
+    window.onSpotifyIframeApiReady = api => res(api);
+    document.head.appendChild(Object.assign(el('script'), { src: 'https://open.spotify.com/embed/iframe-api/v1', async: true }));
+  }));
+  async function loadSp() {
+    const t = queue[at]; if (!t) return;
+    if (!okSp(t.sp)) {            // a similar song found on YouTube Music: look it up on Spotify first
+      try { t.sp = (await (await fetch('/music/sp?q=' + encodeURIComponent(`${t.title} ${t.artist || ''}`.trim()))).json()).uri || ''; } catch (e) {}
+      if (queue[at] !== t) return;
+      if (!okSp(t.sp)) { if (++dead < 4) go(at + 1); return; }
+    }
+    spWant = t.sp; spLast = { pos: 0, dur: 0 };
+    if (sp) {
+      sp.loadUri(t.sp);
+      setTimeout(() => { if (spWant === t.sp && !playing) sp.play(); }, 1500);     // in case the new song's 'ready' doesn't come
+      return;
+    }
+    const api = await loadSpApi();
+    api.createController(card.querySelector('.sp > div'), { uri: t.sp, width: '100%', height: 152 }, c => {
+      sp = c;
+      sp.addListener('ready', () => { if (spWant) sp.play(); });
+      sp.addListener('playback_update', e => {
+        const d = (e && e.data) || {}, dur = d.duration || 0, pos = d.position || 0;
+        if (dur > 0 && dur <= 30500 && !d.isPaused && spWant) {        // only a 30-second preview: not signed in to Spotify Premium here
+          spWant = ''; sp.pause(); const t = queue[at] || {};
+          post({ preview: true, title: t.title || '', artist: t.artist || '' }); stop();
+          if (window.__jvSay) window.__jvSay("Spotify is only giving me 30-second previews, so it's coming from YouTube Music instead. Say connect Spotify to sign in, sir.");
+          return;
+        }
+        if (d.isPaused && spLast.dur > 0 && spLast.pos > spLast.dur - 2500) { spLast = { pos: 0, dur: 0 }; go(at + 1); return; }   // the song ended
+        spLast = { pos, dur };
+        const p = !d.isPaused && !d.isBuffering; if (p) dead = 0;
+        if (p !== playing) { playing = p; paint(); report(); }
+      });
+    });
+  }
+
   // this upload won't play inside Jarvis (labels often allow only YouTube itself): its other uploads, then a lyric video, then the next song
   async function failed() {
     const t = queue[at], ids = idsOf(t);
@@ -1287,25 +1337,29 @@ const music = (() => {
     }
     go(at + 1);
   }
-  async function play(list) {
-    queue = list.filter(t => idsOf(t).length); at = 0; k = 0; dead = 0; altAsked = false;
+  async function play(list, from) {
+    if (src === 'yt' && from === 'sp') { try { player && player.stopVideo(); } catch (e) {} }
+    if (src === 'sp' && from !== 'sp') { spWant = ''; try { sp && sp.pause(); } catch (e) {} }
+    src = from === 'sp' ? 'sp' : 'yt';
+    queue = list.filter(usable); at = 0; k = 0; dead = 0; altAsked = false;
     if (!queue.length) return;
     if (window.__jvHolo && window.__jvHolo.tvSound) window.__jvHolo.clear();     // the news stops for the music (webcams are silent: they stay)
     card.classList.add('on'); place(); slim(); requestAnimationFrame(() => card.classList.add('show')); paint();
-    if (player) { load(); return; }
+    if (src === 'sp' || player) { load(); return; }
     const YT = await loadYT();
-    player = new YT.Player(card.querySelector('.vid > div'), { width: 356, height: 200, videoId: idsOf(queue[0])[0],
+    player = new YT.Player(card.querySelector('.vid .yt > div'), { width: 356, height: 200, videoId: idsOf(queue[0])[0],
       playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
       events: {
-        onReady: () => { level(); if (idsOf(queue[at])[k] !== idsOf(queue[0])[0]) load(); else player.playVideo(); },
+        onReady: () => { level(); if (src !== 'yt') return; if (idsOf(queue[at])[k] !== idsOf(queue[0])[0]) load(); else player.playVideo(); },
         onStateChange: e => {
+          if (src !== 'yt') return;
           if (e.data === YT.PlayerState.ENDED) { go(at + 1); return; }
           const p = e.data === YT.PlayerState.PLAYING; if (p) dead = 0;
           if (p !== playing && e.data !== YT.PlayerState.BUFFERING) { playing = p; paint(); report(); }
         },
         onError: e => {      // tell the log why (101/150: the owner blocks other apps, 153: player setup), then try the next upload
-          fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: e && e.data, id: idsOf(queue[at])[k] || '' }) }).catch(() => {});
+          if (src !== 'yt') return;
+          post({ code: e && e.data, id: idsOf(queue[at])[k] || '' });
           failed();
         },
       } });
@@ -1313,13 +1367,19 @@ const music = (() => {
   function stop(error = '') {
     playing = false; report(error); queue = []; card.classList.remove('show');
     try { player && player.stopVideo(); } catch (e) {}
+    spWant = ''; try { sp && sp.pause(); } catch (e) {}
     setTimeout(() => { if (!card.classList.contains('show')) card.classList.remove('on'); }, 400);
   }
   function cmd(c) {
-    if (!player || !queue.length) return;
+    if (!queue.length || (src === 'yt' && !player)) return;
+    if (c === 'next') { go(at + 1); return; } if (c === 'previous') { go(at - 1); return; } if (c === 'stop') { stop(); return; }
+    if (src === 'sp') {               // Spotify's player has no volume control: louder/quieter go to the PC's volume (the server does that)
+      if (!sp) return;
+      if (c === 'pause') sp.pause(); else if (c === 'resume') sp.resume(); else if (c === 'toggle') sp.togglePlay();
+      return;
+    }
     if (c === 'pause') player.pauseVideo(); else if (c === 'resume') player.playVideo();
     else if (c === 'toggle') playing ? player.pauseVideo() : player.playVideo();
-    else if (c === 'next') go(at + 1); else if (c === 'previous') go(at - 1); else if (c === 'stop') stop();
     else if (c === 'louder' || c === 'quieter') { vol = Math.max(10, Math.min(100, vol + (c === 'louder' ? 15 : -15))); level(); }
   }
   card.addEventListener('click', e => { const b = e.target.closest('button'); if (b) cmd(b.dataset.k); });
@@ -1328,8 +1388,8 @@ const music = (() => {
   // the slim bar while something else needs the room (and while the news is on, the music waits)
   function slim() { card.classList.toggle('slim', !!(document.body.classList.contains('pc-holo-on') || (window.__jvGlobe && window.__jvGlobe.on) || (window.__jvFeeds && window.__jvFeeds.on))); }
   setInterval(() => { if (card.classList.contains('on')) slim(); }, 700);
-  const append = list => { if (queue.length) queue.push(...list.filter(t => idsOf(t).length)); };      // the similar songs, a moment after the first
-  return { msg: m => m.cmd === 'play' ? play(m.queue || []) : m.cmd === 'append' ? append(m.queue || []) : cmd(m.cmd), pause: () => cmd('pause'), get on() { return card.classList.contains('show'); },
+  const append = list => { if (queue.length) queue.push(...list.filter(usable)); };      // the similar songs, a moment after the first
+  return { msg: m => m.cmd === 'play' ? play(m.queue || [], m.src) : m.cmd === 'append' ? append(m.queue || []) : cmd(m.cmd), pause: () => cmd('pause'), get on() { return card.classList.contains('show'); },
            get playing() { return playing; } };
 })();
 
