@@ -4127,9 +4127,22 @@ def _log_busiest():
     cores = psutil.cpu_count() or 1
     print("[BUSY] " + ", ".join(f"{n} {v / cores:.0f}%" for n, v in top if v > 0))
 
+def _speakable(text):
+    """What the voice should actually say. The voices read a stray full stop out loud as "dot": a piece that's only punctuation
+    (". " left over between two sentences), sentences glued together ("Done.Next"), "..." and markdown symbols."""
+    t = re.sub(r"[*_#`~|>]+", " ", text or "")                     # markdown
+    t = re.sub(r"\.{2,}|…", ", ", t)                                # a pause, not "dot dot dot"
+    t = re.sub(r"(?<=[a-z\)])\.(?=[A-Z])", ". ", t)                  # "Done.Next" -> "Done. Next" (gmail.com, 1.5 and U.S. are left alone)
+    t = re.sub(r"(?<=\w)\s+\.(?=\s|$)", ".", t)                        # "answer . Sure": the stop belongs to the word before
+    t = re.sub(r"(?<=[\s(])\.(?=\s|$)", " ", t)                      # a full stop on its own
+    t = re.sub(r"^[\s.,;:!?\-]+", "", t)                              # leftovers at the start
+    t = re.sub(r"\s+([.,!?;:])", r"\1", t)
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    return t if re.search(r"[A-Za-z0-9]", t) else ""
+
 @app.post("/speak")
 async def speak(payload: dict):
-    text = (payload.get("text") or "").strip()
+    text = _speakable((payload.get("text") or "").strip())
     if not text: return Response(status_code=204)
     t0 = time.time()
     audio, media = await asyncio.to_thread(_synth_cached, text, CONFIG.get("voice"))
