@@ -171,15 +171,26 @@ def install(ns):
     @tool("globe", "Show the live 3D Earth instead of the face. Country and state borders and names are drawn on it. action: show, hide, "
           "satellite (yesterday's real satellite photo), holo (hologram look), earthquakes, storms (hurricanes, typhoons, cyclones), "
           "iss (the space station's orbit), aurora, focus (fly to a place), zoom (fly in close: to the place if given, else closer where it's looking), "
-          "zoom_out (back to the whole Earth). place: for focus/zoom or 'earthquakes near X'.",
-          {"action": {"type": "string", "enum": ["show", "hide", "satellite", "holo", "earthquakes", "storms", "iss", "aurora", "focus", "zoom", "zoom_out"]},
-           "place": {"type": "string"}}, ["action"])
-    def _globe(action: str, place: str = ""):
+          "zoom_out (back to the whole Earth), night (the dark side with city lights), distance (how far place is from place2, drawn as an arc). "
+          "place: for focus/zoom/distance or 'earthquakes near X'.",
+          {"action": {"type": "string", "enum": ["show", "hide", "satellite", "holo", "earthquakes", "storms", "iss", "aurora", "focus", "zoom", "zoom_out", "night", "distance"]},
+           "place": {"type": "string"}, "place2": {"type": "string"}}, ["action"])
+    def _globe(action: str, place: str = "", place2: str = ""):
         a = (action or "show").lower().strip()
         if a == "hide": globe_at["label"] = ""; send("globe", {"cmd": "hide"}); return "Globe away."
         if a in ("show", "holo", "satellite"):
             send("globe", {"cmd": "show", "mode": "sat" if a == "satellite" else "holo"})
             return "Today's satellite view, sir." if a == "satellite" else "The Earth, sir."
+        if a == "night":
+            send("globe", {"cmd": "show", "night": True}); return "The night side, sir. Those lights are the cities."
+        if a == "distance":
+            if not place2 and re.search(r"\s(?:and|to)\s", place or ""): place, place2 = re.split(r"\s+(?:and|to)\s+", place, maxsplit=1)
+            p1, p2 = place_of(place), place_of(place2)
+            if not p1 or not p2: return f"I couldn't find {place if not p1 else place2}."
+            km = round(_km(p1[0], p1[1], p2[0], p2[1]))
+            send("globe", {"cmd": "show", "measure": {"a": {"lat": p1[0], "lon": p1[1], "label": p1[2]}, "b": {"lat": p2[0], "lon": p2[1], "label": p2[2]}, "km": km}})
+            globe_at["label"] = ""
+            return f"{p1[2]} to {p2[2]}: {km:,} kilometres, about {round(km * 0.621371):,} miles, as the crow flies."
         if a == "zoom_out":
             globe_at["label"] = ""; send("globe", {"cmd": "show", "fly": {"dist": 5.6}}); return "The whole Earth."
         place = re.sub(r"\d+\s*(%|percent|times|x)?|\b(more|closer|than this|further|further in|in)\b", "", place or "", flags=re.I).strip(" ,.")   # "Abuja 1000%"
@@ -236,6 +247,7 @@ def install(ns):
         if kind == "sat":     # yesterday's whole-Earth VIIRS photo (today's isn't finished yet; VIIRS's wide swath leaves almost no gaps)
             day = (datetime.datetime.utcnow() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
             path, layer, extra = os.path.join(TEX_DIR, f"sat-{day}.jpg"), "VIIRS_SNPP_CorrectedReflectance_TrueColor", f"&TIME={day}"
+        elif kind == "night": path, layer, extra = os.path.join(TEX_DIR, "night.jpg"), "VIIRS_Black_Marble", ""     # NASA's Earth at night: city lights
         else: path, layer, extra = os.path.join(TEX_DIR, "blue.jpg"), "BlueMarble_ShadedRelief_Bathymetry", ""
         if not os.path.exists(path):
             import requests
@@ -278,7 +290,7 @@ def install(ns):
 
     @app.get("/globe/tex/{kind}")
     async def globe_tex(kind: str):
-        try: path = await asyncio.to_thread(ensure_tex, "sat" if kind == "sat" else "blue")
+        try: path = await asyncio.to_thread(ensure_tex, kind if kind in ("sat", "night") else "blue")
         except Exception as ex: print(f"[GLOBE] picture unavailable: {type(ex).__name__}"); path = None
         if not path: return Response(status_code=502)
         return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
@@ -947,6 +959,101 @@ def install(ns):
         if p.scheme not in ("http", "https") or not p.hostname: return False
         try: return all(ipaddress.ip_address(a[4][0]).is_global for a in socket.getaddrinfo(p.hostname, None))
         except Exception: return False
+
+    # ---- HOLO DESK: what its panels show (news with pictures, the weather here, unread email), and the voice command for it ----
+    def desk_news():
+        res = []
+        for q in ("world news", "breaking news", "news"):        # "top news today" finds nothing on DuckDuckGo
+            try:
+                with ddgs() as d: res = list(d.news(q, max_results=12))
+            except Exception: res = []
+            if res: break
+        out = []
+        for r in res:
+            when = 0
+            try: when = int(datetime.datetime.fromisoformat(str(r.get("date", "")).replace("Z", "+00:00")).timestamp())
+            except Exception: pass
+            out.append({"title": r.get("title", "")[:160], "body": (r.get("body") or "")[:700], "source": r.get("source") or host_of(r.get("url", "")),
+                        "image": r.get("image") or "", "when": when})
+        return {"items": out}
+
+    def desk_weather():
+        import requests
+        d = requests.get("https://wttr.in/?format=j1", timeout=8).json()
+        c, area = d["current_condition"][0], (d.get("nearest_area") or [{}])[0]
+        place = ", ".join(x[0]["value"] for x in (area.get("areaName"), area.get("country")) if x)
+        now_h = datetime.datetime.now().hour
+        hours = []
+        for day in d.get("weather", [])[:2]:
+            for h in day.get("hourly", []):
+                hh = int(h.get("time", "0")) // 100
+                if day is d["weather"][0] and hh <= now_h: continue
+                hours.append({"t": h["tempC"], "at": f"{hh:02d}:00"})
+        days = [{"day": datetime.date.fromisoformat(w["date"]).strftime("%a"), "hi": w["maxtempC"], "lo": w["mintempC"]} for w in d.get("weather", [])[:3]]
+        return {"temp": c["temp_C"], "feels": c["FeelsLikeC"], "desc": c["weatherDesc"][0]["value"].strip(), "humidity": c["humidity"],
+                "wind": c["windspeedKmph"], "place": place, "hours": hours[:6], "days": days}
+
+    def desk_email(one=""):
+        svc = ns["_google_service"]("gmail", "v1")
+        if svc is None: return {"error": "Gmail isn't connected. Say 'connect my Google account' first."}
+        if one:
+            if not re.fullmatch(r"[0-9a-fA-F]{6,32}", one): return {"error": "Unknown email."}
+            m = svc.users().messages().get(userId="me", id=one, format="full").execute()
+            h = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
+            def text_of(part):
+                import base64
+                if part.get("mimeType") == "text/plain" and part.get("body", {}).get("data"):
+                    return base64.urlsafe_b64decode(part["body"]["data"] + "==").decode("utf-8", "ignore")
+                for sub in part.get("parts", []) or []:
+                    t = text_of(sub)
+                    if t: return t
+                return ""
+            return {"subject": h.get("subject", ""), "from": re.sub(r"\s*<.*?>", "", h.get("from", "")).strip('" '),
+                    "text": ns["_clean_mail_text"](text_of(m.get("payload", {})) or m.get("snippet", ""))[:3000]}
+        res = svc.users().messages().list(userId="me", q="is:unread in:inbox", maxResults=15).execute().get("messages", [])
+        heads = {}
+        def got(rid, m, err):
+            if err is None: heads[rid] = (m.get("snippet", ""), {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])})
+        if res:
+            batch = svc.new_batch_http_request(callback=got)
+            for r in res: batch.add(svc.users().messages().get(userId="me", id=r["id"], format="metadata", metadataHeaders=["From", "Subject", "Date"]), request_id=r["id"])
+            batch.execute()
+        items = []
+        for r in res:
+            snip, h = heads.get(r["id"], ("", {}))
+            when = 0
+            try:
+                import email.utils
+                when = int(email.utils.parsedate_to_datetime(h.get("date", "")).timestamp())
+            except Exception: pass
+            items.append({"id": r["id"], "title": h.get("subject", "(no subject)"), "source": re.sub(r"\s*<.*?>", "", h.get("from", "")).strip('" '), "body": snip, "when": when})
+        return {"items": items}
+
+    @app.get("/desk/data")
+    async def desk_data(kind: str, id: str = ""):
+        fn = {"news": desk_news, "weather": desk_weather, "email": desk_email, "email_one": lambda: desk_email(id)}.get(kind)
+        if not fn: return {"error": "Unknown panel."}
+        try: return await asyncio.to_thread(fn)
+        except Exception as e: print(f"[DESK] {kind}: {type(e).__name__}: {e}"); return {"error": "Couldn't load that just now."}
+
+    @app.post("/desk/open")
+    async def desk_open(payload: dict):
+        """The desk's Globe and Cameras buttons: those are the big views, so the desk makes way for them."""
+        k = payload.get("kind")
+        if k == "globe": send("globe", {"cmd": "show", "fly": {"dist": 5.6}})
+        elif k == "cams": await asyncio.to_thread(ns["_TOOL_REGISTRY"]["show_public_cam"], "", "show")
+        return {"ok": True}
+
+    @tool("holo_desk", "The holo desk (mirror mode): the camera fills the screen like a mirror and panels float around him, moved with his hands. "
+          "action open (optionally with panel: news, weather, clock, email, music), add (another panel), clear (put the panels away), close (leave it).",
+          {"action": {"type": "string", "enum": ["open", "add", "clear", "close"]}, "panel": {"type": "string", "enum": ["news", "weather", "clock", "email", "music"]}}, ["action"])
+    def _holo_desk(action: str = "open", panel: str = ""):
+        a = (action or "open").lower()
+        if a == "close": send("desk", {"cmd": "close"}); return "Desk closed."
+        if a == "clear": send("desk", {"cmd": "clear"}); return "Cleared."
+        send("desk", {"cmd": "open", **({"panel": panel} if panel else {})})
+        return ("Holo desk is open. Pinch a panel to move it, pinch its cross to close it, and hold an open hand still for the menu."
+                if a == "open" else f"{(panel or 'Panel').title()}, on the desk.")
 
     @app.get("/holo/img")
     async def holo_img(u: str):

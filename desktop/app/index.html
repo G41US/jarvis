@@ -1454,7 +1454,7 @@ function connectWS() {
       else if (data.startsWith('callstart:')) { window.__jvInCall = true; addMsg('Answering a WhatsApp call for you.', 'sys'); }
       else if (data.startsWith('callsay:')) { Promise.resolve(muted ? null : speakUnprompted(data.slice(8))).finally(() => fetch('/call/said', { method: 'POST' }).catch(() => {})); }
       else if (data.startsWith('callend:')) { window.__jvInCall = false; }
-      else if (/^(globe|plan|recap|gesture|panels|holo|feeds|music):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
+      else if (/^(globe|plan|recap|gesture|panels|holo|feeds|music|desk):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
       else if (data.startsWith('nav:')) { try { navMessage(JSON.parse(data.slice(4))); } catch (e) { console.warn('[NAV]', e); } }
       else if (data.startsWith('look_request:')) { handleLookRequest(data.slice(13)); }
       else if (data.startsWith('identify_request:')) { handleIdentifyRequest(data.slice(17)); }

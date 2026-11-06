@@ -1105,7 +1105,8 @@ def build_system_prompt():
         "- The user's own schedule and to-dos live on this PC: add/move/cancel an event or 'lock it in'->schedule, tasks->todo, "
         "'plan my day' / 'organise my calendar'->plan_my_day, 'recap' / 'give me the numbers'->recap. "
         "The Earth, satellite view, earthquakes, storms or hurricanes, the space station, aurora->globe (it replaces the face; 'back to you' / 'hide the globe'->globe hide). "
-        "On the globe 'show me X' / 'go to X'->globe focus, 'zoom in on X' / 'zoom in'->globe zoom, 'zoom out'->globe zoom_out. Country and state borders and names are always drawn on it, so never say you can't show them. "
+        "On the globe 'show me X' / 'go to X'->globe focus, 'zoom in on X' / 'zoom in'->globe zoom, 'zoom out'->globe zoom_out. "
+        "'how far is X from Y' / 'distance between X and Y'->globe distance (place, place2), 'night side' / 'city lights' / 'earth at night'->globe night. Country and state borders and names are always drawn on it, so never say you can't show them. "
         "'gesture mode' / 'hand control'->gesture_mode.\n"
         "- Pictures of anything ('show me pictures of X', 'what does X look like')->show_images: they fly out of the screen as numbered panels, and so do "
         "search results, headlines and every other answer (weather, prices, facts, plans). 'open number two' / 'the third one'->holo select, 'put them away' / 'close them'->holo clear, "
@@ -1118,6 +1119,7 @@ def build_system_prompt():
         "'connect Spotify' / 'sign in to Spotify' / 'use YouTube Music again'->connect_spotify. "
         "'close the player' / 'stop the music' / 'turn it off' while a song plays->play_music stop (never window_control). "
         "'play a song' with nothing named->play_music with no query (it picks popular songs; don't ask which). media_control is only for other apps' players.\n"
+        "- 'holo desk' / 'mirror mode' (the camera as a mirror with panels he moves by hand)->holo_desk; 'put the news / weather on the desk'->holo_desk add.\n"
         "- Cameras / webcams / live cams anywhere ('live cameras available', 'a public one in New York')->show_public_cam, never search_web; "
         "no place named->show_public_cam with location '' (popular live ones). 'close/clear the cameras, feeds, news'->show_public_cam action close.\n"
         "- MAP/NAVIGATION works anywhere in the world: 'navigate to X' or 'take me to X'->navigate_to (the face shrinks to a corner orb and a "
@@ -3332,6 +3334,7 @@ def _spawn_summary():
 # so sending them every time meant a second question within a minute waited. The last two things he said pick the groups.
 _TOOL_CORE = ("get_time", "get_weather", "search_web", "wikipedia", "calculate", "remember")
 _TOOL_GROUPS = [
+    (r"\b(desk|holo ?desk|holodesk|mirror|hologram mode|mirror mode)\b", ("holo_desk",)),
     (r"\b(close|take away|remove|hide|dismiss|clear|get rid of|put away|bring back|card|cards|panels?|floating|your face)\b", ("holo", "globe", "show_public_cam")),
     (r"\b(e-?mails?|gmail|inbox|mail|unread|messages? from)\b", ("gmail", "google_account")),
     (r"\b(google account|connect (my )?google|sign (me )?in|log ?in|disconnect)\b", ("google_account",)),
@@ -3366,7 +3369,7 @@ _TOOL_GROUPS = [
      ("schedule", "todo", "plan_my_day", "get_calendar", "recap")),
     (r"\b(recap|numbers|stats|how'?s my day|done today|did (i|we) do)\b", ("recap",)),
     (r"\b(brief|briefing|morning report)\b", ("morning_briefing",)),
-    (r"\b(globe|earth|world|satellite|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|zoom\w*|borders?|provinces?|states?|country|countries|show me|go to|back to you|hologram)\b",
+    (r"\b(globe|earth|world|satellite|how far|distance|night side|city lights|at night|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|zoom\w*|borders?|provinces?|states?|country|countries|show me|go to|back to you|hologram)\b",
      ("globe",)),
     (r"\b(gestures?|hand control|hands?)\b", ("gesture_mode",)),
     (r"\b(pictures?|images?|photos?|pics?|look like|show me)\b", ("show_images", "holo")),
@@ -3383,10 +3386,11 @@ def _pick_tools(messages, extra=()):
 def _needs_tool(text: str) -> bool:
     t = text.lower().strip()
     if re.search(r'\b(phone|link|unlink|continue|carry on|left off)\b', t): return True    # phone handoff
+    if re.search(r'\b(holo ?desk|holodesk|mirror mode|on the desk|the desk)\b', t): return True
     if re.search(r'\b(close|take away|remove|hide|dismiss|clear|get rid of|put away|turn off|stop)\b.*\b(card|cards|panel|panels|this|that|it|them|those|everything|feeds?|globe|window|'
                  r'cameras?|cams?|webcams?|stations?|news|music|player|song)\b'
                  r'|\b(bring back|show) (your|the) face\b|\bzoom\w*\b', t): return True
-    if re.search(r'\b(globe|earth|world map|satellite|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|'
+    if re.search(r'\b(globe|earth|world map|satellite|how far|distance between|night side|city lights|earthquakes?|quakes?|storms?|hurricanes?|typhoons?|cyclones?|iss|space station|aurora|'
                  r'plan|planner|organi[sz]e|tasks?|to-?dos?|lock it in|recap|numbers|gestures?|hand control|back to you|zoom|borders?|provinces?|pictures?|images?|photos?|panels?|3d|pop out|put (them|those) away|close (them|those)|(first|second|third|fourth|fifth|last) one)\b', t): return True
     if re.match(r'^(what|where|when|who|which|whose|why|how|is|are|was|were|'
                 r'do|does|did|can|could|would|will|should|tell me|show me|'
@@ -3511,7 +3515,7 @@ def _exec_tool(name, raw_args):
 
 # tools whose result is already the sentence to say ("Abuja, sir.", "Playing Bad Blood by Taylor Swift."): said as they are, with no second
 # request for the model to reword them. That's a second sooner, and the second request is where gpt-oss kept "calling a tool" and failing.
-SAY_AS_IS = {"globe", "holo", "show_public_cam", "play_music", "connect_spotify", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
+SAY_AS_IS = {"globe", "holo", "show_public_cam", "play_music", "connect_spotify", "holo_desk", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
              "lock_pc", "take_screenshot", "set_timer", "remember", "forget_memory", "set_preference", "forget_preference", "set_reminder",
              "flip_coin", "roll_dice", "take_note", "set_voice", "map_control", "stop_navigation", "show_images", "google_account",
              "spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "link_phone", "unlink_phone", "take_calls"}
