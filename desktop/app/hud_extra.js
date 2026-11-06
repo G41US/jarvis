@@ -50,6 +50,8 @@ document.head.appendChild(el('style', null, `
     text-shadow: 0 0 6px #000, 0 0 12px rgba(0, 0, 0, .9), 0 1px 2px #000; }
   .pc-gname.st { font-weight: 500; font-size: 10.5px; letter-spacing: .08em; text-transform: none; color: rgba(255, 236, 200, .82); }
   .pc-glabel.big { font-size: 13px; color: var(--live); border-color: color-mix(in srgb, var(--holo) 55%, transparent); }
+  .pc-glabel.pc-gkm { font-size: 15px; font-weight: 600; padding: 6px 12px; letter-spacing: .04em; }
+  .pc-glabel.pc-gkm i { font-style: normal; font-weight: 400; font-size: 12px; opacity: .7; margin-left: 6px; }
 
   #pc-card { position: absolute; left: 48px; top: 150px; width: min(380px, 28vw); max-height: calc(100vh - 250px); overflow: hidden; padding: 20px 22px 22px;
     border-radius: 22px; background: linear-gradient(180deg, rgba(50, 32, 16, .66), rgba(24, 16, 8, .74)); border: 1px solid var(--glass-hi);
@@ -152,7 +154,7 @@ function infoHtml(c) {
 // ============================================================
 const globe = (() => {
   const canvas = el('canvas'); canvas.id = 'pc-globe'; $('three').after(canvas);
-  let renderer = null, scene, camera, earth, group, mat, atmo, layer = null, line = null, issDot = null, labels = [], running = false;
+  let renderer = null, scene, camera, earth, group, mat, atmo, aur, aurWant = 0, layer = null, line = null, issDot = null, labels = [], running = false;
   let mode = 0, modeWant = 0, rotX = 0.35, rotY = 0, spin = true, satTex = null, issTimer = null;
   const HOME = 5.6, NEAR = 1.04, FAR = 8;                 // camera distance in Earth radii: whole Earth, closest (about 250 km up), farthest
   let dist = HOME, fly = null, px = 0, pxWant = 0, lastDrag = 0;
@@ -160,12 +162,14 @@ const globe = (() => {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const vec = (lat, lon, r = R) => new THREE.Vector3(Math.cos(lat * DEG) * Math.cos(lon * DEG), Math.sin(lat * DEG), -Math.cos(lat * DEG) * Math.sin(lon * DEG)).multiplyScalar(r);
   const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); blank.needsUpdate = true;
-  const shared = { uMode: { value: 0 }, uGold: { value: new THREE.Color(0xf5c97a) }, uTime: { value: 0 }, uScan: { value: 1 }, uGrid: { value: 15 } };
-  const VS = `varying vec2 vUv; varying vec3 vN; varying vec3 vV;
-    void main() { vUv = uv; vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`;
+  const shared = { uMode: { value: 0 }, uGold: { value: new THREE.Color(0xf5c97a) }, uTime: { value: 0 }, uScan: { value: 1 }, uGrid: { value: 15 },
+    tNight: { value: blank }, uSun: { value: new THREE.Vector3(1, 0, 0) }, uNight: { value: 0 } };
+  const VS = `varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vObj;
+    void main() { vUv = uv; vObj = normalize(position); vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`;
   // one look for the whole Earth and for the sharp close-up patch: uBox says which lon/lat the texture covers (west, south, east, north)
-  const FS = `uniform sampler2D tBlue; uniform sampler2D tSat; uniform float uMode; uniform vec3 uGold; uniform float uTime; uniform float uScan; uniform float uGrid;
-    uniform vec4 uBox; uniform float uEdge; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+  // night side: the sun's real direction darkens it and NASA's Black Marble city lights come on (sampled by lon/lat, so the close-up patch gets them too)
+  const FS = `uniform sampler2D tBlue; uniform sampler2D tSat; uniform sampler2D tNight; uniform float uMode; uniform vec3 uGold; uniform float uTime; uniform float uScan; uniform float uGrid;
+    uniform vec3 uSun; uniform float uNight; uniform vec4 uBox; uniform float uEdge; varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vObj;
     void main() {
       vec3 b = texture2D(tBlue, vUv).rgb, s = texture2D(tSat, vUv).rgb;
       float land = smoothstep(0.0, 0.08, max(b.r, b.g) - b.b + 0.03);
@@ -178,6 +182,10 @@ const globe = (() => {
       float hasSat = smoothstep(0.03, 0.09, max(s.r, max(s.g, s.b)));
       vec3 gap = mix(vec3(0.10, 0.13, 0.19) + b * 0.3, b * 0.9, land);
       vec3 sat = mix(gap, s, hasSat) * (0.35 + 0.75 * max(dot(vN, normalize(vec3(-0.4, 0.3, 1.0))), 0.0)) + vec3(0.35, 0.55, 1.0) * rim * 0.55;
+      float sunD = dot(normalize(vObj), uSun), dark = smoothstep(0.06, -0.14, sunD) * uNight;
+      float lights = smoothstep(0.22, 0.8, texture2D(tNight, vec2((lon + 180.0) / 360.0, (lat + 90.0) / 180.0)).r) * dark;
+      holo = holo * (1.0 - 0.45 * dark) + vec3(1.0, 0.9, 0.62) * lights * 0.95;
+      sat = sat * (1.0 - 0.84 * dark) + vec3(1.0, 0.76, 0.42) * lights * 1.25 + vec3(1.0, 0.55, 0.2) * exp(-pow(sunD / 0.03, 2.0)) * 0.05 * uNight;
       vec2 e = min(vUv, 1.0 - vUv); float a = uEdge > 0.0 ? smoothstep(0.0, uEdge, min(e.x, e.y)) : 1.0;
       gl_FragColor = vec4(mix(holo, sat, uMode), a);
     }`;
@@ -192,6 +200,24 @@ const globe = (() => {
     mat = makeMat([-180, -90, 180, 90], 0);
     earth = new THREE.Mesh(new THREE.SphereGeometry(R, 160, 80), mat); group.add(earth);
     new THREE.TextureLoader().load('/globe/tex/blue', t => { t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; mat.uniforms.tBlue.value = t; });
+    new THREE.TextureLoader().load('/globe/tex/night', t => { t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; shared.tNight.value = t; shared.uNight.value = 1; });
+    // aurora: two moving green curtains round the magnetic poles (80.7N 72.7W and its opposite), only on the night side
+    aur = new THREE.Mesh(new THREE.SphereGeometry(R * 1.022, 128, 64), new THREE.ShaderMaterial({
+      uniforms: { uSun: shared.uSun, uTime: shared.uTime, uA: { value: 0 }, uP: { value: vec(80.7, -72.7) } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: `varying vec3 vO; varying vec3 vN; varying vec3 vV; void main() { vO = normalize(position); vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `uniform vec3 uSun; uniform vec3 uP; uniform float uTime; uniform float uA; varying vec3 vO; varying vec3 vN; varying vec3 vV;
+        void main() {
+          float m = degrees(asin(clamp(dot(vO, uP), -1.0, 1.0)));
+          vec3 e1 = normalize(cross(uP, vec3(0.0, 1.0, 0.0))), e2 = cross(uP, e1);
+          float ml = atan(dot(vO, e2), dot(vO, e1)), t = uTime;
+          float c = 67.0 + 2.2 * sin(ml * 3.0 + t * 0.25) + 1.2 * sin(ml * 7.0 - t * 0.4), d = abs(m) - c;
+          float band = exp(-d * d / 10.0) * (0.78 + 0.22 * sin(ml * 9.0 + t * 0.8 + 2.0 * sin(ml * 4.0 - t * 0.5)) * sin(ml * 31.0 - t * 1.1)) + exp(-d * d / 45.0) * 0.25;
+          float night = smoothstep(0.2, -0.1, dot(vO, uSun)), limb = 0.75 + 0.9 * pow(1.0 - max(dot(vN, vV), 0.0), 1.5);
+          vec3 col = mix(vec3(0.2, 1.0, 0.5), vec3(0.75, 0.35, 1.0), smoothstep(0.0, 3.0, d));
+          float a = band * night * limb * uA; if (a < 0.003) discard; gl_FragColor = vec4(col * a, a);
+        }`,
+    }));
+    aur.renderOrder = 4; group.add(aur);
     atmo = new THREE.Mesh(new THREE.SphereGeometry(R * 1.12, 64, 32), new THREE.ShaderMaterial({
       uniforms: { uC: { value: new THREE.Color(0xf5c97a) } }, side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       vertexShader: `varying vec3 vN; varying vec3 vV; void main() { vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
@@ -204,11 +230,16 @@ const globe = (() => {
     canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
     canvas.addEventListener('pointermove', e => { if (!drag) return; turn(e.clientX - drag.x, e.clientY - drag.y); drag = { x: e.clientX, y: e.clientY }; });
     canvas.addEventListener('pointerup', () => { drag = null; });
+    canvas.addEventListener('dblclick', e => tapAt(e.clientX, e.clientY));
     canvas.addEventListener('wheel', e => setDist(dist * (1 + e.deltaY * 0.0012)), { passive: true });
   }
   function turn(dx, dy) {     // slower when close in, so a small drag doesn't fling a continent away
     const k = 3.2 / innerHeight * clamp((dist - 1) / (HOME - 1), 0.03, 1.2);
     rotY += dx * k; rotX = clamp(rotX + dy * k, -1.45, 1.45); spin = false; fly = null; lastDrag = performance.now();
+  }
+  function sunNow() {      // where the sun is overhead right now (declination and hour angle; the equation of time is ignored, ±4 min)
+    const d = new Date(), doy = (d - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5, h = d.getUTCHours() + d.getUTCMinutes() / 60;
+    shared.uSun.value.copy(vec(-23.44 * Math.cos(2 * Math.PI / 365 * (doy + 10)), (12 - h) * 15));
   }
   function setDist(d) { dist = clamp(d, NEAR, FAR); fly = null; spin = false; lastDrag = performance.now(); }
   function layout() {           // centred; slides right only while a side card is up
@@ -287,7 +318,7 @@ const globe = (() => {
     if (layer) { group.remove(layer); layer.geometry.dispose(); layer.material.dispose(); layer = null; }
     if (line) { group.remove(line); line.geometry.dispose(); line = null; }
     if (issDot) { group.remove(issDot); issDot = null; }
-    clearInterval(issTimer); labels.forEach(l => l.el.remove()); labels = [];
+    clearInterval(issTimer); labels.forEach(l => l.el.remove()); labels = []; aurWant = 0;
   }
   function label(lat, lon, text, big) { const e = el('div', 'pc-glabel' + (big ? ' big' : ''), esc(text)); hud.appendChild(e); labels.push({ el: e, p: vec(lat, lon, R * 1.02) }); }
   function points(list, kind) {
@@ -330,6 +361,41 @@ const globe = (() => {
     issTimer = setInterval(() => fetch('/globe/iss').then(r => r.json()).then(d => put(d.latitude, d.longitude)).catch(() => {}), 5000);
   }
 
+  // distance: two places joined by a great-circle arc lifted off the ground, the length written at its top.
+  // Voice sends both places; by hand, two quick pinch-taps (or double-clicks) on the globe drop the pins, a third starts again.
+  const latLon = v => ({ lat: Math.asin(clamp(v.y / v.length(), -1, 1)) / DEG, lon: Math.atan2(-v.z, v.x) / DEG });
+  const kmBetween = (a, b) => Math.round(6371 * vec(a.lat, a.lon).angleTo(vec(b.lat, b.lon)));
+  function measure(a, b, km) {
+    clearLayer(); pins = [];
+    const va = vec(a.lat, a.lon), vb = vec(b.lat, b.lon), ang = va.angleTo(vb), sn = Math.sin(ang), pts = [];
+    for (let i = 0; i <= 120; i++) {
+      const t = i / 120, p = sn < 1e-4 ? va.clone() : va.clone().multiplyScalar(Math.sin((1 - t) * ang) / sn).add(vb.clone().multiplyScalar(Math.sin(t * ang) / sn));
+      pts.push(p.setLength(R * (1.004 + (0.015 + ang * 0.09) * Math.sin(Math.PI * t))));
+    }
+    line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xfff1c9, transparent: true, opacity: 0.95, depthWrite: false }));
+    line.renderOrder = 5; group.add(line);
+    points([a, b], 'pins');
+    label(a.lat, a.lon, a.label || 'A', false); label(b.lat, b.lon, b.label || 'B', false);
+    const e = el('div', 'pc-glabel big pc-gkm', `${km.toLocaleString()} km <i>${Math.round(km * 0.621371).toLocaleString()} mi</i>`); hud.appendChild(e);
+    labels.push({ el: e, p: pts[60].clone().multiplyScalar(1.01) });
+    const mid = sn < 1e-4 || ang > 3.1 ? latLon(pts[60]) : latLon(va.clone().add(vb));
+    flyTo({ lat: mid.lat, lon: mid.lon, dist: clamp(1.6 + ang * 1.9, 1.9, HOME) });
+  }
+  let pins = [];
+  const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2();
+  function tapAt(x, y) {
+    _ndc.set(x / innerWidth * 2 - 1, -(y / innerHeight) * 2 + 1); _ray.setFromCamera(_ndc, camera);
+    const hit = _ray.intersectObject(earth, false)[0]; if (!hit) return false;
+    const p = latLon(group.worldToLocal(hit.point.clone())), fmt = (v, a, b) => `${Math.abs(v).toFixed(1)}°${v >= 0 ? a : b}`;
+    p.label = `${fmt(p.lat, 'N', 'S')} ${fmt(p.lon, 'E', 'W')}`;
+    if (pins.length >= 2) pins = [];
+    pins.push(p);
+    if (pins.length === 1) { clearLayer(); pins = [p]; points([p], 'pins'); label(p.lat, p.lon, p.label, false); return true; }
+    const [a, b] = pins, km = kmBetween(a, b); measure(a, b, km); pins = [a, b];
+    if (window.__jvSay) window.__jvSay(`${km.toLocaleString()} kilometres.`);
+    return true;
+  }
+
   const clock = new THREE.Clock(); const _v = new THREE.Vector3(), _n = new THREE.Vector3(), _cam = new THREE.Vector3(), _inv = new THREE.Matrix4();
   const lineCol = new THREE.Color(), GOLD = new THREE.Color(0xffe6b8), WHITE = new THREE.Color(0xffffff);
   function project(p, placed, minDx, minDy) {   // screen spot for a point on the globe, or null if it's round the back or would overlap
@@ -348,13 +414,15 @@ const globe = (() => {
     hudBoxes = HUD_IDS.map(id => document.getElementById(id)).filter(e => e && parseFloat(getComputedStyle(e).opacity) > 0.05 && getComputedStyle(e).display !== 'none')
       .map(e => e.getBoundingClientRect()).filter(r => r.width > 0);
   }
-  let lastDraw = 0;
+  let lastDraw = 0, sunAt = 0;
   function frame() {
     if (!running) return;
     if (window.__jvLight && performance.now() - lastDraw < 40) { requestAnimationFrame(frame); return; }   // light mode: the globe at 25 fps
     lastDraw = performance.now();
     const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
     mode += (modeWant - mode) * Math.min(1, dt * 2.5); shared.uMode.value = mode; shared.uTime.value += dt;
+    if (now - sunAt > 10000) { sunAt = now; sunNow(); }
+    const aw = Math.max(aurWant, mode * 0.6); aur.material.uniforms.uA.value += (aw - aur.material.uniforms.uA.value) * Math.min(1, dt * 2);
     atmo.material.uniforms.uC.value.set(0xf5c97a).lerp(new THREE.Color(0x6aa8ff), mode);
     if (layer) layer.material.uniforms.uTime.value += dt;
     if (fly) {
@@ -412,11 +480,17 @@ const globe = (() => {
       else if (msg.mode === 'holo') { modeWant = 0; patchKey = ''; }
       if (msg.layer) {
         clearLayer();
+        if (msg.layer === 'aurora') { aurWant = 1; sunNow(); if (msg.focus) msg.focus.lon = latLon(shared.uSun.value).lon + 180; }   // look at the part of the oval that's in the dark
         if (msg.points && msg.points.length) points(msg.points, msg.layer);
         if (msg.layer === 'iss' && msg.line) arc(msg.line);
         (msg.points || []).filter(p => p.label).slice(0, msg.layer === 'quakes' ? 5 : 8).forEach((p, i) => label(p.lat, p.lon, p.label, i === 0));
       }
-      const target = msg.fly || (msg.focus && { lat: msg.focus.lat, lon: msg.focus.lon, dist: msg.layer === 'aurora' ? 3.4 : 3.0, label: msg.focus.label });
+      if (msg.night) {         // the dark side of the Earth, where the cities are lit right now
+        modeWant = 1; patchKey = ''; if (!satTex) satTex = new THREE.TextureLoader().load('/globe/tex/sat', t => { mat.uniforms.tSat.value = t; });
+        sunNow(); const s0 = latLon(shared.uSun.value); msg.fly = { lat: clamp(-s0.lat, -35, 35) + 20, lon: s0.lon > 0 ? s0.lon - 180 : s0.lon + 180, dist: 3.4 };
+      }
+      if (msg.measure) measure(msg.measure.a, msg.measure.b, msg.measure.km);
+      const target = msg.measure ? null : msg.fly || (msg.focus && { lat: msg.focus.lat, lon: msg.focus.lon, dist: msg.layer === 'aurora' ? 3.4 : 3.0, label: msg.focus.label });
       if (target) {
         if (target.label && !msg.layer) { clearLayer(); label(target.lat, target.lon, target.label, true); }
         if (!running && target.lat != null) { rotX = clamp(target.lat * DEG, -1.45, 1.45) - 0.5; rotY = -(target.lon + 90) * DEG + 1.2; dist = HOME; }   // arriving: start off to one side, then sweep in
@@ -434,7 +508,7 @@ const globe = (() => {
       labels.forEach(l => l.el.style.opacity = 0); pool.forEach(e => e.style.opacity = 0);
       setTimeout(() => { if (!canvas.classList.contains('on')) { running = false; clearLayer(); dropPatch(); spin = true; fly = null; dist = HOME; } }, 900);
     },
-    turn, layout, setDist,
+    turn, layout, setDist, tapAt,
   };
   return api;
 })();
@@ -1008,7 +1082,10 @@ const gestures = (() => {
       const f = fd.detectForVideo(video, now).detections[0];
       if (f) { const b = f.boundingBox; holo.headAt((b.originX + b.width / 2) / video.videoWidth, (b.originY + b.height / 2) / video.videoHeight, b.width / video.videoWidth); }
     }
-    if (doHands) { const res = lm.detectForVideo(video, now); feed(res.landmarks || [], now); }
+    if (doHands) {
+      const res = lm.detectForVideo(video, now);
+      if (desk.on) desk.feed(res.landmarks || [], res.handedness || res.handednesses || [], now); else feed(res.landmarks || [], now);   // the holo desk takes both hands
+    }
   }
 
   const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -1068,7 +1145,7 @@ const gestures = (() => {
     const onCard = document.elementsFromPoint(S.cur.x, S.cur.y).find(e => e.closest && e.closest('#pc-card.on'));
     if (onCard) { const cs = getComputedStyle(card); S.act = { kind: 'card', x: S.cur.x, y: S.cur.y, dx: parseFloat(cs.getPropertyValue('--dx')) || 0, dy: parseFloat(cs.getPropertyValue('--dy')) || 0 }; card.classList.add('drag'); }
     else if (holo.has()) S.act = { kind: 'tap', x: S.cur.x, y: S.cur.y, x0: S.cur.x, y0: S.cur.y, t0: now };
-    else if (globe.on) S.act = { kind: 'globe', x: S.cur.x, y: S.cur.y };
+    else if (globe.on) S.act = { kind: 'globe', x: S.cur.x, y: S.cur.y, x0: S.cur.x, y0: S.cur.y, t0: now };
   }
   function pinchMove() {
     const a = S.act; if (!a) return;
@@ -1084,9 +1161,11 @@ const gestures = (() => {
       if (i >= 0 && i !== before) { sfx.tick(); say('Open'); } else if (before >= 0) { sfx.back(); say('Back'); }
       S.act = null; ring.classList.remove('pinch'); return;
     }
+    if (a && a.kind === 'globe' && now - a.t0 < 450 && Math.hypot(S.cur.x - a.x0, S.cur.y - a.y0) < 18 && globe.tapAt(S.cur.x, S.cur.y)) sfx.tick();
     endAct();
   }
-  return { start, stop, get on() { return needs.has('hands'); }, __feed: feed, __state: S };
+  async function hands(n) { try { if (lm) await lm.setOptions({ numHands: n }); } catch (e) {} }
+  return { start, stop, hands, get stream() { return stream; }, get on() { return needs.has('hands'); }, __feed: feed, __state: S };
 })();
 
 // ============================================================
@@ -1096,7 +1175,7 @@ const gestures = (() => {
 const autoGestures = (() => {
   let auto = true, manual = false, mine = false, offT = null;
   try { auto = localStorage.getItem('jv_gestures_auto') !== 'off'; } catch (e) {}
-  const touchable = () => holo.has() || globe.on || !!cardKind;
+  const touchable = () => holo.has() || globe.on || !!cardKind || (window.__jvDesk && window.__jvDesk.on);
   function check() {
     if (manual || !auto) return;
     if (touchable()) { clearTimeout(offT); offT = null; if (!gestures.on) { mine = true; gestures.start('hands', true); } }
@@ -1394,18 +1473,334 @@ const music = (() => {
 })();
 
 // ============================================================
+// HOLO DESK (mirror mode): the camera fills the screen like a mirror and the panels float in the air around him. Fingertips are
+// the pointers (both hands): pinch a panel to pick it up and move it, pinch its × (or throw it away) to close it, pinch and drag a
+// list to scroll it, a quick pinch on a story or email opens it. Hold an open hand still to bring up a round menu at that hand;
+// the row of buttons along the bottom opens the rest. Mouse works too.
+// ============================================================
+const desk = (() => {
+  document.head.appendChild(el('style', null, `
+    #pc-desk-cam { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 2; opacity: 0;
+      pointer-events: none; transition: opacity .8s var(--ease); filter: saturate(.85) brightness(.82) contrast(1.05); }
+    #pc-desk-tint { position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0; transition: opacity .8s var(--ease);
+      background: radial-gradient(ellipse at 50% 45%, rgba(10,18,30,0) 40%, rgba(6,10,18,.55) 100%), linear-gradient(rgba(40,90,140,.10), rgba(40,90,140,.10)); }
+    body.pc-desk-on #pc-desk-cam, body.pc-desk-on #pc-desk-tint { opacity: 1; }
+    #pc-desk { position: fixed; inset: 0; z-index: 4; pointer-events: none; display: none; }
+    body.pc-desk-on #pc-desk { display: block; }
+    body.pc-desk-on #pc-cam { opacity: 0 !important; }
+    body.pc-desk-on #pc-subs { bottom: 166px; }
+    #pc-desk canvas.hands { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
+    .pc-dp { position: absolute; width: 330px; max-height: min(440px, calc(100vh - 300px)); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; pointer-events: auto;
+      background: rgba(8,16,28,.62); border: 1px solid rgba(120,200,255,.38); box-shadow: 0 0 0 1px rgba(120,200,255,.08), 0 0 28px rgba(80,170,255,.22), 0 18px 40px rgba(0,0,0,.45);
+      -webkit-backdrop-filter: blur(10px) saturate(1.2); backdrop-filter: blur(10px) saturate(1.2); color: #e6f4ff; font: 400 13.5px/1.4 'Saira', system-ui, sans-serif;
+      transform-origin: 50% 50%; animation: pc-dp-in .45s var(--ease); transition: box-shadow .2s, transform .2s; user-select: none; touch-action: none; }
+    @keyframes pc-dp-in { from { opacity: 0; transform: scale(.82); } }
+    .pc-dp.held { box-shadow: 0 0 0 1.5px rgba(150,220,255,.9), 0 0 40px rgba(90,190,255,.45), 0 24px 50px rgba(0,0,0,.5); transform: scale(1.03); z-index: 5; }
+    .pc-dp.gone { transition: transform .45s ease-in, opacity .45s; opacity: 0; }
+    .pc-dp header { display: flex; align-items: center; gap: 8px; padding: 9px 8px 8px 14px; border-bottom: 1px solid rgba(120,200,255,.18); cursor: grab; }
+    .pc-dp header b { flex: 1; font: 600 12px/1 'Saira', system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #9fd6ff; }
+    .pc-dp header button { width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(255,120,110,.5); background: rgba(255,90,80,.16); color: #ffb3ad;
+      font: 600 15px/1 system-ui, sans-serif; cursor: pointer; padding: 0; }
+    .pc-dp .body { overflow-y: auto; padding: 10px 14px 14px; scrollbar-width: none; }
+    .pc-dp .body::-webkit-scrollbar { display: none; }
+    .pc-dp .it { display: flex; gap: 10px; padding: 9px 8px; margin: 0 -6px; border-radius: 10px; cursor: pointer; }
+    .pc-dp .it + .it { border-top: 1px solid rgba(120,200,255,.1); }
+    .pc-dp .it:hover, .pc-dp .it.hot { background: rgba(120,200,255,.12); }
+    .pc-dp .it img { width: 64px; height: 48px; object-fit: cover; border-radius: 6px; flex: none; background: #0b1622; }
+    .pc-dp .it .tt { font-weight: 600; color: #f1f9ff; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .pc-dp .it .sm, .pc-dp .sm { font-size: 11.5px; color: #8fb6d6; margin-top: 2px; }
+    .pc-dp .big { font: 600 54px/1 'Saira', system-ui, sans-serif; color: #fff; letter-spacing: -.02em; }
+    .pc-dp .row { display: flex; justify-content: space-between; gap: 8px; }
+    .pc-dp .chips { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; scrollbar-width: none; }
+    .pc-dp .chip { flex: none; min-width: 52px; text-align: center; padding: 7px 4px; border-radius: 10px; background: rgba(120,200,255,.1); }
+    .pc-dp .chip b { display: block; font-size: 15px; color: #fff; }
+    .pc-dp .hero { width: 100%; height: 150px; object-fit: cover; border-radius: 10px; margin-bottom: 10px; background: #0b1622; }
+    .pc-dp p { margin: 8px 0 0; color: #d7ebfa; }
+    .pc-dp .ctl { display: flex; justify-content: center; gap: 12px; margin-top: 14px; }
+    .pc-dp .ctl button { width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(120,200,255,.45); background: rgba(120,200,255,.12); color: #e6f4ff;
+      font: 600 16px/1 system-ui, sans-serif; cursor: pointer; }
+    #pc-dock { position: absolute; z-index: 100000; left: 50%; bottom: 84px; transform: translateX(-50%); display: flex; gap: 10px; padding: 9px 12px; border-radius: 999px; pointer-events: auto;
+      background: rgba(8,16,28,.5); border: 1px solid rgba(120,200,255,.3); box-shadow: 0 0 24px rgba(80,170,255,.18); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+    #pc-dock button { position: relative; width: 48px; height: 48px; border-radius: 50%; border: 1px solid rgba(120,200,255,.5); background: rgba(120,200,255,.1); color: #bfe6ff;
+      cursor: pointer; padding: 0; display: grid; place-items: center; transition: transform .15s, background .15s, box-shadow .15s; }
+    #pc-dock button svg { width: 22px; height: 22px; }
+    #pc-dock button.hot, #pc-dock button:hover { background: rgba(120,200,255,.28); box-shadow: 0 0 16px rgba(120,200,255,.55); transform: translateY(-3px); }
+    #pc-dock button.press { transform: scale(.9); background: rgba(160,225,255,.5); }
+    #pc-dock button.red { border-color: rgba(255,120,110,.6); background: rgba(255,90,80,.16); color: #ffb3ad; }
+    #pc-dock button i { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); font: 500 10.5px/1 'Saira', system-ui, sans-serif; letter-spacing: .06em;
+      color: #9fd6ff; white-space: nowrap; font-style: normal; opacity: 0; transition: opacity .15s; }
+    #pc-dock button.hot i, #pc-dock button:hover i { opacity: 1; }
+    .pc-radial { position: absolute; z-index: 100001; width: 230px; height: 230px; margin: -115px 0 0 -115px; pointer-events: none; animation: pc-rad-in .35s var(--ease); }
+    @keyframes pc-rad-in { from { opacity: 0; transform: scale(.4) rotate(-40deg); } }
+    .pc-radial .disc { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle, rgba(70,150,230,.22) 0 30%, rgba(30,70,120,.35) 31% 64%, rgba(30,70,120,0) 65%);
+      border: 1px solid rgba(120,200,255,.35); box-shadow: 0 0 30px rgba(80,170,255,.25) inset; }
+    .pc-radial button { position: absolute; width: 50px; height: 50px; margin: -25px 0 0 -25px; border-radius: 50%; border: 1px solid rgba(120,200,255,.6);
+      background: rgba(10,30,52,.85); color: #bfe6ff; display: grid; place-items: center; padding: 0; pointer-events: auto; cursor: pointer; transition: transform .15s, background .15s; }
+    .pc-radial button svg { width: 22px; height: 22px; }
+    .pc-radial button.hot, .pc-radial button:hover { background: rgba(70,190,120,.85); color: #fff; transform: scale(1.15); }
+    .pc-radial b { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font: 600 10px/1.1 'Saira', system-ui, sans-serif; letter-spacing: .12em; color: #9fd6ff; text-align: center; }
+  `));
+  const I = {        // line icons
+    news: '<path d="M4 5h13v14H5a1 1 0 0 1-1-1zM17 9h3v9a1 1 0 0 1-1 1h-2M7 9h7M7 12h7M7 15h4"/>',
+    weather: '<path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 11 3.5 3.5 0 0 0 7 18z"/>',
+    clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+    email: '<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M4 7l8 6 8-6"/>',
+    music: '<path d="M9 17V6l10-2v11"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="15" r="2"/>',
+    globe: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c2.5 2.5 2.5 13.5 0 16M12 4c-2.5 2.5-2.5 13.5 0 16"/>',
+    cams: '<rect x="3.5" y="7" width="12" height="10" rx="2"/><path d="M15.5 11l5-3v8l-5-3"/>',
+    clear: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/>',
+    exit: '<path d="M14 5h4a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-4M10 8l-4 4 4 4M6 12h9"/>',
+  };
+  const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
+  const NAMES = { news: 'News', weather: 'Weather', clock: 'Clock', email: 'Email', music: 'Music', globe: 'Globe', cams: 'Cameras', clear: 'Clear all', exit: 'Exit desk' };
+
+  const cam = el('video'); cam.id = 'pc-desk-cam'; cam.muted = true; cam.playsInline = true; $('three').after(cam);
+  const tint = el('div'); tint.id = 'pc-desk-tint'; cam.after(tint);
+  const root = el('div'); root.id = 'pc-desk'; document.body.appendChild(root);
+  const dock = el('div'); dock.id = 'pc-dock'; root.appendChild(dock);
+  ['news', 'weather', 'clock', 'email', 'music', 'globe', 'cams', 'clear', 'exit'].forEach(k => {
+    const b = el('button', k === 'clear' || k === 'exit' ? 'red' : '', `${svg(k)}<i>${NAMES[k]}</i>`); b.type = 'button'; b.dataset.k = k; b.setAttribute('aria-label', NAMES[k]); dock.appendChild(b);
+  });
+  const hc = el('canvas', 'hands'); root.appendChild(hc); const hx = hc.getContext('2d');
+  let open = false, z = 10, radial = null;
+
+  // ---- panels ----
+  const panels = new Set();
+  function place(p, x, y) {
+    const r = p.getBoundingClientRect(), w = r.width || 330, h = r.height || 200;
+    p.style.left = Math.round(clamp(x, 8, innerWidth - w - 8)) + 'px'; p.style.top = Math.round(clamp(y, 8, innerHeight - Math.min(h, 200) - 8)) + 'px';
+  }
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  function freeSpot(near) {     // the spot a new panel covers least of the others, the greeting, the clock and the dock (near a hand if one opened it)
+    const W = 330, Hh = Math.min(440, innerHeight - 300), keep = ['pc-hello', 'pc-clock', 'pc-ambient', 'pc-dock'].map(id => $(id)).filter(Boolean).map(e => e.getBoundingClientRect())
+      .filter(r => r.width).map(r => ({ left: r.left - 14, right: r.right + 14, top: r.top - 14, bottom: r.bottom + 14 }));
+    const boxes = [...[...panels].map(e => e.getBoundingClientRect()), ...keep];
+    let best = null;
+    for (let y = 120; y <= Math.max(120, innerHeight - Hh - 150); y += 24) for (let x = 16; x <= innerWidth - W - 16; x += 24) {
+      let cost = 0;
+      for (const r of boxes) cost += Math.max(0, Math.min(x + W, r.right) - Math.max(x, r.left)) * Math.max(0, Math.min(y + Hh, r.bottom) - Math.max(y, r.top));
+      cost += near ? Math.hypot(x + W / 2 - near.x, y + 60 - near.y) * 20 : Math.hypot(x + W / 2 - innerWidth / 2, y - innerHeight * 0.25) * 4;
+      if (!best || cost < best.cost) best = { x, y, cost };
+    }
+    return best || { x: innerWidth / 2 - W / 2, y: 120 };
+  }
+  function panel(kind, title, html, at) {
+    const spot = freeSpot(at);
+    const p = el('div', 'pc-dp', `<header><b>${esc(title)}</b><button type="button" data-x aria-label="Close">×</button></header><div class="body">${html}</div>`);
+    p.dataset.kind = kind; p.style.zIndex = ++z; root.appendChild(p); panels.add(p);
+    place(p, spot.x, spot.y); return p;
+  }
+  function close(p, flyX = 0, flyY = 0) {
+    if (!p || !panels.has(p)) return; panels.delete(p);
+    p.classList.add('gone'); p.style.transform = `translate(${flyX}px, ${flyY}px) scale(.7) rotate(${flyX / 40}deg)`;
+    setTimeout(() => p.remove(), 460); sfx.close();
+  }
+  const clearAll = () => [...panels].forEach((p, i) => setTimeout(() => close(p, 0, 60), i * 60));
+  const ago = t => { const m = Math.round((Date.now() - t) / 60000); return !t ? '' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+  const img = u => u ? `/holo/img?u=${encodeURIComponent(u)}` : '';
+  async function data(kind, extra = '') { const r = await fetch(`/desk/data?kind=${kind}${extra}`); return r.json(); }
+
+  async function add(kind, at) {
+    if (kind === 'clear') { clearAll(); return; }
+    if (kind === 'exit') { hide(); return; }
+    if (kind === 'globe' || kind === 'cams') {          // the big views: leave the desk for them
+      hide(); fetch('/desk/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) }).catch(() => {}); return;
+    }
+    sfx.whoosh();
+    if (kind === 'clock') {
+      const p = panel('clock', 'Clock', '<div class="big"></div><div class="sm d"></div><div class="chips"></div>', at), zones = [['Lagos', 'Africa/Lagos'], ['London', 'Europe/London'], ['New York', 'America/New_York'], ['Dubai', 'Asia/Dubai'], ['Tokyo', 'Asia/Tokyo']];
+      const tick = () => {
+        if (!panels.has(p)) return clearInterval(t); const n = new Date();
+        p.querySelector('.big').textContent = n.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        p.querySelector('.d').textContent = n.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        p.querySelector('.chips').innerHTML = zones.map(([c, tz]) => `<div class="chip"><b>${n.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: tz })}</b><span class="sm">${c}</span></div>`).join('');
+      }, t = setInterval(tick, 1000); tick(); return;
+    }
+    if (kind === 'music') {
+      const m = window.__jvMusic, p = panel('music', 'Music', `<div class="tt" style="font-size:16px;font-weight:600"></div><div class="sm a"></div>
+        <div class="ctl"><button type="button" data-m="previous" aria-label="Previous">⏮︎</button><button type="button" data-m="toggle" aria-label="Play or pause">⏯︎</button><button type="button" data-m="next" aria-label="Next">⏭︎</button></div>`, at);
+      const paint = () => { if (!panels.has(p)) return clearInterval(t); const card = $('pc-music');
+        p.querySelector('.tt').textContent = card && card.classList.contains('show') ? card.querySelector('.t').textContent : 'Nothing playing';
+        p.querySelector('.a').textContent = card && card.classList.contains('show') ? card.querySelector('.a').textContent : 'Say "play" and a song or artist'; }, t = setInterval(paint, 1500);
+      paint(); p.addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b && m) m.msg({ cmd: b.dataset.m }); }); return;
+    }
+    const p = panel(kind, NAMES[kind], '<div class="sm">Loading…</div>', at), body = p.querySelector('.body');
+    try {
+      const d = await data(kind);
+      if (d.error) { body.innerHTML = `<div class="sm">${esc(d.error)}</div>`; return; }
+      if (kind === 'weather') {
+        body.innerHTML = `<div class="row"><div><div class="big">${esc(d.temp)}°</div><div style="font-size:16px;margin-top:4px">${esc(d.desc)}</div><div class="sm">${esc(d.place || '')}</div></div>
+          <div class="sm" style="text-align:right">Feels ${esc(d.feels)}°<br>Humidity ${esc(d.humidity)}%<br>Wind ${esc(d.wind)} km/h</div></div>
+          <div class="chips">${(d.hours || []).map(h => `<div class="chip"><b>${esc(h.t)}°</b><span class="sm">${esc(h.at)}</span></div>`).join('')}</div>
+          <div class="chips">${(d.days || []).map(h => `<div class="chip" style="min-width:86px"><b>${esc(h.hi)}° / ${esc(h.lo)}°</b><span class="sm">${esc(h.day)}</span></div>`).join('')}</div>`;
+      } else {          // news and email: a list to scroll; a story or an email opens on its own panel
+        body.innerHTML = (d.items || []).map((it, i) => `<div class="it" data-i="${i}">${it.image ? `<img src="${img(it.image)}" alt="">` : ''}<div><div class="tt">${esc(it.title)}</div>
+          <div class="sm">${esc(it.source || '')}${it.when ? ' · ' + esc(ago(it.when * 1000)) : ''}</div></div></div>`).join('') || '<div class="sm">Nothing new.</div>';
+        p._items = d.items || [];
+      }
+    } catch (e) { body.innerHTML = '<div class="sm">Couldn\'t load that just now.</div>'; }
+  }
+  async function openItem(p, i, at) {        // "pick up" a story or an email
+    const it = (p._items || [])[i]; if (!it) return;
+    sfx.tick();
+    if (p.dataset.kind === 'email') {
+      const q = panel('mail', 'Email', '<div class="sm">Opening…</div>', at), body = q.querySelector('.body');
+      try { const d = await data('email_one', `&id=${encodeURIComponent(it.id)}`);
+        body.innerHTML = `<div class="tt" style="font-size:15px;font-weight:600">${esc(d.subject || it.title)}</div><div class="sm">${esc(d.from || it.source)}</div><p>${esc(d.text || '').replace(/\n/g, '<br>')}</p>`;
+      } catch (e) { body.innerHTML = '<div class="sm">Couldn\'t open it.</div>'; }
+      return;
+    }
+    panel('story', it.source || 'Story', `${it.image ? `<img class="hero" src="${img(it.image)}" alt="">` : ''}<div class="tt" style="font-size:16px;font-weight:600">${esc(it.title)}</div>
+      <div class="sm">${esc(it.source || '')}${it.when ? ' · ' + esc(ago(it.when * 1000)) : ''}</div><p>${esc(it.body || '')}</p>`, at);
+  }
+
+  // ---- the round menu at an open hand ----
+  const RAD = ['news', 'weather', 'clock', 'email', 'music', 'globe'];
+  function showRadial(x, y, hand, now) {
+    hideRadial();
+    const dockTop = dock.getBoundingClientRect().top || innerHeight;          // whole menu on screen and above the dock
+    x = clamp(x, 125, innerWidth - 125); y = clamp(y, 125, Math.max(125, dockTop - 122));
+    const r = el('div', 'pc-radial', '<div class="disc"></div><b>HOLO<br>DESK</b>'); r.style.left = x + 'px'; r.style.top = y + 'px';
+    RAD.forEach((k, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / RAD.length, b = el('button', '', svg(k)); b.type = 'button'; b.dataset.k = k; b.title = NAMES[k];
+      b.style.left = 115 + Math.cos(a) * 84 + 'px'; b.style.top = 115 + Math.sin(a) * 84 + 'px'; r.appendChild(b); });
+    root.appendChild(r); radial = { el: r, x, y, hand, t: now }; sfx.on();
+  }
+  function hideRadial() { if (radial) { radial.el.remove(); radial = null; } }
+
+  // ---- hands: fingertip pointers, pinch to act, open hand held still for the menu ----
+  const H = new Map();          // per hand (Left / Right): smoothed pointer, pinch state, what it's holding
+  const d2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  function toScreen(p) {        // where a camera point is on the mirrored, cover-fitted picture
+    const vw = cam.videoWidth || 640, vh = cam.videoHeight || 480, s = Math.max(innerWidth / vw, innerHeight / vh), dw = vw * s, dh = vh * s;
+    return { x: (innerWidth - dw) / 2 + (1 - p.x) * dw, y: (innerHeight - dh) / 2 + p.y * dh };
+  }
+  const openHand = h => [[8, 6], [12, 10], [16, 14], [20, 18]].every(([t, j]) => d2(h[t], h[0]) > d2(h[j], h[0]) * 1.12) && d2(h[4], h[8]) / (d2(h[0], h[9]) || 1e-3) > 0.75;
+  function hit(x, y) {
+    for (const e of document.elementsFromPoint(x, y)) {
+      if (!root.contains(e)) continue;
+      const b = e.closest('button'); if (b) return { kind: b.closest('.pc-radial') ? 'radial' : b.closest('#pc-dock') ? 'dock' : b.hasAttribute('data-x') ? 'x' : 'btn', el: b };
+      const it = e.closest('.it'); if (it) return { kind: 'item', el: it, panel: it.closest('.pc-dp') };
+      const p = e.closest('.pc-dp'); if (p) return { kind: 'panel', el: p, panel: p };
+    }
+    return null;
+  }
+  function down(st, x, y, now) {
+    const h = hit(x, y);
+    if (!h) { if (radial) hideRadial(); return; }
+    if (h.kind === 'dock' || h.kind === 'radial') { h.el.classList.add('press'); setTimeout(() => h.el.classList.remove('press'), 180); add(h.el.dataset.k, h.kind === 'radial' ? { x: radial.x, y: radial.y } : null); hideRadial(); return; }
+    if (h.kind === 'x') { close(h.el.closest('.pc-dp')); return; }
+    if (h.kind === 'btn') { if (st.hand) h.el.click(); return; }          // a mouse click arrives by itself
+    const p = h.panel; p.style.zIndex = ++z;
+    const r = p.getBoundingClientRect(), body = p.querySelector('.body');
+    st.hold = { p, item: h.kind === 'item' ? h.el : null, ox: x - r.left, oy: y - r.top, x0: x, y0: y, t0: now, scroll0: body.scrollTop, mode: null, path: [{ x, y, t: now }] };
+  }
+  function move(st, x, y, now) {
+    const a = st.hold; if (!a) return;
+    a.path.push({ x, y, t: now }); while (a.path.length > 2 && now - a.path[0].t > 160) a.path.shift();
+    if (!a.mode && Math.hypot(x - a.x0, y - a.y0) > 14) {
+      // inside a list, a mostly up/down drag scrolls it; anything else picks the panel up
+      a.mode = a.item && Math.abs(y - a.y0) > Math.abs(x - a.x0) * 1.3 ? 'scroll' : 'move';
+      if (a.mode === 'move') a.p.classList.add('held');
+    }
+    if (a.mode === 'scroll') a.p.querySelector('.body').scrollTop = a.scroll0 - (y - a.y0) * 1.6;
+    if (a.mode === 'move') { a.p.style.left = Math.round(x - a.ox) + 'px'; a.p.style.top = Math.round(y - a.oy) + 'px'; }
+  }
+  function up(st, x, y, now) {
+    const a = st.hold; st.hold = null; if (!a) return;
+    a.p.classList.remove('held');
+    if (!a.mode && a.item && now - a.t0 < 700) { openItem(a.p, +a.item.dataset.i, { x: x + 40, y }); return; }
+    if (a.mode === 'move') {
+      const q = a.path[0], dt = Math.max(0.03, (now - q.t) / 1000), vx = (x - q.x) / dt, vy = (y - q.y) / dt;
+      if (Math.hypot(vx, vy) > 1800) { close(a.p, vx * 0.35, vy * 0.35); return; }          // thrown away
+      place(a.p, x - a.ox, y - a.oy);
+    }
+  }
+  function feed(lms, handed, now) {
+    if (!open) return;
+    hc.width !== innerWidth && (hc.width = innerWidth); hc.height !== innerHeight && (hc.height = innerHeight);
+    hx.clearRect(0, 0, hc.width, hc.height);
+    const seen = new Set();
+    lms.forEach((h, i) => {
+      const id = ((handed && handed[i] && handed[i][0] && handed[i][0].categoryName) || 'H') + (lms.length > 1 && handed && handed[0] && handed[1] && handed[0][0].categoryName === handed[1][0].categoryName ? i : '');
+      seen.add(id);
+      let st = H.get(id); if (!st) { st = { hand: true, fx: new OneEuro(1.2, 0.01), fy: new OneEuro(1.2, 0.01), pinched: false, pn: 0, on: 0, still: null, hold: null }; H.set(id, st); }
+      const tip = toScreen({ x: (h[4].x + h[8].x) / 2, y: (h[4].y + h[8].y) / 2 });
+      const x = st.fx.f(tip.x, now), y = st.fy.f(tip.y, now);
+      const pr = d2(h[4], h[8]) / (d2(h[0], h[9]) || 1e-3);
+      if (!st.pinched) { st.pn = pr < 0.32 ? st.pn + 1 : 0; if (st.pn >= 2) { st.pinched = true; st.on = 0; down(st, x, y, now); } }
+      else { st.on = pr > 0.5 ? st.on + 1 : 0; if (st.on >= 2) { st.pinched = false; st.pn = 0; up(st, x, y, now); } }
+      if (st.pinched) move(st, x, y, now);
+      // an open hand held still for a moment: the menu, round that hand
+      const palm = toScreen(h[9]);
+      if (!st.pinched && openHand(h)) {
+        if (!st.still || Math.hypot(palm.x - st.still.x, palm.y - st.still.y) > 40) st.still = { x: palm.x, y: palm.y, t: now };
+        else if (now - st.still.t > 700 && (!radial || radial.hand !== id)) { showRadial(palm.x, palm.y, id, now); st.still.t = now + 1e9; }
+      } else st.still = null;
+      // hover glow on whatever the fingertip is over
+      root.querySelectorAll('.hot').forEach(e => e.classList.remove('hot'));
+      const hv = !st.pinched && hit(x, y); if (hv && (hv.kind === 'dock' || hv.kind === 'radial' || hv.kind === 'item')) hv.el.classList.add('hot');
+      // the hand, drawn as light over the mirror: a soft line skeleton and the pointer between thumb and finger
+      hx.strokeStyle = 'rgba(120,210,255,.55)'; hx.lineWidth = 1.5; hx.beginPath();
+      for (const [a, b] of BONES) { const p1 = toScreen(h[a]), p2 = toScreen(h[b]); hx.moveTo(p1.x, p1.y); hx.lineTo(p2.x, p2.y); } hx.stroke();
+      for (const k of [4, 8, 12, 16, 20]) { const q = toScreen(h[k]); hx.fillStyle = 'rgba(160,225,255,.9)'; hx.beginPath(); hx.arc(q.x, q.y, 3.2, 0, 7); hx.fill(); }
+      hx.strokeStyle = st.pinched ? '#7dffb0' : '#9fe0ff'; hx.lineWidth = 2.5; hx.beginPath(); hx.arc(x, y, st.pinched ? 9 : 14, 0, 7); hx.stroke();
+      if (st.pinched) { hx.fillStyle = 'rgba(125,255,176,.55)'; hx.beginPath(); hx.arc(x, y, 9, 0, 7); hx.fill(); }
+    });
+    for (const [id, st] of H) if (!seen.has(id)) { if (st.hold) up(st, 0, 0, now); H.delete(id); }
+    if (radial && !seen.has(radial.hand) && now - radial.t > 1500) hideRadial();
+    if (radial && now - radial.t > 8000) hideRadial();
+  }
+  const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]];
+
+  // mouse: the same actions
+  root.addEventListener('pointerdown', e => { const st = { hold: null }; mouse = st; down(st, e.clientX, e.clientY, performance.now()); });
+  addEventListener('pointermove', e => { if (mouse && mouse.hold) move(mouse, e.clientX, e.clientY, performance.now()); });
+  addEventListener('pointerup', e => { if (mouse) { up(mouse, e.clientX, e.clientY, performance.now()); mouse = null; } });
+  let mouse = null;
+  addEventListener('keydown', e => { if (open && e.key === 'Escape') hide(); });
+
+  async function show(first) {
+    if (open) { if (first) add(first); return; }
+    open = true; globe.hide(); holo.clear(); feeds.close();
+    document.body.classList.add('pc-desk-on'); window.__jvFaceOff = true;
+    await gestures.start('hands', true); gestures.hands(2);
+    const st = gestures.stream; if (st) { cam.srcObject = st; cam.play().catch(() => {}); }
+    sfx.on();
+    if (first) add(first); else if (!panels.size) { add('clock'); setTimeout(() => add('weather'), 250); }
+  }
+  function hide() {
+    if (!open) return; open = false; hideRadial();
+    document.body.classList.remove('pc-desk-on'); window.__jvFaceOff = false;
+    [...panels].forEach(p => close(p)); hx.clearRect(0, 0, hc.width, hc.height);
+    gestures.hands(1); if (!autoGestures.manual) gestures.stop('hands');
+    setTimeout(() => { if (!open) cam.srcObject = null; }, 900);
+  }
+  function fromItems(msg) {          // an answer's cards (search results, pictures, headlines) as one list on the desk
+    const items = (msg.items || []).map(it => ({ title: it.title || it.text || '', body: it.text || '', source: it.source || '', image: it.image || '' }));
+    const p = panel('answer', msg.title || 'Results', items.map((it, i) => `<div class="it" data-i="${i}">${it.image ? `<img src="${img(it.image)}" alt="">` : ''}<div><div class="tt">${esc(it.title)}</div><div class="sm">${esc(it.source)}</div></div></div>`).join(''));
+    p._items = items; sfx.whoosh();
+  }
+  return { show, hide, add, feed, fromItems, get on() { return open; }, clearAll, __panels: panels };
+})();
+
+// ============================================================
 // SERVER MESSAGES
 // ============================================================
 window.__jvExtra = data => {
   const i = data.indexOf(':'), kind = data.slice(0, i); let msg = {};
   try { msg = JSON.parse(data.slice(i + 1)); } catch (e) { return; }
-  if (kind === 'globe') { if (msg.cmd === 'hide') globe.hide(); else { holo.clear(); feeds.close(); globe.show(msg); } }   // one main view at a time
+  if (kind === 'globe') { if (msg.cmd === 'hide') globe.hide(); else { desk.hide(); holo.clear(); feeds.close(); globe.show(msg); } }   // one main view at a time
   else if (kind === 'plan') showCard('plan', planHtml(msg), 60000);
   else if (kind === 'recap') showCard('recap', recapHtml(msg), 60000);
   else if (kind === 'gesture') autoGestures.set(msg.on);
-  else if (kind === 'panels') { globe.hide(); feeds.close(); holo.show(msg); }
+  else if (kind === 'panels') {
+    // on the desk, an answer's cards become a desk panel; live video (news, webcams) needs the ring, so the desk makes way
+    if (desk.on && !(msg.items || []).some(it => it.video || it.cam)) { desk.fromItems(msg); return; }
+    globe.hide(); feeds.close(); desk.hide(); holo.show(msg);
+  }
   else if (kind === 'feeds') msg.cmd === 'close' ? feeds.close() : feeds.show(msg);
   else if (kind === 'music') music.msg(msg);
+  else if (kind === 'desk') { if (msg.cmd === 'close') desk.hide(); else if (msg.cmd === 'clear') desk.clearAll(); else desk.show(msg.panel); }
   else if (kind === 'holo') {
     if (msg.cmd === 'on') { holo.setHead(true); gestures.start('head'); } else if (msg.cmd === 'off') { gestures.stop('head'); holo.setHead(false); }
     else if (msg.cmd === 'clear') holo.clear(); else if (msg.cmd === 'select') holo.select(msg.n); else if (msg.cmd === 'back') holo.back();
@@ -1414,4 +1809,4 @@ window.__jvExtra = data => {
   if (globe.on) globe.layout();
 };
 (window.__jvExtraQ || []).splice(0).forEach(window.__jvExtra);
-window.__jvGlobe = globe; window.__jvGestures = gestures; window.__jvHolo = holo; window.__jvAutoGestures = autoGestures; window.__jvFeeds = feeds; window.__jvMusic = music;
+window.__jvDesk = desk; window.__jvGlobe = globe; window.__jvGestures = gestures; window.__jvHolo = holo; window.__jvAutoGestures = autoGestures; window.__jvFeeds = feeds; window.__jvMusic = music;
