@@ -11,6 +11,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SRC = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(ROOT, 'pc_source')
 WWW = os.path.join(ROOT, 'app', 'src', 'main', 'assets', 'www')
+DESK = os.path.join(ROOT, 'desktop', 'app')             # the PC app: its faces and globe come along
+DESK_HTML = os.path.join(DESK, 'index.html')
 
 
 def sub_once(text, old, new, label):
@@ -244,6 +246,27 @@ def main():
                     "  bloomPass.strength = 0.10 + speakingAmount * 0.05 + (window.__jvSwapFx || 0) * 0.85;\n"
                     "  if (window.__jvSwapFx > 0) window.__jvSwapFx = Math.max(0, window.__jvSwapFx - 0.025);", 'swap flare')
 
+    # ---- the PC's newer faces: her long hair (strands, fringe, sway) and his beard, taken from the PC page so both stay the same
+    desk = open(DESK_HTML, encoding='utf-8').read()
+    a, b = desk.index('// Long hair as light, not a helmet'), desk.index('\nfunction makeBeard(')
+    beard_end = desk.index('\n}\n', b) + 3
+    html = sub_once(html, "  const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [], span = head ? head.top - head.neck : 1;",
+                    "  const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [], hairMeshes = [], browMeshes = [], span = head ? head.top - head.neck : 1;", 'hair lists')
+    html = sub_once(html, "    if (/high-?poly|eyelash/i.test(mesh.name)) { if (/high-?poly/i.test(mesh.name)) eyeMeshes.push(mesh); return; }   // eyes get a glow instead of dots\n",
+                    "    if (/high-?poly|eyelash/i.test(mesh.name)) { if (/high-?poly/i.test(mesh.name)) eyeMeshes.push(mesh); return; }   // eyes get a glow instead of dots\n"
+                    "    if (/eyebrow/i.test(mesh.name)) browMeshes.push(mesh);\n    if (/long|ponytail|bun/i.test(mesh.name)) { hairMeshes.push(mesh); return; }   // long hair gets its own finer layer\n", 'hair meshes')
+    html = sub_once(html, "  if (head) {                                    // the epic part",
+                    "  const hair = hairMeshes.length && head ? makeLongHair(model, points, geo, browMeshes, eyeMeshes, invRoot, head, span) : null;\n"
+                    "  if (model.userData.jvBeard && head) makeBeard(model, points, geo, eyeMeshes, invRoot, head, span);\n  if (head) {                                    // the epic part", 'hair and beard')
+    html = sub_once(html, "    particleFx = { spark, orbit, followFace };", "    particleFx = { spark, orbit, followFace, hair };", 'hair fx')
+    html = sub_once(html, "function doSwap(url) {", desk[a:beard_end] + "\nfunction doSwap(url) {", 'hair and beard code')
+    html = sub_once(html, "    avatarModel = gltf.scene;\n", "    avatarModel = gltf.scene;\n    avatarModel.userData.jvBeard = /kofi/i.test(url);       // his face gets a beard (makeBeard)\n", 'beard face')
+    html = sub_once(html, "f.orbit.rotation.z = 0.12 * Math.sin(t * 0.2);\n", "f.orbit.rotation.z = 0.12 * Math.sin(t * 0.2);\n    if (f.hair) f.hair.sway(t, speakingAmount);\n", 'hair sway')
+    # ---- the globe (the PC's hud_extra.js, copied below) takes over the screen: the face stops drawing while it's up
+    html = sub_once(html, "window.__jvPaused || window.__jvHideFace ||", "window.__jvPaused || window.__jvHideFace || window.__jvFaceOff ||", 'globe hides the face')
+    html = sub_once(html, "      else if (data.startsWith('proactive:')) {", "      else if (data.startsWith('globe:')) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }\n"
+                    "      else if (data.startsWith('proactive:')) {", 'globe messages')
+
     # no localhost anywhere: the page must only talk to its own origin (which the app answers itself)
     os.makedirs(WWW, exist_ok=True)
     open(os.path.join(WWW, 'index.html'), 'w', encoding='utf-8').write(html)
@@ -277,6 +300,11 @@ def main():
     nav = sub_once(nav, ".nav-box { position: absolute; inset: 0; }", "#nav-map .nav-box { position: absolute; inset: 0; }", 'map box stays full size')
     open(os.path.join(WWW, 'nav.js'), 'w', encoding='utf-8').write(nav)
     shutil.copyfile(os.path.join(SRC, 'nav_core.js'), os.path.join(WWW, 'nav_core.js'))
+    # the globe: the PC's own module and its pictures, borders and names
+    shutil.copyfile(os.path.join(DESK, 'hud_extra.js'), os.path.join(WWW, 'hud_extra.js'))
+    os.makedirs(os.path.join(WWW, 'models', 'globe'), exist_ok=True)
+    for f in ('blue.jpg', 'countries.bin', 'states.bin', 'labels.json'):
+        shutil.copyfile(os.path.join(DESK, 'models', 'globe', f), os.path.join(WWW, 'models', 'globe', f))
     os.makedirs(os.path.join(WWW, 'models'), exist_ok=True)
     keep = os.path.join(WWW, 'models', 'README.txt')
     if not os.path.exists(keep) and not any(f.endswith('.glb') for f in os.listdir(os.path.join(WWW, 'models'))):

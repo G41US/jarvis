@@ -692,7 +692,7 @@ def main():
         r = ev("JARVIS.reg.exec('play_youtube', JSON.stringify({query: 'lofi beats'}))")
         check('YouTube search', any('youtube.com/results?search_query=lofi%20beats' in u for u in ev('window.__native.opened')), ev('window.__native.opened'))
         r = ev("JARVIS.reg.exec('show_public_cam', JSON.stringify({location: 'Times Square'}))")
-        check('live public cam (from the PC list)', any('earthcam.com/usa/newyork/timessquare' in u for u in ev('window.__native.opened')) and 'times square' in r.lower(), r)
+        check('live public cam: Windy webcams need the build key', 'windy key' in r.lower(), r)
 
         # eyes: the camera (Chromium's fake camera) -> Groq vision
         state['vision'] = []; reset()

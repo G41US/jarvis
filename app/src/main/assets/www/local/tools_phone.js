@@ -141,7 +141,7 @@ export function registerPhoneTools(ctx) {
     const r = parse(json); if (!r) return;
     if (r.kind === 'briefing') { if (ctx.briefingText) ctx.briefingText().then(([t]) => broadcast('proactive:' + t)).catch(() => {}); return; }   // composed here, even in the background
     if (!visible) return;                                                               // in the background the app speaks it natively
-    broadcast(r.kind === 'timer' ? 'timer:' + (r.text || 'timer') : 'proactive:Reminder. ' + (r.text || ''));
+    broadcast(r.kind === 'timer' ? 'timer:' + (r.text || 'timer') : r.kind === 'note' ? 'proactive:' + (r.text || '') : 'proactive:Reminder. ' + (r.text || ''));
   };
 
   // ================================================================== websites, search, YouTube, live cams

@@ -19,6 +19,8 @@ import { FACES, faceById, faceFor, faceForGender, DEFAULT_FACE } from './faces.j
 import { createProactive, registerProactiveTools } from './proactive.js';
 import { createBrain } from './brain.js';
 import { createLearner } from './learn.js';
+import { registerExtras } from './extras.js';
+import { createMind } from './mind.js';
 import { forSpeech } from './speech.js';
 import { SttPipeline } from './stt.js';
 import { createApi } from './api.js';
@@ -253,6 +255,7 @@ registerExtraTools(gctx);                                // camera extras, expen
 registerDrivingTools(gctx);                              // parking, gas, shifts and mileage, SOS
 registerHomeTools(gctx);                                 // Home Assistant, Philips Hue
 registerUiTools(gctx);                                   // Earnings page, what Jarvis knows, driving mode
+const extras = registerExtras({ ...gctx, log });          // globe, live news and webcams, answers as cards (cards.js)
 const proactive = createProactive({ ...gctx, log });   // briefing, weather, birthdays, time to leave, battery, breaks
 registerProactiveTools(gctx, proactive);
 const briefingFast = async text => (/\b(morning briefing|brief me|briefing|what.?s my day|what.?s on today)\b/i.test(text) ? (await gctx.briefingText())[0] : null);
@@ -276,11 +279,16 @@ const instant = async text => {                                   // instant com
   if (SWITCHABLE[m.tool]) lastSwitch = { tool: m.tool, at: Date.now(), state: m.args.state || (m.args.on ? 'on' : 'off') };
   return await reg.exec(m.tool, JSON.stringify(m.args));
 };
+let mind = null;
 brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log,
   pickTools: text => { const r = router.pick(reg.schemas, text); stats.lastTools = r.tools.length; return r.tools; },
   instant, onTiming: t => { stats.lat = { ...(stats.lat || {}), ...t, at: Date.now() }; },
   onTool: name => W.dispatchEvent(new CustomEvent('jv-activity', { detail: name })),
-  onTurn: (user, said) => learner && learner.observe(user, said) });
+  onToolResult: (name, args, out) => { extras.onToolResult(name, args, out).catch(() => {}); },
+  extraPrompt: () => (mind ? mind.prompt() : ''),
+  onTurn: (user, said) => { if (learner) learner.observe(user, said); extras.onReply(user, said); if (mind) mind.noteUser(); } });
+mind = createMind({ brain, kv, config: cfgStore, broadcast, reg, ctx: gctx, log });   // his inner life: thoughts, moods, curiosity, a nightly journal
+W.__jvSay = t => broadcast('proactive:' + t);
 const learner = createLearner({ groqJson: b => brain.groqJson(b), kv, log, enabled: () => cfgStore.get('learn', true) !== false && brain.usable(), onChange: () => brain.refreshPrompt() });
 const interp = createInterpreter({ api, broadcast, langFor, log, bridge }); interpObj = interp;
 reg.add('start_interpreter', "Live interpreter between the user and someone who speaks another language: from now on everything either of them says is translated into the other language and spoken aloud, with face-to-face captions. language: the other person's language. my_language: the user's (default English).",
@@ -394,6 +402,7 @@ setInterval(() => {                                      // follow the page: lis
 micStart();
 applySettings();
 proactive.start();
+mind.start();
 setTimeout(() => { readPc(); pcWasReady = { alan: pcReady('alan'), amy: pcReady('amy'), kokoro: pcReady('kokoro') }; ensurePcVoice(); }, 1500);   // PC voice for this face (Wi-Fi only)
 
 if (W.JARVIS_IOS) reg.remove(IPHONE_CANT);                // after every tool is registered
@@ -446,12 +455,13 @@ async function handle(method, path, query, body, signal) {
     case '/documents': return json([]);
     case '/identify_face': case '/enroll_face_direct': return json({ ok: false, recognized: false, error: 'not available on the phone' });
     case '/wake': return json({ ok: true });
+    case '/globe/iss': return json(await extras.iss());
     default:
       if (path.startsWith('/identify_ws/') || path.startsWith('/enroll_face_ws/') || path.startsWith('/vision_capture/')) return json({ ok: true });
       return null;
   }
 }
-const LOCAL_PATHS = /^\/(chat_stream|speak|greeting|briefing|voices|get_voice|set_voice|delivery\/plan|nav\/(config|position|progress|ended|reroute)|faces|documents|identify_face|enroll_face_direct|wake|identify_ws\/|enroll_face_ws\/|vision_capture\/)/;
+const LOCAL_PATHS = /^\/(chat_stream|speak|greeting|briefing|voices|get_voice|set_voice|delivery\/plan|nav\/(config|position|progress|ended|reroute)|faces|documents|identify_face|enroll_face_direct|wake|globe\/iss|identify_ws\/|enroll_face_ws\/|vision_capture\/)/;
 W.fetch = async function (input, init = {}) {
   let url;
   try { url = new URL(typeof input === 'string' ? input : (input && input.url) || String(input), location.href); } catch { return realFetch(input, init); }

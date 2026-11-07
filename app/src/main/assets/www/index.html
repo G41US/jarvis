@@ -358,12 +358,14 @@ function makeGoldenParticleFace(model) {
   const localA = new THREE.Vector3(), localB = new THREE.Vector3(), localC = new THREE.Vector3();
   let totalArea = 0;
   const srcMeshes = [];
-  const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [], span = head ? head.top - head.neck : 1;
+  const head = model.userData.jvHead, minY = head ? head.neck : 0.18, eyeMeshes = [], hairMeshes = [], browMeshes = [], span = head ? head.top - head.neck : 1;
   const mid = head ? new THREE.Vector3(head.cx || 0, head.neck + (head.top - head.neck) * 0.55, head.cz || 0) : null, nrm = new THREE.Vector3(), toMid = new THREE.Vector3();
   model.traverse(mesh => {
     if (!(mesh.isMesh || mesh.isSkinnedMesh) || !mesh.geometry || !mesh.geometry.attributes.position) return;
     if (/teeth|tongue/i.test(mesh.name)) return;   // inside the mouth: they'd shine through the face
     if (/high-?poly|eyelash/i.test(mesh.name)) { if (/high-?poly/i.test(mesh.name)) eyeMeshes.push(mesh); return; }   // eyes get a glow instead of dots
+    if (/eyebrow/i.test(mesh.name)) browMeshes.push(mesh);
+    if (/long|ponytail|bun/i.test(mesh.name)) { hairMeshes.push(mesh); return; }   // long hair gets its own finer layer
     const g = mesh.geometry, pos = g.attributes.position, idx = g.index;
     mesh.updateMatrixWorld(true);
     const mi = srcMeshes.push({ mesh, pos, m: new THREE.Matrix4().multiplyMatrices(invRoot, mesh.matrixWorld), morph: (g.morphAttributes && g.morphAttributes.position) || [], rel: g.morphTargetsRelative }) - 1;
@@ -454,6 +456,8 @@ function makeGoldenParticleFace(model) {
       flare.position.copy(at); flare.scale.set(r * 1.4, r * 0.35, 1)   /* short: two flares, never one line */; model.add(flare);   // a thin lens flare across each eye
     }
   }
+  const hair = hairMeshes.length && head ? makeLongHair(model, points, geo, browMeshes, eyeMeshes, invRoot, head, span) : null;
+  if (model.userData.jvBeard && head) makeBeard(model, points, geo, eyeMeshes, invRoot, head, span);
   if (head) {                                    // the epic part: sparkles on the face and orbiting gold dust
     const mid = new THREE.Vector3(cx, head.neck + span * 0.55, head.cz || 0), mat = (size, color) => new THREE.PointsMaterial({
       color, size, map: glowTex, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
@@ -471,7 +475,7 @@ function makeGoldenParticleFace(model) {
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
       const ring = new THREE.Points(g, mat(0.014, 0xffcf7a)); ring.frustumCulled = false; ring.rotation.y = Math.random() * 6; orbit.add(ring);
     }
-    particleFx = { spark, orbit, followFace };
+    particleFx = { spark, orbit, followFace, hair };
   }
   return cloud;
 }
@@ -513,6 +517,171 @@ function frameByHead(model) {
     return { neck, top: y1, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2 };
   } catch (e) { console.warn('[AVATAR] framing', e); return null; }
 }
+// Long hair as light, not a helmet: a thinner shell of dots lifted just off the scalp, strands that fall from the sides and back past
+// the jaw to the shoulders, and a side-swept fringe over the forehead that stops above the brows. All of it is shaped on the face's
+// own dots (the hair model's long locks sit in front of the chest and threw everything off), and the strands sway a little.
+function makeLongHair(model, skin, skinGeo, browMeshes, eyeMeshes, invRoot, head, span) {
+  const cx = head.cx || 0, cz = head.cz || 0, n0 = skin.length / 3, midY = head.neck + span * 0.55;
+  let top = -Infinity, halfW = 0, frontZ = -Infinity, backZ = Infinity;
+  let browY = head.neck + span * 0.62;            // where the fringe has to stop: just above the eyebrows
+  // just above the eyes (the brow models sit higher than the brows read in dots)
+  const eyes = eyeMeshes.length ? eyeMeshes : browMeshes;
+  if (eyes.length) { const b = new THREE.Box3(); eyes.forEach(m => b.expandByObject(m)); b.applyMatrix4(invRoot); browY = b.max.y + span * (eyeMeshes.length ? 0.07 : 0.02); }
+  for (let i = 0; i < n0; i++) {
+    const x = skin[i * 3] - cx, y = skin[i * 3 + 1], z = skin[i * 3 + 2];
+    top = Math.max(top, y); backZ = Math.min(backZ, z);
+    if (y > head.neck + span * 0.5 && y < head.neck + span * 0.8) halfW = Math.max(halfW, Math.abs(x));
+    if (y > browY && y < browY + span * 0.25 && Math.abs(x) < span * 0.12) frontZ = Math.max(frontZ, z);
+  }
+  if (!isFinite(frontZ) || !halfW) return null;
+  const hairline = browY + span * 0.2, pts = [], base = [], swayW = [], phase = [], bright = [];
+  // the forehead under the fringe goes dim, so the fringe reads as hair over it rather than more of the same dots
+  const sc = skinGeo.attributes.color.array;
+  for (let i = 0; i < n0; i++) {
+    const x = skin[i * 3] - cx, y = skin[i * 3 + 1], z = skin[i * 3 + 2];
+    if (y > browY + span * 0.03 && y < hairline + span * 0.08 && Math.abs(x) < halfW * 0.72 && z > frontZ - span * 0.14) {
+      sc[i * 3] *= 0.2; sc[i * 3 + 1] *= 0.2; sc[i * 3 + 2] *= 0.2;
+    }
+  }
+  skinGeo.attributes.color.needsUpdate = true;
+  const add = (x, y, z, w, ph, br) => { pts.push(x, y, z); base.push(x, y, z); swayW.push(w); phase.push(ph); bright.push(br); };
+  for (let i = 0; i < n0; i++) {
+    const x = skin[i * 3], y = skin[i * 3 + 1], z = skin[i * 3 + 2], dx = x - cx;
+    const crown = y > hairline, sideBack = y > head.neck + span * 0.32 && (z < frontZ - span * 0.28 || Math.abs(dx) > halfW * 0.86);
+    if (!(crown || sideBack) || Math.random() > 0.8) continue;
+    const oy = y - midY, oz = z - cz, o = Math.hypot(dx, oy, oz) || 1, lift = span * (0.03 + Math.random() * 0.035);
+    const px = x + dx / o * lift, py = y + oy / o * lift, pz = z + oz / o * lift;
+    add(px, py, pz, 0.12, Math.random() * 6.28, 0.55 + Math.random() * 0.35);
+  }
+  // the mane: one continuous sheet of strands all the way round, from beside one cheek, across the back, to beside the other
+  // (spaced evenly round the head, so there are no gaps), falling past the jaw and fanning out over the shoulders.
+  // Longest at the back, layered shorter towards the face. Behind the face it's kept faint so it never clouds it.
+  const depth = Math.max(span * 0.2, cz - backZ), light = !!window.__jvLight, N = light ? 650 : 1100, per = light ? 26 : 38;
+  // how wide the face is at each height: hair is only faint where the face itself is in front of it (beside the jaw it shows fully)
+  const BINS = 40, prof = new Float32Array(BINS), binOf = y => Math.max(0, Math.min(BINS - 1, Math.floor((y - head.neck) / span * BINS)));
+  for (let i = 0; i < n0; i++) { const y = skin[i * 3 + 1]; if (y >= head.neck && skin[i * 3 + 2] > cz) { const b = binOf(y); prof[b] = Math.max(prof[b], Math.abs(skin[i * 3] - cx)); } }
+  const inFace = (x, y) => y > head.neck && Math.abs(x - cx) < prof[binOf(y)] * 0.97;
+  const S = { x: [], y: [], z: [], side: [], L: [], ph: [], br: [], th: [] };
+  for (let s = 0; s < N; s++) {
+    const th = (s / (N - 1) - 0.5) * 2 * 2.05 + (Math.random() - 0.5) * 0.02;        // about ±117° from the back of the head
+    const sinT = Math.sin(th), cosT = Math.cos(th);
+    const rx = cx + halfW * 1.04 * sinT, rz = cz - depth * 1.02 * cosT + span * 0.02;
+    const ry = head.neck + span * (0.72 - 0.25 * Math.abs(sinT)) + (Math.random() - 0.5) * span * 0.05;
+    const L = span * (1.15 + 0.75 * Math.max(0, cosT) + 0.35 * Math.random() - 0.25 * Math.max(0, Math.abs(th) - 1.6));
+    const hi = Math.random() < 0.09 ? 1.45 : 0.75 + Math.random() * 0.4;          // a few bright locks catch the light
+    S.x.push(rx); S.y.push(ry); S.z.push(rz); S.side.push(sinT); S.L.push(L); S.ph.push(Math.random() * 6.28); S.br.push(hi); S.th.push(th);
+  }
+  // where strand s is u of the way down (0 root, 1 tip): straight down, then out over the shoulders and slightly back, with a soft wave
+  const strandAt = (s, u, out) => {
+    const sd = S.side[s], ph = S.ph[s];
+    out[0] = S.x[s] + sd * span * (0.05 * u + 0.30 * u * u) + Math.sin(u * 6 + ph) * span * 0.012;
+    out[1] = S.y[s] - S.L[s] * u;
+    out[2] = S.z[s] - span * 0.07 * u * u * (1 - Math.abs(sd)) + span * 0.04 * u * Math.abs(sd) * Math.sign(-Math.cos(S.th[s]) + 0.6);
+    return out;
+  };
+  const tmp = [0, 0, 0];
+  for (let s = 0; s < N; s++) {
+    for (let k = 1; k <= per; k++) {
+      const u = k / per; strandAt(s, u, tmp);
+      const behind = Math.abs(S.side[s]) < 0.97 && inFace(tmp[0], tmp[1]);
+      const jit = span * 0.006;
+      add(tmp[0] + (Math.random() - 0.5) * jit, tmp[1], tmp[2] + (Math.random() - 0.5) * jit, u, S.ph[s],
+          (behind ? 0.1 : (1.1 - 0.5 * u) * S.br[s]) * (0.82 + Math.random() * 0.18));
+    }
+  }
+  // the fringe: from the hairline, sweeping down and to one side across the forehead, stopping just above the brows
+  for (let s = 0; s < 130; s++) {
+    const f = s / 129 - 0.5, sx = cx + f * halfW * 1.3 + (Math.random() - 0.5) * halfW * 0.06, ph = Math.random() * 6.28, n = 40;
+    const y0 = top - span * (0.02 + Math.abs(f) * 0.12), stop = browY - span * (0.04 - Math.random() * 0.025 - Math.abs(f) * 0.035);
+    const sweep = halfW * (0.22 + Math.random() * 0.2), wob = span * (0.004 + Math.random() * 0.008);     // no two strands alike
+    for (let k = 0; k <= n; k++) {
+      const u = k / n, y = y0 - (y0 - stop) * u + (Math.random() - 0.5) * span * 0.006, x = sx + sweep * u * u + Math.sin(u * 9 + ph) * wob;   // swept to one side
+      // from the crown, over the top of the head and down the forehead: the start sits back on the skull, not floating above it
+      const e = Math.min(1, u / 0.4), z = cz + (frontZ + span * 0.018 - cz) * e * e * (3 - 2 * e) + span * 0.015 * Math.sin(u * Math.PI) - span * 0.25 * f * f;
+      add(x, y, z, u * 0.25, ph, 1.0 + 0.3 * (1 - u));
+    }
+  }
+  const geo = new THREE.BufferGeometry(), count = pts.length / 3, col = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) { col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = bright[i]; }
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({ vertexColors: true, color: 0xf6c870, size: 0.012, map: glowTex, transparent: true, opacity: 1,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+  const cloud = new THREE.Points(geo, mat); cloud.frustumCulled = false; model.add(cloud);
+  // glints: sparks of light that run down the strands, like light catching moving hair
+  const G = light ? 140 : 320, gs = new Int32Array(G), gu = new Float32Array(G), gv = new Float32Array(G), gp = new Float32Array(G * 3);
+  for (let g = 0; g < G; g++) { gs[g] = Math.floor(Math.random() * N); gu[g] = Math.random(); gv[g] = 0.08 + Math.random() * 0.14; }
+  const ggeo = new THREE.BufferGeometry(); ggeo.setAttribute('position', new THREE.BufferAttribute(gp, 3));
+  const gmat = new THREE.PointsMaterial({ color: 0xfff1cf, size: 0.026, map: glowTex, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+  const glints = new THREE.Points(ggeo, gmat); glints.frustumCulled = false; model.add(glints);
+  const P = geo.attributes.position.array; let last = 0;
+  const wave = (t, u, ph, a) => Math.sin(t * 1.1 + ph * 0.3 - u * 3.2) * a * Math.pow(u, 1.3);   // travels from the roots to the tips
+  return {
+    sway(t, talk) {                                            // the hair moves as if in a light breeze, a little livelier while he speaks
+      const a = span * (0.028 + talk * 0.012), dt = Math.min(0.1, last ? t - last : 0); last = t;
+      for (let i = 0; i < count; i++) {
+        const w = swayW[i]; if (!w) continue;
+        P[i * 3] = base[i * 3] + wave(t, w, phase[i], a);
+        P[i * 3 + 2] = base[i * 3 + 2] + Math.cos(t * 0.8 + phase[i] - w * 2.6) * a * 0.5 * w * w;
+      }
+      geo.attributes.position.needsUpdate = true;
+      for (let g = 0; g < G; g++) {
+        gu[g] += gv[g] * dt; if (gu[g] > 1) { gu[g] = 0.02; gs[g] = Math.floor(Math.random() * N); }
+        const sIdx = gs[g], u = gu[g]; strandAt(sIdx, u, tmp);
+        const behind = Math.abs(S.side[sIdx]) < 0.97 && inFace(tmp[0], tmp[1]);
+        gp[g * 3] = tmp[0] + wave(t, u, S.ph[sIdx], a); gp[g * 3 + 1] = behind ? -999 : tmp[1];      // none behind the face
+        gp[g * 3 + 2] = tmp[2] + Math.cos(t * 0.8 + S.ph[sIdx] - u * 2.6) * a * 0.5 * u * u;
+      }
+      ggeo.attributes.position.needsUpdate = true;
+      gmat.opacity = 0.65 + 0.25 * Math.sin(t * 2.3);
+    },
+  };
+}
+
+// A short, groomed beard in dots that grows out of his face rather than sitting on it: thickest along the jaw and round the chin,
+// thinning up the cheeks along a soft line (no hard edge), a neat moustache over the lips, and the lips themselves left clear so his
+// mouth still reads. Same gold as his face, a shade warmer; the chin rounds off a little below the jaw.
+function makeBeard(model, skin, skinGeo, eyeMeshes, invRoot, head, span) {
+  const cx = head.cx || 0, cz = head.cz || 0, n0 = skin.length / 3;
+  let eyeY = head.neck + span * 0.6;
+  if (eyeMeshes.length) { const b = new THREE.Box3(); eyeMeshes.forEach(m => b.expandByObject(m)); b.applyMatrix4(invRoot); eyeY = (b.min.y + b.max.y) / 2; }
+  let halfW = 0;
+  for (let i = 0; i < n0; i++) { const y = skin[i * 3 + 1]; if (y > head.neck + span * 0.15 && y < eyeY) halfW = Math.max(halfW, Math.abs(skin[i * 3] - cx)); }
+  const chin = head.neck, faceH = eyeY - chin;
+  const mouthY = chin + faceH * 0.36, mouthW = halfW * 0.3, mouthH = faceH * 0.05;      // where the lips are, from the eyes and chin
+  const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const pts = [], col = [], sc = skinGeo.attributes.color.array;
+  for (let i = 0; i < n0; i++) {
+    const x = skin[i * 3], y = skin[i * 3 + 1], z = skin[i * 3 + 2], dx = Math.abs(x - cx), side = Math.min(1, dx / halfW);
+    if (z < cz - span * 0.06) continue;                                                   // the face and jaw, not the back of the head
+    // the beard line: just under the lips at the middle, rising up the cheeks towards the ears
+    const line = mouthY - mouthH * 1.2 + faceH * 0.3 * Math.pow(side, 1.3);
+    let w = 1 - smooth(line - faceH * 0.08, line + faceH * 0.04, y);                       // full below the line, fading out above it
+    const moustache = Math.abs(y - (mouthY + mouthH * 1.9)) < mouthH * 0.9 && dx < mouthW * 1.15 && dx > mouthW * 0.08;
+    if (moustache) w = Math.max(w, 0.85);
+    if (dx < mouthW * 0.95 && Math.abs(y - mouthY) < mouthH * 1.2) w = 0;                  // the lips stay clear
+    if (w <= 0.02) continue;
+    sc[i * 3] *= 1 - 0.3 * w; sc[i * 3 + 1] *= 1 - 0.3 * w; sc[i * 3 + 2] *= 1 - 0.32 * w;  // the skin under it a touch darker
+    const hairs = Math.random() < w ? (w > 0.7 ? 2 : 1) : 0;
+    for (let k = 0; k < hairs; k++) {
+      const ox = x - cx, oz = z - cz, o = Math.hypot(ox, oz) || 1, lift = span * (0.006 + Math.random() * 0.014) * w;
+      const drop = y < chin + faceH * 0.16 ? Math.random() * span * 0.032 * (1 - side * side) * w : Math.random() * span * 0.006;   // rounded at the chin
+      pts.push(x + ox / o * lift + (Math.random() - 0.5) * span * 0.006, y - drop, z + oz / o * lift);
+      const b = (0.75 + Math.random() * 0.35) * (0.7 + 0.3 * w); col.push(b, b * 0.94, b * 0.82);
+    }
+  }
+  skinGeo.attributes.color.needsUpdate = true;
+  if (!pts.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
+  const cloud = new THREE.Points(geo, new THREE.PointsMaterial({ vertexColors: true, color: 0xf7cd7a, size: 0.012, map: glowTex, transparent: true,
+    opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }));
+  cloud.frustumCulled = false; model.add(cloud);
+  return cloud;
+}
+
 function doSwap(url) {
   if (avatarModel) { faceGroup.remove(avatarModel); disposeAvatar(avatarModel); avatarModel = null; }
   particleFx = null;
@@ -526,6 +695,7 @@ function doSwap(url) {
     if (myToken !== avatarLoadToken) { disposeAvatar(gltf.scene); return; }
     if (pendingSwapUrl) { const next = pendingSwapUrl; pendingSwapUrl = null; disposeAvatar(gltf.scene); doSwap(next); return; }
     avatarModel = gltf.scene;
+    avatarModel.userData.jvBeard = /kofi/i.test(url);       // his face gets a beard (makeBeard)
     const morphReport = {};
     avatarModel.traverse((child) => {
       if (child.morphTargetDictionary) {
@@ -676,6 +846,7 @@ function applyColors() {
     const t = performance.now() / 1000, f = particleFx; f.followFace();
     f.spark.forEach((o, i) => { o.material.opacity = avatarAlpha * (0.55 + 0.45 * Math.sin(t * 1.7 + i * 3.1)); });
     f.orbit.rotation.y = t * 0.12 * currentSpinMul * 2.5; f.orbit.rotation.z = 0.12 * Math.sin(t * 0.2);
+    if (f.hair) f.hair.sway(t, speakingAmount);
   }
 }
 const _tmpQ = new THREE.Quaternion(), _tmpE = new THREE.Euler();
@@ -712,7 +883,7 @@ const clock = new THREE.Clock();
 let t0 = 0, diagTimer = 0;
 let _lastFrame = 0;
 function animate() {
-  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || window.__jvHideFace || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
+  if (window.JARVIS_NATIVE) { const now = performance.now(); if (document.hidden || window.__jvPaused || window.__jvHideFace || window.__jvFaceOff || now - _lastFrame < 31) { requestAnimationFrame(animate); return; } _lastFrame = now; }
   const dt = clock.getDelta(); t0 += dt; const t = t0;
   lerpColors(STATE_COLORS[appState] || STATE_COLORS.idle, dt);
   applyColors();
@@ -1183,6 +1354,7 @@ function connectWS() {
         addMsg(text, 'jarvis');
         if (!muted) enqueueSpeech(text);
       }
+      else if (data.startsWith('globe:')) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
       else if (data.startsWith('proactive:')) {
         const text = data.slice(10);
         addMsg(text, 'proactive');

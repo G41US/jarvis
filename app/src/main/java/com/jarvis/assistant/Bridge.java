@@ -117,7 +117,7 @@ public class Bridge {
                 js("window.__jvAlarm&&window.__jvAlarm(" + JSONObject.quote(item.toString()) + "," + visible + ")");
                 if (!visible && !"briefing".equals(item.optString("kind"))) {             // the page composes and speaks the briefing itself
                     String t = item.optString("text"), k = item.optString("kind");
-                    sayNow("timer".equals(k) ? (t.isEmpty() || "timer".equalsIgnoreCase(t) ? "Your timer is done." : "Your " + t + " timer is done.") : "Reminder. " + t);
+                    sayNow("note".equals(k) ? t : "timer".equals(k) ? (t.isEmpty() || "timer".equalsIgnoreCase(t) ? "Your timer is done." : "Your " + t + " timer is done.") : "Reminder. " + t);
                 }
             }
         };

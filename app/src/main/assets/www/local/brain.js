@@ -115,6 +115,8 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
     "- MAP/NAVIGATION works anywhere in the world: 'navigate to X' or 'take me to X'->navigate_to (the face shrinks to a corner orb and a car-style map with turn-by-turn voice takes over), " +
     "'navigate my deliveries'->start_delivery_navigation, 'stop navigation'->stop_navigation, 'how far'->navigation_status, show/hide/mini map, zoom, night mode, mute guidance, avoid tolls or highways, " +
     "Google or Apple or Jarvis map->map_control, 'open in Google/Apple Maps'->open_in_maps_app, 'save this as home'->save_place, 'where am I'->where_am_i. Never invent directions, distances or times: they come only from these tools.\n" +
+    "- The 3D Earth ('show me the globe', 'zoom in on Lagos', 'earthquakes', 'the space station', 'the aurora')->globe; 'how far is X from Y' between two named places->globe distance; 'earth at night' / 'city lights'->globe night; 'back to you' / 'hide the globe'->globe hide. " +
+    "Live news stations, webcams of a place, NASA live->show_public_cam (they appear as cards to tap).\n" +
     "- Jarvis's own screens: 'show my earnings', 'how much this week', 'my best hours or areas'->show_earnings; 'what do you know about me', 'show my memories'->show_what_you_know; 'driving mode on/off'->set_driving_mode; 'change your face', 'use the orb', 'look like ...'->choose_face.\n" +
     "- You may call several tools in one turn. Never mention your voice by name. Don't volunteer weather, time or other ambient info unless asked.\n";
   if (name) base += `\nThe user's name is ${name}.\n`;
@@ -127,7 +129,7 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
 
 export class GroqError extends Error { constructor(msg, status, body) { super(msg); this.status = status; this.body = body; } }
 
-export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = null, instant = null, onTiming = () => {}, onTool = () => {}, onTurn = () => {}, log = (...a) => console.log(...a) }) {
+export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = null, instant = null, onTiming = () => {}, onTool = () => {}, onToolResult = () => {}, onTurn = () => {}, extraPrompt = () => '', log = (...a) => console.log(...a) }) {
   const G = { bad: false, announced: false, noEffort: false, offlineAnnounced: false };
   let conversation = [], summarising = false;
   const model = () => config.get('groq_model', '') || DEFAULT_MODEL;
@@ -137,7 +139,7 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
   const effort = () => turnEffort;
 
   const platform = typeof window !== 'undefined' && window.JARVIS_IOS ? 'ios' : 'android';
-  function prompt() { return buildSystemPrompt({ prefs: kv.get('prefs', []), memories: kv.get('memories', []).map(m => m.fact), summary: kv.get('summary', ''), name: config.get('user_name', ''), now: new Date(), platform }); }
+  function prompt() { return buildSystemPrompt({ prefs: kv.get('prefs', []), memories: kv.get('memories', []).map(m => m.fact), summary: kv.get('summary', ''), name: config.get('user_name', ''), now: new Date(), platform }) + (extraPrompt() || ''); }
   function reset() { conversation = [{ role: 'system', content: prompt() }, ...kv.get('history', []).slice(-20)]; }
   const refreshPrompt = () => { if (!conversation.length) reset(); else conversation[0] = { role: 'system', content: prompt() }; };
   const saveHistory = () => kv.set('history', conversation.filter(m => m.role === 'user' || m.role === 'assistant').slice(-20).map(m => ({ role: m.role, content: m.content })));
@@ -203,6 +205,7 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
         for (const i of idx) {
           try { onTool(calls[i].name); } catch {}
           const out = await reg.exec(calls[i].name, calls[i].args); log('[TOOL]', calls[i].name, '->', out.slice(0, 120));
+          try { onToolResult(calls[i].name, calls[i].args, out); } catch {}
           const tm = { role: 'tool', tool_call_id: calls[i].id || `call_${i}`, name: calls[i].name, content: out }; messages.push(tm); scratch.push(tm);
         }
       }
