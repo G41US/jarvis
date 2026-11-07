@@ -1079,6 +1079,7 @@ def _address():
         if said: return "sir" if said[-1].lower() == "sir" else "ma'am"
     return _GUESS["address"]
 
+_MIND = {"prompt": lambda: ""}      # mind.py fills this: mood, aims, journal, personality
 def build_system_prompt():
     base = (
         "You are Jarvis — the AI from Iron Man. Not a chatbot, not a helpful-corporate assistant. "
@@ -1158,6 +1159,8 @@ def build_system_prompt():
     global CONVERSATION_SUMMARY
     if CONVERSATION_SUMMARY:
         base += f"\nEARLIER IN THIS CONVERSATION:\n{CONVERSATION_SUMMARY}\n"
+    try: base += _MIND["prompt"]()
+    except Exception as e: print(f"[MIND] prompt: {e}")
     return base
 
 CONVERSATION_SUMMARY = db_load_summary()
@@ -3350,6 +3353,7 @@ _TOOL_GROUPS = [
     (r"\b(remember|recall|forget|memor(y|ies)|know about me)\b", ("remember", "recall", "list_memories", "forget_memory", "forget_all")),
     (r"\b(prefer\w*|always|never|from now on|stop (doing|saying)|don'?t (say|do))\b", ("set_preference", "list_preferences", "forget_preference")),
     (r"\b(notes?|jot)\b", ("take_note", "read_notes")),
+    (r"\b(speak up|on your own|interrupt\w*|keep (your )?thoughts|stop (talking|suggesting|checking)|glanc\w*|watching me|looking at me)\b", ("inner_voice",)),
     (r"\b(document|documents|pdf|docx|word file|text file|essay|report|article|letter|write (a|me|up))\b",
      ("create_pdf", "create_docx", "create_text_file", "list_documents", "delete_document", "query_documents", "reindex_documents")),
     (r"\b(files?|folders?|clipboard|copied)\b", ("search_files", "list_files", "read_file", "get_clipboard")),
@@ -3515,7 +3519,7 @@ def _exec_tool(name, raw_args):
 
 # tools whose result is already the sentence to say ("Abuja, sir.", "Playing Bad Blood by Taylor Swift."): said as they are, with no second
 # request for the model to reword them. That's a second sooner, and the second request is where gpt-oss kept "calling a tool" and failing.
-SAY_AS_IS = {"globe", "holo", "show_public_cam", "play_music", "connect_spotify", "holo_desk", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
+SAY_AS_IS = {"inner_voice", "globe", "holo", "show_public_cam", "play_music", "connect_spotify", "holo_desk", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
              "lock_pc", "take_screenshot", "set_timer", "remember", "forget_memory", "set_preference", "forget_preference", "set_reminder",
              "flip_coin", "roll_dice", "take_note", "set_voice", "map_control", "stop_navigation", "show_images", "google_account",
              "spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "link_phone", "unlink_phone", "take_calls"}
@@ -4254,6 +4258,9 @@ _TOOL_SCHEMAS[:] = [s for s in _TOOL_SCHEMAS if s["function"]["name"] in _TOOL_R
 try:                                             # globe, planner, recap, gestures (features.py + hud_extra.js)
     import features; features.install(globals())
 except Exception as e: print(f"[FEATURES] not loaded: {type(e).__name__}: {e}")
+try:                                             # his inner life: senses, thoughts, moods, curiosity, journal (mind.py)
+    import mind; mind.install(globals())
+except Exception as e: print(f"[MIND] not loaded: {type(e).__name__}: {e}")
 
 if __name__ == "__main__":
     import subprocess, sys
