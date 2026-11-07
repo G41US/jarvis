@@ -171,8 +171,8 @@ public final class Reminders {
             ensureChannel(c);
             String id = item.optString("id"), kind = item.optString("kind", "reminder"), text = item.optString("text");
             boolean timer = "timer".equals(kind);
-            boolean briefing = "briefing".equals(kind);
-            String title = timer ? "Timer done" : briefing ? "Good morning" : "Reminder";
+            boolean briefing = "briefing".equals(kind), note = "note".equals(kind);     // note: Jarvis speaking up on his own while you're away
+            String title = timer ? "Timer done" : briefing ? "Good morning" : note ? "Jarvis" : "Reminder";
             String body = briefing ? "Your morning briefing. Tap to hear it." : text.isEmpty() ? (timer ? "Your timer is up." : "You asked me to remind you.") : (timer && !"timer".equalsIgnoreCase(text) ? text + " timer is up." : text);
             PendingIntent open = PendingIntent.getActivity(c, notifId(id), new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE);
             Intent sn = new Intent(c, AlarmReceiver.class).setAction(ACTION_SNOOZE).putExtra("id", id).putExtra("text", text).putExtra("kind", kind);
@@ -183,9 +183,9 @@ public final class Reminders {
                     .setSmallIcon(R.drawable.ic_stat).setContentTitle(title).setContentText(body)
                     .setStyle(new Notification.BigTextStyle().bigText(body))
                     .setCategory(timer ? Notification.CATEGORY_ALARM : Notification.CATEGORY_REMINDER)
-                    .setPriority(Notification.PRIORITY_HIGH).setAutoCancel(true).setContentIntent(open)
-                    .addAction(new Notification.Action.Builder(null, "Snooze 10 min", snooze).build())
-                    .addAction(new Notification.Action.Builder(null, "Done", done).build());
+                    .setPriority(note ? Notification.PRIORITY_DEFAULT : Notification.PRIORITY_HIGH).setAutoCancel(true).setContentIntent(open);
+            if (!note) b.addAction(new Notification.Action.Builder(null, "Snooze 10 min", snooze).build())
+                        .addAction(new Notification.Action.Builder(null, "Done", done).build());
             ((NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).notify(notifId(id), b.build());
         } catch (Exception e) { Log.w(TAG, "notify", e); }
     }

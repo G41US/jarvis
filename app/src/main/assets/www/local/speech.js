@@ -23,6 +23,7 @@ export function forSpeech(text) {
   s = s.replace(/°\s?F\b/g, ' degrees Fahrenheit').replace(/°\s?C\b/g, ' degrees Celsius').replace(/°/g, ' degrees')
     .replace(/\s?->\s?|\s?→\s?/g, ' to ').replace(/\s&\s/g, ' and ').replace(/\bw\/(?=\s)/g, 'with').replace(/\be\.g\.\s?/gi, 'for example ').replace(/\bi\.e\.\s?/gi, 'that is ')
     .replace(/(\d)\s?\/\s?(hr|hour)\b/g, '$1 an hour').replace(/(\d)\s?\/\s?(mi|mile)\b/g, '$1 a mile').replace(/\s[—–]\s|[—–]/g, ', ');
+  s = s.replace(/\.{2,}|…/g, ', ').replace(/(?<=[a-z)])\.(?=[A-Z])/g, '. ').replace(/(?<=\w)\s+\.(?=\s|$)/g, '.').replace(/(?<=[\s(])\.(?=\s|$)/g, ' ');   // "..." is a pause; "Done.Next"; a lone full stop is never read out as "dot"
   s = s.replace(/\s*\n+\s*/g, ' ').replace(/\s+([.,!?;:])/g, '$1').replace(/([!?;])(?=[A-Za-z])/g, '$1 ').replace(/\.(?=[A-Z][a-z])/g, '. ')
     .replace(/,\s*,/g, ',').replace(/^[\s,.;:]+/, '').replace(/\s{2,}/g, ' ').trim();
   return s;

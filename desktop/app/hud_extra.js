@@ -6,6 +6,7 @@ const $ = id => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const hud = $('hud');
+const GURL = window.__jvGlobeUrl || (p => p);      // the phone app fetches the globe's pictures straight from NASA instead of a server
 
 // ============================================================
 // YOUTUBE PLAYERS (music and live news) through YouTube's own player API, so Jarvis can pause them, skip, and turn them down while
@@ -27,7 +28,7 @@ window.__jvOnState = s => {
 
 
 document.head.appendChild(el('style', null, `
-  #pc-globe { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; opacity: 0; pointer-events: none; transition: opacity .9s var(--ease); }
+  #pc-globe { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; touch-action: none; opacity: 0; pointer-events: none; transition: opacity .9s var(--ease); }
   #pc-globe.on { opacity: 1; pointer-events: auto; cursor: grab; }
   #pc-globe.on:active { cursor: grabbing; }
   #three { transition: opacity .9s var(--ease); }
@@ -199,8 +200,8 @@ const globe = (() => {
     group = new THREE.Group(); scene.add(group);
     mat = makeMat([-180, -90, 180, 90], 0);
     earth = new THREE.Mesh(new THREE.SphereGeometry(R, 160, 80), mat); group.add(earth);
-    new THREE.TextureLoader().load('/globe/tex/blue', t => { t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; mat.uniforms.tBlue.value = t; });
-    new THREE.TextureLoader().load('/globe/tex/night', t => { t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; shared.tNight.value = t; shared.uNight.value = 1; });
+    new THREE.TextureLoader().load(GURL('/globe/tex/blue'), t => { t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; mat.uniforms.tBlue.value = t; });
+    new THREE.TextureLoader().load(GURL('/globe/tex/night'), t => { t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; shared.tNight.value = t; shared.uNight.value = 1; });
     // aurora: two moving green curtains round the magnetic poles (80.7N 72.7W and its opposite), only on the night side
     aur = new THREE.Mesh(new THREE.SphereGeometry(R * 1.022, 128, 64), new THREE.ShaderMaterial({
       uniforms: { uSun: shared.uSun, uTime: shared.uTime, uA: { value: 0 }, uP: { value: vec(80.7, -72.7) } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -226,10 +227,21 @@ const globe = (() => {
     scene.add(atmo);
     loadBorders(); loadNames();
     resize(); addEventListener('resize', resize);
-    let drag = null;      // mouse: drag to turn, wheel to zoom
-    canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
-    canvas.addEventListener('pointermove', e => { if (!drag) return; turn(e.clientX - drag.x, e.clientY - drag.y); drag = { x: e.clientX, y: e.clientY }; });
-    canvas.addEventListener('pointerup', () => { drag = null; });
+    let drag = null; const touches = new Map();      // drag to turn, wheel or two-finger pinch to zoom, double-click / double-tap to pin a distance
+    let pinch0 = 0, tapAt0 = 0;
+    canvas.addEventListener('pointerdown', e => {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); canvas.setPointerCapture(e.pointerId);
+      if (touches.size === 2) { const [a, b] = [...touches.values()]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); drag = null; return; }
+      drag = { x: e.clientX, y: e.clientY };
+      if (e.pointerType === 'touch') { const t = performance.now(); if (t - tapAt0 < 320) tapAt(e.clientX, e.clientY); tapAt0 = t; }
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2 && pinch0) { const [a, b] = [...touches.values()], d = Math.hypot(a.x - b.x, a.y - b.y); if (d > 0) setDist(dist * pinch0 / d); pinch0 = d; return; }
+      if (!drag) return; turn(e.clientX - drag.x, e.clientY - drag.y); drag = { x: e.clientX, y: e.clientY };
+    });
+    const lift = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch0 = 0; drag = null; };
+    canvas.addEventListener('pointerup', lift); canvas.addEventListener('pointercancel', lift);
     canvas.addEventListener('dblclick', e => tapAt(e.clientX, e.clientY));
     canvas.addEventListener('wheel', e => setDist(dist * (1 + e.deltaY * 0.0012)), { passive: true });
   }
@@ -247,7 +259,10 @@ const globe = (() => {
     const cardRight = cardKind ? card.getBoundingClientRect().right : 0;
     pxWant = cardKind ? clamp(cardRight + rPx + 40 - w / 2, 0, w * 0.2) : 0;
   }
-  function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; layout(); }
+  function resize() {       // a tall, narrow screen (a phone) fits the Earth's width, not its height
+    renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight;
+    camera.fov = camera.aspect < 1 ? 2 * Math.atan(Math.tan(15 * DEG) / camera.aspect) / DEG : 30; camera.updateProjectionMatrix(); layout();
+  }
   function center() { let lon = -rotY / DEG - 90; lon = ((lon + 180) % 360 + 360) % 360 - 180; return { lat: rotX / DEG, lon }; }
 
   // cinematic flight: pull back, swing round, settle in (like Google Earth)
@@ -281,8 +296,8 @@ const globe = (() => {
     const swap = () => { if (patchKey !== key) { geo.dispose(); m.dispose(); return; }
       if (patch) { group.remove(patch); patch.geometry.dispose(); patch.material.dispose(); }
       patch = new THREE.Mesh(geo, m); patch.renderOrder = 1; group.add(patch); };
-    ld.load(`/globe/patch?kind=blue&${q}`, t => { t.anisotropy = 8; m.uniforms.tBlue.value = t; if (kind === 'blue') swap(); else if (m.uniforms.tSat.value !== blank) swap(); });
-    if (kind === 'sat') ld.load(`/globe/patch?kind=sat&${q}`, t => { t.anisotropy = 8; m.uniforms.tSat.value = t; if (m.uniforms.tBlue.value !== blank) swap(); });
+    ld.load(GURL(`/globe/patch?kind=blue&${q}`), t => { t.anisotropy = 8; m.uniforms.tBlue.value = t; if (kind === 'blue') swap(); else if (m.uniforms.tSat.value !== blank) swap(); });
+    if (kind === 'sat') ld.load(GURL(`/globe/patch?kind=sat&${q}`), t => { t.anisotropy = 8; m.uniforms.tSat.value = t; if (m.uniforms.tBlue.value !== blank) swap(); });
   }
   function dropPatch() { if (patch) { group.remove(patch); patch.geometry.dispose(); patch.material.dispose(); patch = null; } patchKey = ''; }
 
@@ -476,7 +491,7 @@ const globe = (() => {
     get on() { return running; }, get dist() { return dist; },
     show(msg = {}) {
       const first = !renderer; if (first) init();
-      if (msg.mode === 'sat') { modeWant = 1; patchKey = ''; if (!satTex) satTex = new THREE.TextureLoader().load('/globe/tex/sat', t => { mat.uniforms.tSat.value = t; }); }
+      if (msg.mode === 'sat') { modeWant = 1; patchKey = ''; if (!satTex) satTex = new THREE.TextureLoader().load(GURL('/globe/tex/sat'), t => { mat.uniforms.tSat.value = t; }); }
       else if (msg.mode === 'holo') { modeWant = 0; patchKey = ''; }
       if (msg.layer) {
         clearLayer();
@@ -486,7 +501,7 @@ const globe = (() => {
         (msg.points || []).filter(p => p.label).slice(0, msg.layer === 'quakes' ? 5 : 8).forEach((p, i) => label(p.lat, p.lon, p.label, i === 0));
       }
       if (msg.night) {         // the dark side of the Earth, where the cities are lit right now
-        modeWant = 1; patchKey = ''; if (!satTex) satTex = new THREE.TextureLoader().load('/globe/tex/sat', t => { mat.uniforms.tSat.value = t; });
+        modeWant = 1; patchKey = ''; if (!satTex) satTex = new THREE.TextureLoader().load(GURL('/globe/tex/sat'), t => { mat.uniforms.tSat.value = t; });
         sunNow(); const s0 = latLon(shared.uSun.value); msg.fly = { lat: clamp(-s0.lat, -35, 35) + 20, lon: s0.lon > 0 ? s0.lon - 180 : s0.lon + 180, dist: 3.4 };
       }
       if (msg.measure) measure(msg.measure.a, msg.measure.b, msg.measure.km);
@@ -532,7 +547,7 @@ async function pollStats() {
   } catch (e) {}
   setTimeout(pollStats, 3000);
 }
-pollStats();
+if (!window.JARVIS_NATIVE) pollStats();          // the phone app has no PC gauges
 
 // ============================================================
 // HOLO PANELS: every answer bursts out of a glowing orb and settles into a ring that spins around it, riding a stream of light.

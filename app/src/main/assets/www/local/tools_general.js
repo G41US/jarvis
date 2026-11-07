@@ -178,7 +178,8 @@ export function registerGeneralTools(ctx) {
     return r === 'ok' ? `Opening ${a.name}.` : (r || `I couldn't find an app called ${a.name}.`);
   });
   const media = (action, query = '', pkg = '') => { if (!nb() || !nb().media) return 'I can only control music on the phone.'; return nb().media(action, query, pkg); };
-  T('play_music', 'Play a song, artist or playlist in a music app on this phone (Spotify by default).', { query: { type: 'string' }, app: { type: 'string', description: 'spotify, youtube music; default spotify' } }, ['query'], a => {
+  T('play_music', "Play a song, artist or playlist in a music app on this phone (Spotify by default, YouTube Music if they say so). No song named ('play some music'): leave query empty, don't ask.", { query: { type: 'string' }, app: { type: 'string', description: 'spotify, youtube music; default spotify' } }, [], a => {
+    a.query = String(a.query || '').trim() || 'popular songs this week';
     const r = media('play_search', a.query, /youtube/i.test(a.app || '') ? 'com.google.android.apps.youtube.music' : 'com.spotify.music'); return r === 'ok' ? `Playing ${a.query}.` : r === 'notified' ? `Tap the notification to start ${a.query}.` : r;
   });
   T('spotify_play', 'Play something on Spotify, or resume playback.', { query: { type: 'string' } }, [], a => { if (!a.query) { const r = media('play'); return r === 'ok' ? 'Playing.' : r; } const r = media('play_search', a.query, 'com.spotify.music'); return r === 'ok' ? `Playing ${a.query} on Spotify.` : r; });
