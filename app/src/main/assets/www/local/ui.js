@@ -150,6 +150,16 @@ body.jv-talking #jv-hint, body[data-nav] #jv-hint, body.st-muted #jv-hint, body.
 #jv-dock { position: fixed; z-index: 9; left: 0; right: 0; bottom: calc(var(--safe-b) + 22px); height: 72px; pointer-events: none; }
 #jv-dock > * { pointer-events: auto; }
 #jv-dock #jv-hist { position: absolute; right: 18px; top: 14px; }
+#jv-dock #jv-keys { position: absolute; right: 72px; top: 14px; }
+/* ---- typing instead of talking (an address is easier typed than spelled out loud) */
+#jv-type { position: fixed; z-index: 11; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 104px); display: none; gap: 8px; align-items: center; padding: 6px 6px 6px 16px;
+  border-radius: 28px; border: 1px solid var(--glass-hi); background: rgba(16, 12, 7, .92); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+body.jv-typing #jv-type { display: flex; }
+#jv-type input { flex: 1; min-width: 0; height: 44px; border: 0; outline: 0; background: transparent; color: var(--ice); font: 400 16px/1.2 Roboto, sans-serif; }
+#jv-type input::placeholder { color: var(--mist); opacity: .75; }
+#jv-type button { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--state); color: #120c04; }
+#jv-type button svg { width: 22px; height: 22px; }
+body[data-nav="full"] #jv-keys, body.jv-drive #jv-keys { display: none; }
 #jv-mapback { position: absolute; left: 18px; top: 14px; display: none; align-items: center; gap: 6px; height: 44px; padding: 0 16px; border-radius: 22px;
   border: 1px solid color-mix(in srgb, var(--state) 45%, transparent); background: rgba(10, 7, 3, .78); color: var(--ice); font: 600 14px/1 Roboto, sans-serif; }
 body.jv-trip-hidden #jv-mapback { display: inline-flex; }   /* a trip is running behind the face: one tap back to the map */
@@ -323,6 +333,8 @@ body.jv-drive.jv-talking #jv-drive .dv-today, body.jv-drive.jv-talking #jv-drive
 `;
 
 const ICON = {
+  keys: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M7.5 14h9"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
   mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.7-1.3M5.5 11a6.5 6.5 0 0 0 10.6 5M18.4 12.6c.06-.5.1-1 .1-1.6M12 17.5V21M3 3l18 18"/></svg>',
   hist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.8 7L4 20l1.1-4A8 8 0 1 1 20 12z"/><path d="M8.5 10.5h7M8.5 13.5h4"/></svg>',
@@ -541,7 +553,13 @@ export function initUi() {
   const hist = el('button', 'jv-ic'); hist.id = 'jv-hist'; hist.setAttribute('aria-label', 'Conversation and settings'); hist.innerHTML = ICON.hist;
   const mapBack = el('button', '', 'Map'); mapBack.id = 'jv-mapback'; mapBack.type = 'button'; mapBack.setAttribute('aria-label', 'Back to the map');
   mapBack.onclick = () => { try { window.JARVIS.navsvc.mapControl('show_map'); } catch {} };
-  dock.append(orb, hist, mapBack);
+  const keys = el('button', 'jv-ic'); keys.id = 'jv-keys'; keys.type = 'button'; keys.setAttribute('aria-label', 'Type to Jarvis'); keys.innerHTML = ICON.keys;
+  dock.append(orb, keys, hist, mapBack);
+  const typeBar = el('form'); typeBar.id = 'jv-type'; typeBar.setAttribute('aria-label', 'Type to Jarvis');
+  const typeIn = el('input'); typeIn.type = 'text'; typeIn.placeholder = 'Type a message or an address'; typeIn.setAttribute('enterkeyhint', 'send');
+  typeIn.setAttribute('aria-label', 'Message'); typeIn.autocomplete = 'off';
+  const typeGo = el('button'); typeGo.type = 'submit'; typeGo.setAttribute('aria-label', 'Send'); typeGo.innerHTML = ICON.send;
+  typeBar.append(typeIn, typeGo);
 
   // ---- conversation sheet: Clear, Settings, Done
   const hh = el('div'); hh.id = 'jv-hist-head';
@@ -552,7 +570,7 @@ export function initUi() {
   const links = el('div', 'links'); links.append(hEarn, hKnow, hGear, hClear);
   hh.append(el('h2', '', 'Conversation'), hClose, links);
 
-  document.body.append(sos, top, hello, card, toast, scrim, ideas, hint, dock, hh);
+  document.body.append(sos, top, hello, card, toast, scrim, ideas, hint, dock, typeBar, hh);
 
   // ---- actions
   const muteBtn = () => $('muteBtn');
@@ -613,6 +631,12 @@ export function initUi() {
 
   const toggleHist = on => { closeIdeas(); B.toggle('jv-history', on); hist.setAttribute('aria-pressed', String(B.contains('jv-history'))); const l = $('log'); if (l) l.scrollTop = l.scrollHeight; };
   hist.onclick = () => toggleHist(!B.contains('jv-history'));
+  // typed messages go to Jarvis exactly like spoken ones (same answer, spoken and shown)
+  const typing = on => { B.toggle('jv-typing', on); if (on) { closeIdeas(); setTimeout(() => typeIn.focus(), 30); } else typeIn.blur(); };
+  keys.onclick = () => typing(!B.contains('jv-typing'));
+  typeBar.addEventListener('submit', e => { e.preventDefault(); const t = typeIn.value.trim(); if (!t) return; typeIn.value = ''; typing(false); ask(t); });
+  typeIn.addEventListener('keydown', e => { if (e.key === 'Escape') typing(false); });
+  typeIn.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== typeIn && !typeIn.value.trim()) B.remove('jv-typing'); }, 150));
   hClose.onclick = () => toggleHist(false);
   hGear.onclick = () => { toggleHist(false); J() && J().openSettings && J().openSettings(); };
   hEarn.onclick = () => { toggleHist(false); J() && J().openEarnings && J().openEarnings(); };
