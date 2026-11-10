@@ -1,5 +1,5 @@
 // learn.js - Jarvis learns about you from ordinary conversation. After you say something about yourself ("my sister Ada
-// lives in Abuja", "I start work at 7", "I hate long answers"), a small, fast model picks out the lasting facts and they
+// lives in Leeds", "I start work at 7", "I hate long answers"), a small, fast model picks out the lasting facts and they
 // join what Jarvis knows (the same list "remember" writes to, shown in "what do you know about me"). Kept on this phone.
 
 const PERSONAL = /^(i|i'm|im|i've|i'd|my|we|we're|our|me and|no|actually|call me)\b|\b(my (\w+ )?(name|wife|husband|son|daughter|kids?|sister|brother|mum|mom|dad|father|mother|friend|boss|girlfriend|boyfriend|partner|car|job|work|birthday|address|favou?rite|home|house)|i (am|was|live|stay|work|drive|like|love|enjoy|hate|prefer|usually|always|never|normally|start|finish|go|study|speak|have|don'?t like|can'?t stand))\b/i;

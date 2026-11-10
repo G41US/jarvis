@@ -1115,7 +1115,7 @@ def build_system_prompt():
         + ("- Spotify tools ARE real and connected: spotify_play, spotify_pause, spotify_next, "
         "spotify_previous, spotify_now_playing, spotify_devices. Use them when the user says Spotify. The Spotify "
         "player runs automatically in the background — never tell the user to open Spotify or activate a device.\n" if SPOTIFY_READY else "") +
-        "- Music: 'play X' / 'play some afrobeats' / 'pause' / 'next song' / 'louder' / 'what's playing'->play_music (YouTube Music inside Jarvis; "
+        "- Music: 'play X' / 'play some jazz' / 'pause' / 'next song' / 'louder' / 'what's playing'->play_music (YouTube Music inside Jarvis; "
         "Spotify instead once they've said 'connect Spotify', or when they say 'on Spotify': put 'on Spotify' in the query). "
         "'connect Spotify' / 'sign in to Spotify' / 'use YouTube Music again'->connect_spotify. "
         "'close the player' / 'stop the music' / 'turn it off' while a song plays->play_music stop (never window_control). "
@@ -1618,7 +1618,7 @@ def _format_zone_time(dt):
     if p.startswith("0"): p = p[1:]
     return p
 
-@tool("get_time", "Get the current time. Pass a location like 'Abuja' or 'Tokyo'.",
+@tool("get_time", "Get the current time. Pass a location like 'London' or 'Tokyo'.",
       {"location": {"type": "string"}})
 def _get_time(location: str = "", timezone: str = ""):
     import requests
@@ -3111,7 +3111,7 @@ def _has_speech(a_f32):
 STT_BACKEND = os.environ.get("JARVIS_STT", "auto").lower()        # auto | groq | local
 GROQ_STT_MODEL = os.environ.get("JARVIS_GROQ_STT_MODEL", "whisper-large-v3-turbo")
 STT_PROMPT = ("Hey Jarvis. Gesture mode, globe, zoom in, zoom out, live feeds, webcams, next camera, panels, close the card, check my email, "
-              "open panel four, play Asake, Burna Boy, Wizkid, Davido, Rema, Tems, Ayra Starr, Olamide, stop the music, Lagos, Abuja.")
+              "open panel four, play, stop the music, next song, Billie Eilish, Ed Sheeran, Taylor Swift.")
 # what Whisper keeps making of "gesture mode" ("just show mode", "just your mood", "Jarvis show mode", "so no, just show")
 _GESTURE_HEARD = re.compile(r"\b(?:just|jess|jester|gesture|gestures|justice|jest|chester|jarvis|chess)[,.]?\s+(?:(?:show|your|no|sure|chair|ya|you)\s+)?(?:mode|mood|mod|mold|moat)\b"
                             r"|\b(?:just|jarvis)[,.]?\s+show[.!?]?$", re.I)

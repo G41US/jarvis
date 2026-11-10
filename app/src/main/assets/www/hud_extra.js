@@ -1623,7 +1623,7 @@ const desk = (() => {
     }
     sfx.whoosh();
     if (kind === 'clock') {
-      const p = panel('clock', 'Clock', '<div class="big"></div><div class="sm d"></div><div class="chips"></div>', at), zones = [['Lagos', 'Africa/Lagos'], ['London', 'Europe/London'], ['New York', 'America/New_York'], ['Dubai', 'Asia/Dubai'], ['Tokyo', 'Asia/Tokyo']];
+      const p = panel('clock', 'Clock', '<div class="big"></div><div class="sm d"></div><div class="chips"></div>', at), zones = [['London', 'Europe/London'], ['New York', 'America/New_York'], ['Dubai', 'Asia/Dubai'], ['Tokyo', 'Asia/Tokyo'], ['Sydney', 'Australia/Sydney']];
       const tick = () => {
         if (!panels.has(p)) return clearInterval(t); const n = new Date();
         p.querySelector('.big').textContent = n.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });

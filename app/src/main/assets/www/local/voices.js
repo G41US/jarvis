@@ -10,7 +10,7 @@ const GOOGLE = {
   // India
   ahp: 'f', cxx: 'f', ena: 'f', end: 'm',
 };
-const ACCENTS = { us: 'US English', gb: 'British English', au: 'Australian English', in: 'Indian English', ng: 'Nigerian English', ca: 'Canadian English', ie: 'Irish English', za: 'South African English' };
+const ACCENTS = { us: 'US English', gb: 'British English', au: 'Australian English', in: 'Indian English', ca: 'Canadian English', ie: 'Irish English', za: 'South African English' };
 
 export function genderOf(v) {
   const id = String((v && v.id) || '').toLowerCase(), label = String((v && v.label) || '').toLowerCase();
@@ -26,7 +26,7 @@ export function accentOf(v) { const lang = String(v.lang || v.id || '').toLowerC
 /** [{id, label, lang}] from Android -> [{id, raw, name, gender, accent, local}] sorted: English first, offline first. */
 export function describeVoices(list) {
   const counters = {};
-  const out = list.filter(v => /^en/i.test(String(v.lang || v.id))).map(v => {
+  const out = list.filter(v => /^en/i.test(String(v.lang || v.id)) && accentOf(v) !== 'ng').map(v => {      // no Nigerian English voices for now
     const g = genderOf(v), a = accentOf(v), local = isLocal(v);
     const key = `${a}${g}`; counters[key] = (counters[key] || 0) + 1;
     const gw = g === 'm' ? 'Male' : g === 'f' ? 'Female' : 'Voice';

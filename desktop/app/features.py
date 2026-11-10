@@ -596,13 +596,13 @@ def install(ns):
         _live[handle] = (time.time(), out)
         return out
 
-    # News from around the world, one station per panel in the ring (the one in front plays): UK, Qatar, Nigeria, Germany, France,
+    # News from around the world, one station per panel in the ring (the one in front plays): UK, Qatar, Germany, France,
     # India, Singapore, Australia, the US. All checked to allow playing inside other apps.
-    WORLD = ["SkyNews", "aljazeeraenglish", "ChannelsTelevision", "dwnews", "France24_en", "WION", "ChannelNewsAsia", "abcnewsaustralia", "NBCNews"]
-    NAMES.update({"ChannelsTelevision": "Channels TV", "WION": "WION", "ChannelNewsAsia": "CNA", "abcnewsaustralia": "ABC News Australia", "NBCNews": "NBC News"})
-    CHANNELS.update({"channels": "ChannelsTelevision", "wion": "WION", "cna": "ChannelNewsAsia", "channel news asia": "ChannelNewsAsia",
+    WORLD = ["SkyNews", "aljazeeraenglish", "dwnews", "France24_en", "WION", "ChannelNewsAsia", "abcnewsaustralia", "NBCNews"]
+    NAMES.update({"WION": "WION", "ChannelNewsAsia": "CNA", "abcnewsaustralia": "ABC News Australia", "NBCNews": "NBC News"})
+    CHANNELS.update({"wion": "WION", "cna": "ChannelNewsAsia", "channel news asia": "ChannelNewsAsia",
                      "abc australia": "abcnewsaustralia", "nbc": "NBCNews"})
-    WHERE = {"SkyNews": "United Kingdom", "aljazeeraenglish": "Qatar", "ChannelsTelevision": "Nigeria", "dwnews": "Germany", "France24_en": "France",
+    WHERE = {"SkyNews": "United Kingdom", "aljazeeraenglish": "Qatar", "dwnews": "Germany", "France24_en": "France",
              "WION": "India", "ChannelNewsAsia": "Singapore", "abcnewsaustralia": "Australia", "NBCNews": "United States", "NASA": "Space", "EarthCam": ""}
 
     def news_ring(handles, title):
@@ -671,7 +671,7 @@ def install(ns):
 
     @tool("show_public_cam", "Show live feeds on screen as panels in the ring (the one in front plays, 'next' turns to the next). Webcams of a place ('cameras in Paris', 'live cam of Lagos', 'webcams in Times Square'), "
           "world news ('live news', 'news from around the world': live news stations as panels, the front one plays, 'next' turns to the next), "
-          "one station ('Sky News live', 'Channels TV live', 'Al Jazeera live'), or NASA live. No place ('show me live cameras'): location '' gives "
+          "one station ('Sky News live', 'DW News live', 'Al Jazeera live'), or NASA live. No place ('show me live cameras'): location '' gives "
           "popular webcams worldwide. action close puts the feeds, cameras or news away.",
           {"location": {"type": "string", "description": "a place, a news channel, 'news' or 'nasa'"},
            "action": {"type": "string", "enum": ["show", "close"]}}, ["location"])
@@ -879,9 +879,9 @@ def install(ns):
                 "After that, songs play from Spotify.")
 
     @tool("play_music", "The music player (YouTube Music, plays inside Jarvis). action play with a query (a song, an artist, a mood, a genre: "
-          "'play Asake', 'play some afrobeats'); with no query it plays popular songs. Also pause, resume, next, previous, stop "
+          "'play Adele', 'play some jazz'); with no query it plays popular songs. Also pause, resume, next, previous, stop "
           "('stop the music', 'close the player'), louder, quieter, now_playing ('what's playing'). Spell artists the way they're known "
-          "(they said 'Ajayke' -> 'Asake', 'Bona Boy' -> 'Burna Boy').",
+          "(they said 'Bilie Eyelash' -> 'Billie Eilish', 'Ed Sharon' -> 'Ed Sheeran').",
           {"action": {"type": "string", "enum": ["play", "pause", "resume", "next", "previous", "stop", "louder", "quieter", "now_playing"]},
            "query": {"type": "string", "description": "what to play, for play"}}, ["action"])
     def _music(action: str = "play", query: str = ""):
