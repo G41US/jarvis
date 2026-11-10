@@ -47,7 +47,7 @@ export function registerGeneralTools(ctx) {
   const geo = async name => { const d = await json('https://geocoding-api.open-meteo.com/v1/search', { name, count: 1, language: 'en', format: 'json' }); return d && d.results && d.results[0] || null; };
   const myPlace = () => { const o = ctx.navsvc && ctx.navsvc.origin(); return o ? { latitude: o[0], longitude: o[1], name: 'your location' } : null; };
 
-  T('get_time', "Get the current time. Pass a location like 'Abuja' or 'Tokyo'.", { location: { type: 'string' } }, [], async a => {
+  T('get_time', "Get the current time. Pass a location like 'London' or 'Tokyo'.", { location: { type: 'string' } }, [], async a => {
     const loc = String(a.location || a.timezone || '').trim();
     if (!loc) { const d = new Date(); return fixSpace(`${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} on ${d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`) + ' local time'; }
     const g = await geo(loc.replace(/^(the )?(time|date)?\s*(in|at|for)\s+/i, '')); if (!g || !g.timezone) return `I couldn't find the time for ${loc}.`;
@@ -64,7 +64,7 @@ export function registerGeneralTools(ctx) {
   });
   T('get_weather', "Get current weather for a city. With no city it uses the user's location.", { city: { type: 'string' } }, [], async a => {
     let g = a.city ? await geo(a.city) : myPlace(); if (!g) g = myPlace(); if (!g) return a.city ? `I couldn't find ${a.city}.` : 'Tell me which city, or allow location so I know where you are.';
-    // Fahrenheit only where people use it (the US), unless the user picked units: Abuja gets Celsius
+    // Fahrenheit only where people use it (the US), unless the user picked units: London gets Celsius
     const inUS = (y, x) => (y > 24 && y < 49.5 && x > -125 && x < -66.9) || (y > 51 && y < 72 && x > -170 && x < -129) || (y > 18 && y < 23 && x > -161 && x < -154);
     const f = ctx.delivery._unitsFixed ? ctx.delivery.units === 'miles' : inUS(g.latitude, g.longitude);
     const d = await json('https://api.open-meteo.com/v1/forecast', { latitude: g.latitude, longitude: g.longitude, current: 'temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation',

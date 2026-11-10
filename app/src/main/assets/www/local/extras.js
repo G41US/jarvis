@@ -30,14 +30,14 @@ export function liveOnPage(html) {
   return on.sort((a, b) => steady(b[1]) - steady(a[1]));
 }
 
-// world news, one station per card: UK, Qatar, Nigeria, Germany, France, India, Singapore, Australia, the US
-const WORLD = ['SkyNews', 'aljazeeraenglish', 'ChannelsTelevision', 'dwnews', 'France24_en', 'WION', 'ChannelNewsAsia', 'abcnewsaustralia', 'NBCNews'];
-const NAMES = { SkyNews: 'Sky News', aljazeeraenglish: 'Al Jazeera English', ChannelsTelevision: 'Channels TV', dwnews: 'DW News', France24_en: 'France 24', WION: 'WION',
+// world news, one station per card: UK, Qatar, Germany, France, India, Singapore, Australia, the US
+const WORLD = ['SkyNews', 'aljazeeraenglish', 'dwnews', 'France24_en', 'WION', 'ChannelNewsAsia', 'abcnewsaustralia', 'NBCNews'];
+const NAMES = { SkyNews: 'Sky News', aljazeeraenglish: 'Al Jazeera English', dwnews: 'DW News', France24_en: 'France 24', WION: 'WION',
   ChannelNewsAsia: 'CNA', abcnewsaustralia: 'ABC News Australia', NBCNews: 'NBC News', NASA: 'NASA' };
-const WHERE = { SkyNews: 'United Kingdom', aljazeeraenglish: 'Qatar', ChannelsTelevision: 'Nigeria', dwnews: 'Germany', France24_en: 'France', WION: 'India',
+const WHERE = { SkyNews: 'United Kingdom', aljazeeraenglish: 'Qatar', dwnews: 'Germany', France24_en: 'France', WION: 'India',
   ChannelNewsAsia: 'Singapore', abcnewsaustralia: 'Australia', NBCNews: 'United States', NASA: 'Space' };
 const CHANNELS = { 'sky news': 'SkyNews', 'al jazeera': 'aljazeeraenglish', aljazeera: 'aljazeeraenglish', dw: 'dwnews', 'france 24': 'France24_en', france24: 'France24_en',
-  nasa: 'NASA', channels: 'ChannelsTelevision', wion: 'WION', cna: 'ChannelNewsAsia', 'channel news asia': 'ChannelNewsAsia', 'abc australia': 'abcnewsaustralia', nbc: 'NBCNews' };
+  nasa: 'NASA', wion: 'WION', cna: 'ChannelNewsAsia', 'channel news asia': 'ChannelNewsAsia', 'abc australia': 'abcnewsaustralia', nbc: 'NBCNews' };
 const REGIONS = { 'east coast': 'New York', 'west coast': 'Los Angeles', midwest: 'Chicago', 'the south': 'Atlanta', 'new england': 'Boston', usa: 'United States', us: 'United States',
   america: 'United States', uk: 'United Kingdom', britain: 'United Kingdom', uae: 'United Arab Emirates', 'middle east': 'Dubai', europe: 'Paris', 'west africa': 'Lagos',
   'east africa': 'Nairobi', 'the alps': 'Zermatt', caribbean: 'Jamaica', scandinavia: 'Stockholm', 'south east asia': 'Bangkok', 'southeast asia': 'Bangkok' };
@@ -220,8 +220,8 @@ export function registerExtras(ctx) {
     return [];
   }
   reg.remove(['show_public_cam']);
-  reg.add('show_public_cam', "Show live feeds as cards (tap one to watch): webcams of a place ('cameras in Paris', 'live cam of Lagos'), world news ('live news', 'news from around the world'), " +
-    "one station ('Sky News live', 'Channels TV live', 'Al Jazeera live') or NASA live. No place ('show me live cameras'): location '' gives popular webcams worldwide. action close puts them away.",
+  reg.add('show_public_cam', "Show live feeds as cards (tap one to watch): webcams of a place ('cameras in Paris', 'live cam of Tokyo'), world news ('live news', 'news from around the world'), " +
+    "one station ('Sky News live', 'DW News live', 'Al Jazeera live') or NASA live. No place ('show me live cameras'): location '' gives popular webcams worldwide. action close puts them away.",
   { location: { type: 'string', description: "a place, a news channel, 'news' or 'nasa'" }, action: { type: 'string', enum: ['show', 'close'] } }, ['location'], async ({ location = '', action = 'show' }) => {
     if (action === 'close') { send('panels', { cmd: 'close' }); return 'Feeds closed.'; }
     const q = String(location).trim(), ql = q.toLowerCase();

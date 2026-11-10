@@ -23,7 +23,7 @@ export const GROUPS = {
   people: [/\b(call|ring|dial|phone|text|sms|message|messages|whatsapp|reply|respond|notification|notifications|inbox|tell (him|her|them|\w+) (that|i)|contact|announce|read (out|aloud))/,
     ['phone_call', 'send_text', 'whatsapp_message', 'read_notifications', 'reply_to_message', 'announce_messages']],
   globe: [/\b(globe|earth|world map|satellite|earthquakes?|storms?|hurricanes?|typhoons?|cyclones?|space station|iss|aurora|northern lights|night side|city lights|at night|distance between|how far is \w+ from)/, ['globe']],
-  feeds: [/\b(live news|news (live|stations?|channels?)|sky news|al jazeera|channels tv|dw news|france 24|wion|nasa live|webcams?|cameras? (in|of|at|from)|live cams?|cams? (in|of))\b/, ['show_public_cam']],
+  feeds: [/\b(live news|news (live|stations?|channels?)|sky news|al jazeera|dw news|france 24|wion|nasa live|webcams?|cameras? (in|of|at|from)|live cams?|cams? (in|of))\b/, ['show_public_cam']],
   mind: [/\b(speak up|on your own|interrupt\w*|keep (your )?thoughts|stop (talking|suggesting|checking))/, ['inner_voice']],
   calendar: [/\b(calendar|schedule|meeting|appointment|event|agenda|what'?s on|am i (busy|free)|plans|book|tomorrow|today|this week)/, ['get_calendar', 'add_calendar_event']],
   docs: [/\b(clipboard|copy|paste|copied|document|doc\b|pdf|word|docx|file|write (me )?(a|an|up)|letter|report|essay|resume|cv|share (it|that|the))/,
