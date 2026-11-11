@@ -1121,6 +1121,9 @@ def build_system_prompt():
         "'close the player' / 'stop the music' / 'turn it off' while a song plays->play_music stop (never window_control). "
         "'play a song' with nothing named->play_music with no query (it picks popular songs; don't ask which). media_control is only for other apps' players.\n"
         "- 'holo desk' / 'mirror mode' (the camera as a mirror with panels he moves by hand)->holo_desk; 'put the news / weather on the desk'->holo_desk add.\n"
+        "- 'x-ray mirror' / 'show my skull / brain / bones'->xray_mirror (a model drawn on him, not his real insides; say so if he asks). "
+        "'measure my pulse / breathing', 'am I tired', 'how's my posture'->vitals measure (then vitals read when he asks for the numbers); "
+        "'watch my posture'->vitals posture_on. Camera readings are rough and never a diagnosis: anything worrying, he should see a doctor.\n"
         "- Cameras / webcams / live cams anywhere ('live cameras available', 'a public one in New York')->show_public_cam, never search_web; "
         "no place named->show_public_cam with location '' (popular live ones). 'close/clear the cameras, feeds, news'->show_public_cam action close.\n"
         "- MAP/NAVIGATION works anywhere in the world: 'navigate to X' or 'take me to X'->navigate_to (the face shrinks to a corner orb and a "
@@ -3110,7 +3113,7 @@ def _has_speech(a_f32):
 
 STT_BACKEND = os.environ.get("JARVIS_STT", "auto").lower()        # auto | groq | local
 GROQ_STT_MODEL = os.environ.get("JARVIS_GROQ_STT_MODEL", "whisper-large-v3-turbo")
-STT_PROMPT = ("Hey Jarvis. Gesture mode, globe, zoom in, zoom out, live feeds, webcams, next camera, panels, close the card, check my email, "
+STT_PROMPT = ("Hey Jarvis. X-ray mirror, measure my pulse, posture, Gesture mode, globe, zoom in, zoom out, live feeds, webcams, next camera, panels, close the card, check my email, "
               "open panel four, play, stop the music, next song, Billie Eilish, Ed Sheeran, Taylor Swift.")
 # what Whisper keeps making of "gesture mode" ("just show mode", "just your mood", "Jarvis show mode", "so no, just show")
 _GESTURE_HEARD = re.compile(r"\b(?:just|jess|jester|gesture|gestures|justice|jest|chester|jarvis|chess)[,.]?\s+(?:(?:show|your|no|sure|chair|ya|you)\s+)?(?:mode|mood|mod|mold|moat)\b"
@@ -3353,6 +3356,7 @@ _TOOL_GROUPS = [
     (r"\b(remember|recall|forget|memor(y|ies)|know about me)\b", ("remember", "recall", "list_memories", "forget_memory", "forget_all")),
     (r"\b(prefer\w*|always|never|from now on|stop (doing|saying)|don'?t (say|do))\b", ("set_preference", "list_preferences", "forget_preference")),
     (r"\b(notes?|jot)\b", ("take_note", "read_notes")),
+    (r"\b(x-?ray|xray|skull|skeleton|anatomy|bones?|brain|muscles?|pulse|heart ?rate|heartbeat|breathing|breaths?|blink\w*|tired|sleepy|posture|slouch\w*|sitting (up|straight)|my scan|vitals?)\b", ("xray_mirror", "vitals")),
     (r"\b(speak up|on your own|interrupt\w*|keep (your )?thoughts|stop (talking|suggesting|checking)|glanc\w*|watching me|looking at me)\b", ("inner_voice",)),
     (r"\b(document|documents|pdf|docx|word file|text file|essay|report|article|letter|write (a|me|up))\b",
      ("create_pdf", "create_docx", "create_text_file", "list_documents", "delete_document", "query_documents", "reindex_documents")),
@@ -3519,7 +3523,7 @@ def _exec_tool(name, raw_args):
 
 # tools whose result is already the sentence to say ("Abuja, sir.", "Playing Bad Blood by Taylor Swift."): said as they are, with no second
 # request for the model to reword them. That's a second sooner, and the second request is where gpt-oss kept "calling a tool" and failing.
-SAY_AS_IS = {"inner_voice", "globe", "holo", "show_public_cam", "play_music", "connect_spotify", "holo_desk", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
+SAY_AS_IS = {"xray_mirror", "vitals", "inner_voice", "globe", "holo", "show_public_cam", "play_music", "connect_spotify", "holo_desk", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
              "lock_pc", "take_screenshot", "set_timer", "remember", "forget_memory", "set_preference", "forget_preference", "set_reminder",
              "flip_coin", "roll_dice", "take_note", "set_voice", "map_control", "stop_navigation", "show_images", "google_account",
              "spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "link_phone", "unlink_phone", "take_calls"}

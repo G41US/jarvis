@@ -303,6 +303,10 @@ def install(ns):
     async def hud_extra_js():
         return FileResponse(os.path.join(ns.get("_PROJECT_DIR", "."), "hud_extra.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
+    @app.get("/xray.js")
+    async def xray_js():
+        return FileResponse(os.path.join(ns.get("_PROJECT_DIR", "."), "xray.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
     # ============================================================
     # DAY PLANNER (local: Google Calendar isn't connected on this PC)
     # ============================================================
@@ -1043,6 +1047,48 @@ def install(ns):
         if k == "globe": send("globe", {"cmd": "show", "fly": {"dist": 5.6}})
         elif k == "cams": await asyncio.to_thread(ns["_TOOL_REGISTRY"]["show_public_cam"], "", "show")
         return {"ok": True}
+
+    # ------------------------------------------------------------------ X-RAY MIRROR (xray.js): anatomy drawn on him, and real camera readings
+    vitals_now = {"at": 0}
+    @app.post("/xray/vitals")
+    async def xray_vitals(d: dict):
+        vitals_now.update({k: d.get(k) for k in ("pulse", "breath", "blinks", "perclos", "tired", "posture")}, at=time.time())
+        return {"ok": True}
+
+    LAYERS = ("skull", "brain", "muscles", "eyes", "hands", "labels")
+    @tool("xray_mirror", "The X-ray mirror: the camera as a mirror with a labelled skull, brain, muscles, eyes and hand bones drawn on him in real time "
+          "(a model fitted to his face, not his real insides). action: open, close, show (turn layers on: layer=skull|brain|muscles|eyes|hands|labels), "
+          "hide (turn a layer off), part (part=all|left|right|top|lower: which part of the head), see_through (amount 0-100).",
+          {"action": {"type": "string", "enum": ["open", "close", "show", "hide", "part", "see_through"]}, "layer": {"type": "string"},
+           "part": {"type": "string", "enum": ["all", "left", "right", "top", "lower"]}, "amount": {"type": "number"}}, ["action"])
+    def _xray(action: str, layer: str = "", part: str = "", amount: float = 60):
+        a = (action or "open").lower()
+        if a == "close": send("xray", {"cmd": "close"}); return "Back to normal."
+        if a == "open": send("xray", {"cmd": "open"}); return "X-ray mirror. Labels, layers and your readings are on the right."
+        if a in ("show", "hide"):
+            ls = [l for l in LAYERS if l in (layer or "").lower()] or (list(LAYERS[:5]) if "everything" in (layer or "").lower() or "all" in (layer or "").lower() else [])
+            if not ls: return "Layers: skull, brain, muscles, eyes, hands, labels."
+            send("xray", {"cmd": "open", "opt": {l: a == "show" for l in ls}}); return ("Showing " if a == "show" else "Hiding ") + " and ".join(ls) + "."
+        if a == "part": send("xray", {"cmd": "open", "opt": {"cut": part or "all"}}); return {"all": "The whole head.", "left": "Left half.", "right": "Right half.", "top": "Top of the head.", "lower": "Lower face."}.get(part or "all", "Done.")
+        if a == "see_through": send("xray", {"cmd": "open", "opt": {"see": max(0, min(100, float(amount))) / 100}}); return f"See-through at {int(amount)} percent."
+        return "I can open or close the X-ray mirror, show or hide layers, pick part of the head, or change how see-through it is."
+
+    @tool("vitals", "Readings from the camera, not a medical device: pulse (from tiny colour changes in his face), breathing rate, blinks, tiredness "
+          "and posture. action: measure (opens the X-ray mirror and starts; about 20 seconds sitting still), read (the latest numbers), "
+          "posture_on (keep an eye on his posture in the background and say when he slouches), posture_off.",
+          {"action": {"type": "string", "enum": ["measure", "read", "posture_on", "posture_off"]}}, ["action"])
+    def _vitals(action: str = "read"):
+        a = (action or "read").lower()
+        if a == "measure": send("xray", {"cmd": "open"}); return "Sit still and face the camera in good light for about twenty seconds. Your readings appear on the right."
+        if a == "posture_on": send("xray", {"cmd": "watch", "on": True}); return "I'll keep an eye on your posture and say if you slouch for more than half a minute."
+        if a == "posture_off": send("xray", {"cmd": "watch", "on": False}); return "Posture watch off."
+        v = vitals_now
+        if time.time() - v.get("at", 0) > 600: return "I have no recent readings. Say 'measure my pulse' and sit still in front of the camera."
+        parts = [f"pulse about {v['pulse']} beats a minute" if v.get("pulse") else "", f"breathing {v['breath']} a minute" if v.get("breath") else "",
+                 f"blinking {v['blinks']} times a minute" if v.get("blinks") else "", f"you look {v['tired']}" if v.get("tired") else "",
+                 f"posture {v['posture']}" if v.get("posture") else ""]
+        said = ", ".join(p for p in parts if p)
+        return (said[0].upper() + said[1:] + ". Rough camera readings, not medical ones.") if said else "Still measuring. Sit still for a few more seconds."
 
     @tool("holo_desk", "The holo desk (mirror mode): the camera fills the screen like a mirror and panels float around him, moved with his hands. "
           "action open (optionally with panel: news, weather, clock, email, music), add (another panel), clear (put the panels away), close (leave it).",
