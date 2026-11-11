@@ -5,13 +5,19 @@ on:
   push:
     paths-ignore: ['desktop/**', '.github/workflows/build-desktop.yml']   # the PC app has its own build
   workflow_dispatch:
+    inputs:
+      cloud:
+        description: "Build on GitHub's machines instead of the laptop (uses paid minutes)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # lets the workflow attach the APK to a Release so you can download it straight onto your phone
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # on the laptop's Ubuntu (WSL, set up with tools/wsl_runner.sh): free and unlimited. Tick "cloud" for GitHub's machines.
+    runs-on: ${{ inputs.cloud && 'ubuntu-latest' || fromJSON('["self-hosted", "Linux", "jarvis-linux"]') }}
     outputs:
       ios: ${{ steps.ioswant.outputs.ios }}
     env:
@@ -38,6 +44,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      # GitHub's machines come with the Android SDK; the laptop gets it once (it stays for the next builds)
+      - uses: android-actions/setup-android@v3
+        if: runner.environment == 'self-hosted'
 
       - uses: actions/setup-node@v4
         with:
