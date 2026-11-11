@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 HERE = os.path.abspath(SPECPATH)
 APP = os.path.join(HERE, "app")
 
-datas = [(os.path.join(APP, f), ".") for f in ("index.html", "hud_extra.js", "nav.js", "nav_core.js", "VERSION")]
+datas = [(os.path.join(APP, f), ".") for f in ("index.html", "hud_extra.js", "xray.js", "nav.js", "nav_core.js", "VERSION")]
 datas += [(os.path.join(APP, "models"), "models")]
 if os.path.exists(os.path.join(APP, "UPDATE_REPO")): datas += [(os.path.join(APP, "UPDATE_REPO"), ".")]   # written by the build: where updates come from
 if os.path.exists(os.path.join(APP, "google_client.json")): datas += [(os.path.join(APP, "google_client.json"), ".")]   # written by the build: Sign in with Google

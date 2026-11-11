@@ -12,7 +12,7 @@ BUNDLE = getattr(sys, "_MEIPASS", os.path.join(os.path.dirname(os.path.abspath(_
 PORT = int(os.environ.get("JARVIS_PORT") or 8000)   # another port lets a build test run beside the Jarvis you use
 URL = f"http://127.0.0.1:{PORT}"
 os.environ.setdefault("JARVIS_SERVER", URL)          # the "Hey Jarvis" listener (a child process) reports here
-WEB_FILES = ["index.html", "hud_extra.js", "nav.js", "nav_core.js"]
+WEB_FILES = ["index.html", "hud_extra.js", "xray.js", "nav.js", "nav_core.js"]
 # Shown the moment Jarvis is opened (the first start downloads voices and can take a few minutes); swaps to Jarvis when it's up.
 SPLASH = """<!doctype html><meta charset="utf-8"><title>Jarvis</title>
 <style>html,body{margin:0;height:100%;background:#000;color:#f5c97a;font:500 18px/1.5 system-ui,sans-serif;display:flex;align-items:center;justify-content:center;text-align:center}
