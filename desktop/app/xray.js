@@ -1,5 +1,6 @@
 // xray.js - the X-ray mirror (after the "X-Ray Mirror" demo): the camera as a mirror with a labelled skull, brain, muscles, eyes and
-// hand bones drawn onto you in real time from MediaPipe's face and hand tracking. The anatomy is a model fitted to your face, not
+// hand bones laid onto you in real time from MediaPipe's face and hand tracking. The anatomy is real 3D models of one adult (BodyParts3D)
+// fitted to your face, not
 // your real insides: a camera only sees skin. What it does measure for real, from the same video:
 //   pulse      - remote photoplethysmography (POS method): blood flow changes the colour of your face very slightly with each beat
 //   breathing  - the chest region rising and falling, as a vertical shift of its brightness profile
@@ -10,9 +11,6 @@
 const VER = '0.10.14', CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VER}`;
 const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
-const EYE_A = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
-const EYE_B = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
 const FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
 
 // ---------------------------------------------------------------- signal maths (pure, tested in tests/xray_vitals.test.mjs)
@@ -77,8 +75,10 @@ export function createXray({ say = () => {}, onState = () => {} } = {}) {
   st.textContent = `
   #pc-xray { position: fixed; inset: 0; z-index: 60; background: #000; display: none; }
   #pc-xray.on { display: block; }
-  #pc-xray video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); filter: saturate(.8) brightness(.9); }
-  #pc-xray canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #pc-xray video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); filter: grayscale(1) contrast(1.15) brightness(.8); }
+  #pc-xray canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #pc-xray canvas.cam { object-fit: cover; transform: scaleX(-1); }
+  #pc-xray .tint { position: absolute; inset: 0; background: #0b2a4a; mix-blend-mode: color; pointer-events: none; }
   #pc-xray .panel { position: absolute; right: 16px; top: 16px; width: 250px; max-height: calc(100vh - 32px); overflow: auto; padding: 14px 14px 12px; border-radius: 14px;
     background: rgba(8, 14, 22, .82); border: 1px solid rgba(140, 200, 255, .28); color: #dcecff; font: 400 12.5px/1.45 'Saira', system-ui, sans-serif; backdrop-filter: blur(10px); }
   #pc-xray button, #pc-xray select { letter-spacing: normal; text-transform: none; }
@@ -100,14 +100,14 @@ export function createXray({ say = () => {}, onState = () => {} } = {}) {
   #pc-xray.dragging .drop { display: flex; }`;
   document.head.appendChild(st);
   const root = document.createElement('div'); root.id = 'pc-xray';
-  root.innerHTML = `<video playsinline muted></video><canvas></canvas><button class="close" type="button">← Back to Jarvis</button>
+  root.innerHTML = `<video playsinline muted></video><div class="tint"></div><canvas class="cam" data-c="shade"></canvas><canvas class="cam" data-c="gl"></canvas><canvas data-c="hud"></canvas><button class="close" type="button">← Back to Jarvis</button>
     <div class="panel" role="region" aria-label="X-ray mirror controls">
       <section><h3>Layers</h3><div class="chips" data-g="layers">
-        <button data-k="skull" class="on">Skull</button><button data-k="brain" class="on">Brain</button><button data-k="muscles">Muscles</button>
+        <button data-k="skull" class="on">Skull</button><button data-k="brain">Brain</button><button data-k="muscles">Muscles</button>
         <button data-k="eyes" class="on">Eyes</button><button data-k="hands" class="on">Hand bones</button><button data-k="labels" class="on">Labels</button></div></section>
       <section><h3>Show</h3><select data-k="cut" aria-label="Which part of the head"><option value="all">Whole head</option><option value="left">Left half</option>
         <option value="right">Right half</option><option value="top">Top of the head</option><option value="lower">Lower face</option></select>
-        <div class="row"><span>See-through</span><span data-v="see">60%</span></div><input type="range" min="0" max="100" value="60" data-k="see" aria-label="See-through">
+        <div class="row"><span>See-through</span><span data-v="see">85%</span></div><input type="range" min="0" max="100" value="85" data-k="see" aria-label="See-through">
         <div class="row"><span>Brightness</span><span data-v="bright">100%</span></div><input type="range" min="30" max="160" value="100" data-k="bright" aria-label="Brightness"></section>
       <section><h3>Measured from the camera</h3><div class="vit">
         <div><span>Pulse</span><b data-m="pulse">–</b></div><div><span>Breathing</span><b data-m="breath">–</b></div>
@@ -116,13 +116,15 @@ export function createXray({ say = () => {}, onState = () => {} } = {}) {
       <section><h3>Your own scan</h3><div class="row"><button type="button" data-k="load">Load an X-ray / MRI</button><button type="button" data-k="pin" hidden>On head</button></div>
         <input type="file" accept="image/*" hidden><div class="row" data-k="scanrow" hidden><span>Opacity</span><input type="range" min="10" max="100" value="70" data-k="scanop" aria-label="Scan opacity"></div>
         <div class="note">Or drop the picture on the mirror. It stays on this computer.</div></section>
+      <div class="note">Anatomy: BodyParts3D, © The Database Center for Life Science, CC BY-SA 2.1 JP. One adult's anatomy fitted to you, not a scan of you.</div>
     </div><div class="drop">Drop your scan to pin it on you</div>`;
   document.body.appendChild(root);
-  const video = root.querySelector('video'), cv = root.querySelector('canvas'), g = cv.getContext('2d');
+  const video = root.querySelector('video'), cv = root.querySelector('[data-c=hud]'), g = cv.getContext('2d');
+  const glc = root.querySelector('[data-c=gl]'), shade = root.querySelector('[data-c=shade]'), sh = shade.getContext('2d');
   const small = document.createElement('canvas'); small.width = 160; small.height = 120; const sg = small.getContext('2d', { willReadFrequently: true });
-  const opt = { skull: true, brain: true, muscles: false, eyes: true, hands: true, labels: true, cut: 'all', see: 0.6, bright: 1 };
+  const opt = { skull: true, brain: false, muscles: false, eyes: true, hands: true, labels: true, cut: 'all', see: 0.85, bright: 1 };
   let on = false, show = false, stream = null, face = null, hand = null, raf = 0, lastT = 0, tick = 0, faceRes = null, handRes = null;
-  let scan = null, scanOn = 'head', scanOp = 0.7, gyri = null;
+  let scan = null, scanOn = 'head', scanOp = 0.7, R3 = null;
 
   // ---- the controls
   root.querySelector('.close').onclick = () => close();
@@ -155,6 +157,7 @@ export function createXray({ say = () => {}, onState = () => {} } = {}) {
     const V = await import(`${CDN}/vision_bundle.mjs`), files = await V.FilesetResolver.forVisionTasks(`${CDN}/wasm`);
     face = face || await V.FaceLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'GPU' }, runningMode: 'VIDEO', numFaces: 1,
       outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true });
+    await build3d();
     hand = hand || await V.HandLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: HAND_MODEL, delegate: 'GPU' }, runningMode: 'VIDEO', numHands: 2 });
     stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, frameRate: { ideal: 30 } } });
     video.srcObject = stream; await video.play();
@@ -181,7 +184,6 @@ export function createXray({ say = () => {}, onState = () => {} } = {}) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     vw = video.videoWidth || 640; vh = video.videoHeight || 480; sc = Math.max(w / vw, h / vh); ox = (w - vw * sc) / 2; oy = (h - vh * sc) / 2;
   }
-  const dprNow = () => Math.min(2, devicePixelRatio || 1);
   const S = p => ({ x: ox + (1 - p.x) * vw * sc, y: oy + p.y * vh * sc });
   const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -190,141 +192,189 @@ export function createXray({ say = () => {}, onState = () => {} } = {}) {
     fit(); const W = innerWidth, H = innerHeight;
     g.clearRect(0, 0, W, H);
     const f = faceRes && faceRes.faceLandmarks && faceRes.faceLandmarks[0];
-    const groups = [];
-    if (f) { const labels = []; const clip = drawHead(f, labels); groups.push({ c: S(f[1]), labels: clip ? labels.filter(([, q]) => g.isPointInPath(clip, q.x * dprNow(), q.y * dprNow())) : labels }); }
+    const mat = faceRes && faceRes.facialTransformationMatrixes && faceRes.facialTransformationMatrixes[0];
     const hs = (opt.hands && handRes && handRes.landmarks) || [];
-    hs.forEach(h => { const labels = []; drawHand(h, labels); groups.push({ c: S(h[9]), labels }); });
+    const groups = [];
+    if (R3) {
+      const labels = R3.frame(f && mat ? mat.data : null, f, jawOpen(), hs);
+      if (labels.head.length) groups.push({ c: S(f[1]), half: dist(S(f[234]), S(f[454])) * 0.56, labels: labels.head });
+      labels.hands.forEach((l, i) => { const p = hs[i].map(S); groups.push({ c: p[9], half: Math.max(...p.map(q => Math.abs(q.x - p[9].x))), labels: l }); });
+    }
     if (scan) drawScan(f, hs[0]);
-    if (opt.labels) groups.forEach(gr => drawLabels(gr.labels, gr.c));
+    if (opt.labels) groups.forEach(gr => drawLabels(gr.labels, gr.c, gr.half));
+  }
+  function jawOpen() {
+    const b = faceRes && faceRes.faceBlendshapes && faceRes.faceBlendshapes[0];
+    const c = b && b.categories.find(x => x.categoryName === 'jawOpen');
+    return c ? c.score : 0;
   }
 
-  // glowing X-ray strokes: a wide faint line under a thin bright one (cheaper than shadowBlur)
-  const BONE = a => `rgba(225, 240, 255, ${a})`, BRAIN = a => `rgba(255, 140, 200, ${a})`, MUSC = a => `rgba(255, 90, 80, ${a})`, EYE = a => `rgba(140, 220, 255, ${a})`;
-  function glow(path, col, w) {
-    const k = opt.bright;
-    g.lineCap = g.lineJoin = 'round';
-    g.strokeStyle = col(0.18 * k); g.lineWidth = w * 3.2; g.stroke(path);
-    g.strokeStyle = col(0.85 * Math.min(1, k)); g.lineWidth = w; g.stroke(path);
-  }
-  const P = () => new Path2D();
+  // ---- 3D anatomy: real meshes (BodyParts3D, see models/xray/LICENSE.txt) placed by MediaPipe's head pose.
+  // The GL picture is drawn in the camera's own pixels and stretched and mirrored by CSS exactly like the video.
+  const VERT = `uniform mat4 uToHead; uniform float uOrtho; varying vec3 vN, vV, vL;
+    void main() { vL = (uToHead * vec4(position, 1.0)).xyz; vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      vN = normalize(normalMatrix * normal); vV = uOrtho > 0.5 ? vec3(0.0, 0.0, 1.0) : normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`;
+  const FRAG = `uniform vec3 uColor; uniform float uAlpha, uGain, uVeil, uFade, uClipOn; uniform vec4 uClip; varying vec3 vN, vV, vL;
+    void main() {
+      float soft = 1.0;
+      if (uClipOn > 0.5) { float d = dot(uClip.xyz, vL) - uClip.w; if (d < 0.0) discard; soft = smoothstep(0.0, 1.2, d); }
+      float ndv = abs(dot(normalize(vN), normalize(vV)));
+      float fade = uFade > 0.5 ? smoothstep(-12.6, -6.0, vL.y) : 1.0;        // the neck fades out instead of ending in a hard edge
+      if (uVeil > 0.5) { gl_FragColor = vec4(uColor, uAlpha * fade * soft); return; }
+      float rim = pow(1.0 - ndv, 2.2);                                        // edges seen side-on glow, like bone on film
+      gl_FragColor = vec4(uColor, clamp((0.04 + 0.95 * rim) * uGain * fade, 0.0, 1.0) * soft * smoothstep(0.0, 0.18, ndv)); }`;
+  const BONES = [[1, 2], [2, 3], [3, 4], [5, 6], [6, 7], [7, 8], [9, 10], [10, 11], [11, 12], [13, 14], [14, 15], [15, 16], [17, 18], [18, 19], [19, 20]];
+  const GAIN = { skin: 0.28, muscles: 0.5, cranium: 0.85, jaw: 0.85, cerebrum: 0.36, hindbrain: 0.6, eyes: 0.9 };
+  const LAYER = { skin: 'skull', cranium: 'skull', jaw: 'skull', cerebrum: 'brain', hindbrain: 'brain', muscles: 'muscles', eyes: 'eyes' };
 
-  function drawHead(lm, labels) {
-    const pt = i => S(lm[i]), top = pt(10), chin = pt(152), lft = pt(234), rgt = pt(454);
-    const C = lerp(top, chin, 0.5), fh = dist(top, chin), fw = dist(lft, rgt);
-    const R = { x: (rgt.x - lft.x) / fw, y: (rgt.y - lft.y) / fw }, U = { x: -R.y, y: R.x }; // R: towards 454; U: up the face
-    if (U.x * (top.x - chin.x) + U.y * (top.y - chin.y) < 0) { U.x = -U.x; U.y = -U.y; }
-    const L = (a, b) => ({ x: C.x + R.x * a * fw + U.x * b * fh, y: C.y + R.y * a * fw + U.y * b * fh });
-    const roll = Math.atan2(R.y, R.x);
-    let clip = null;
-    g.save();
-    // which part shows: a half-plane in the face's own frame
-    if (opt.cut !== 'all') {
-      const sgn = R.x >= 0 ? 1 : -1, poly = { left: [[-9 * sgn, -9], [0, -9], [0, 9], [-9 * sgn, 9]], right: [[0, -9], [9 * sgn, -9], [9 * sgn, 9], [0, 9]],
-        top: [[-9, 0.05], [9, 0.05], [9, 9], [-9, 9]], lower: [[-9, -9], [9, -9], [9, 0.05], [-9, 0.05]] }[opt.cut];
-      const cp = P(); poly.forEach(([a, b], i) => { const q = L(a, b); i ? cp.lineTo(q.x, q.y) : cp.moveTo(q.x, q.y); }); cp.closePath(); g.clip(cp); clip = cp;
+  async function build3d() {
+    if (R3) return;
+    const THREE = await import('three');
+    const [meta, buf] = await Promise.all([fetch('/models/xray/anatomy.json').then(r => r.json()), fetch('/models/xray/anatomy.bin').then(r => r.arrayBuffer())]);
+    const geo = {};
+    for (const m of meta.meshes) {            // positions are 16-bit, scaled into each mesh's box
+      const q = new Uint16Array(buf, m.offV, m.nv * 3), pos = new Float32Array(q.length);
+      for (let i = 0; i < q.length; i++) pos[i] = m.min[i % 3] + q[i] / 65535 * m.size[i % 3];
+      const gm = new THREE.BufferGeometry(); gm.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      gm.setIndex(new THREE.BufferAttribute(new Uint16Array(buf, m.offI, m.ni).slice(), 1)); gm.computeVertexNormals(); geo[m.name] = gm;
     }
-    // the skin turns to film: a dark blue wash over the head, as strong as "see-through" says
-    const head = P(); OVAL.forEach((i, k) => { const q = pt(i); k ? head.lineTo(q.x, q.y) : head.moveTo(q.x, q.y); }); head.closePath();
-    const cr = L(0, 0.3);
-    head.ellipse(cr.x, cr.y, 0.56 * fw, 0.66 * fh, roll, Math.PI, 2 * Math.PI);
-    g.fillStyle = `rgba(4, 18, 36, ${0.25 + 0.6 * opt.see})`; g.fill(head);
-    g.globalCompositeOperation = 'lighter';
+    const renderer = new THREE.WebGLRenderer({ canvas: glc, alpha: true, antialias: true }); renderer.setClearColor(0, 0); renderer.autoClear = false;
+    const mat = (color, veil) => new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+      blending: veil ? THREE.NormalBlending : THREE.AdditiveBlending,
+      uniforms: { uColor: { value: new THREE.Color(color) }, uAlpha: { value: 1 }, uGain: { value: 1 }, uVeil: { value: veil ? 1 : 0 }, uFade: { value: 0 }, uOrtho: { value: 0 },
+        uClipOn: { value: 0 }, uClip: { value: new THREE.Vector4() }, uToHead: { value: new THREE.Matrix4() } } });
+    const headScene = new THREE.Scene(), handScene = new THREE.Scene();
+    const cam = new THREE.PerspectiveCamera(63, 16 / 9, 1, 10000);   // MediaPipe's head pose assumes a 63° vertical view
+    const ortho = new THREE.OrthographicCamera(0, 1, 1, 0, -5000, 5000);
+    const head = new THREE.Group(); head.matrixAutoUpdate = false; headScene.add(head);
+    const jawPivot = new THREE.Group(); jawPivot.position.fromArray(meta.jawPivot); head.add(jawPivot);
+    const parts = {};
+    const add = (name, g0, color, order, veil, parent = head) => {
+      const m = new THREE.Mesh(g0, mat(color, veil)); m.renderOrder = order; m.frustumCulled = false; parent.add(m); return (parts[name] = m);
+    };
+    add('veil', geo.skin, 0x02060c, -10, true).material.uniforms.uFade.value = 1;
+    add('skin', geo.skin, 0x6fb6ff, 1).material.uniforms.uFade.value = 1;
+    add('muscles', geo.muscles, 0xff6b5e, 2);
+    add('cranium', geo.cranium, 0xcfe8ff, 3);
+    add('jaw', geo.jaw, 0xcfe8ff, 3, false, jawPivot).position.fromArray(meta.jawPivot).multiplyScalar(-1);
+    add('eyes', geo.eyes, 0xfff3a8, 4);
+    add('cerebrum', geo.cerebrum, 0xff9fc0, 5);
+    add('hindbrain', geo.hindbrain, 0xffc37a, 5);
+    const hands = [0, 1].map(() => {
+      const grp = new THREE.Group(); handScene.add(grp);
+      const mk = g0 => { const m = new THREE.Mesh(g0, mat(0xdcefff)); m.material.uniforms.uOrtho.value = 1; m.matrixAutoUpdate = false; m.frustumCulled = false; grp.add(m); return m; };
+      return { grp, palm: mk(geo.hand_palm), bones: BONES.map(([a, b]) => mk(geo[`hand_b_${a}_${b}`])), pts: null };
+    });
+    const cb = meta.meshes.find(m => m.name === 'cranium'), centre = new THREE.Vector3(...cb.min.map((v, i) => v + cb.size[i] / 2));
+    const fitIds = Object.keys(meta.fit).map(Number);
+    const T = { m: new THREE.Matrix4(), p: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3(), v: new THREE.Vector3(), n: new THREE.Vector3(),
+      a: new THREE.Vector3(), b: new THREE.Vector3(), c: new THREE.Vector3(), e1: new THREE.Vector3(), e2: new THREE.Vector3(), e3: new THREE.Vector3(), jawM: new THREE.Matrix4() };
+    const pose = { found: false, p: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3(1, 1, 1), fs: 1, fx: 0, fy: 0, jaw: 0 };
+    let base = cam.projectionMatrix.clone(), bw = 0, bh = 0;
 
-    if (opt.brain) {
-      const bc = L(0, 0.36), rx = 0.47 * fw, ry = 0.5 * fh;
-      const gr = g.createRadialGradient(bc.x, bc.y, 0, bc.x, bc.y, Math.max(rx, ry));
-      gr.addColorStop(0, BRAIN(0.28 * opt.bright)); gr.addColorStop(1, BRAIN(0.04));
-      const shape = P(); shape.ellipse(bc.x, bc.y, rx, ry, roll, Math.PI * 1.04, Math.PI * 1.96); shape.lineTo(L(0.4, 0.12).x, L(0.4, 0.12).y);
-      shape.quadraticCurveTo(L(0, 0.02).x, L(0, 0.02).y, L(-0.4, 0.12).x, L(-0.4, 0.12).y); shape.closePath();
-      g.fillStyle = gr; g.fill(shape);
-      g.save(); g.clip(shape);
-      gyri = gyri || makeGyri();
-      const gp = P();
-      for (const curve of gyri) curve.forEach(([a, b], i) => { const q = L(a * 0.47, 0.36 + b * 0.5); i ? gp.lineTo(q.x, q.y) : gp.moveTo(q.x, q.y); });
-      glow(gp, BRAIN, 1.2); g.restore();
-      const fis = P(), f0 = L(0, 0.85), f1 = L(0, 0.2); fis.moveTo(f0.x, f0.y); fis.lineTo(f1.x, f1.y); glow(fis, BRAIN, 1.4);
-      labels.push(['Frontal lobe', L(0.12, 0.62)], ['Temporal lobe', L(-0.42, 0.2)], ['Longitudinal fissure', L(0, 0.78)]);
+    function size() {            // drawing buffer = the video's on-screen size, so lines stay sharp
+      const dpr = Math.min(2, devicePixelRatio || 1), w = Math.min(2560, Math.round(vw * sc * dpr)), h = Math.round(w * vh / vw);
+      if (w === bw && h === bh) return;
+      bw = w; bh = h; renderer.setSize(w, h, false); shade.width = vw; shade.height = vh;
+      cam.aspect = vw / vh; cam.updateProjectionMatrix(); base = cam.projectionMatrix.clone();
+      ortho.right = vw; ortho.top = vh; ortho.updateProjectionMatrix();
     }
-    if (opt.muscles) {
-      const m = P();
-      for (const s of [-1, 1]) {
-        for (let k = 0; k < 7; k++) { const a = L(s * 0.42, 0.02), b = L(s * (0.5 - k * 0.03), 0.24 + k * 0.07); m.moveTo(a.x, a.y); m.lineTo(b.x, b.y); }   // temporalis
-        const jaw = pt(s * R.x > 0 ? 397 : 172);
-        for (let k = 0; k < 6; k++) { const a = L(s * (0.3 + k * 0.025), -0.02), b = lerp(jaw, L(s * 0.3, -0.38), k / 8); m.moveTo(a.x, a.y); m.lineTo(b.x, b.y); }   // masseter
-      }
-      for (let k = -4; k <= 4; k++) { const a = L(k * 0.07, 0.2), b = L(k * 0.075, 0.5); m.moveTo(a.x, a.y); m.lineTo(b.x, b.y); }     // frontalis
-      const mo = lerp(pt(13), pt(14), 0.5); m.moveTo(mo.x + dist(pt(61), pt(291)) * 0.62, mo.y);
-      m.ellipse(mo.x, mo.y, dist(pt(61), pt(291)) * 0.62, Math.max(fh * 0.07, dist(pt(0), pt(17)) * 0.75), roll, 0, 2 * Math.PI);      // orbicularis oris
-      glow(m, MUSC, 1.3);
-      labels.push(['Temporalis', L(-0.47, 0.32)], ['Masseter', L(0.36, -0.18)], ['Frontalis', L(-0.15, 0.42)], ['Orbicularis oris', L(0.15, -0.3)]);
-    }
-    if (opt.skull) {
-      const k = P();
-      k.ellipse(cr.x, cr.y, 0.56 * fw, 0.66 * fh, roll, Math.PI * 0.97, Math.PI * 2.03);                                   // cranium
-      const jawPts = [454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234].map(i => lerp(C, pt(i), 0.93));
-      jawPts.forEach((q, i) => (i ? k.lineTo(q.x, q.y) : k.moveTo(q.x, q.y)));                                               // mandible
-      for (const [ring, s] of [[EYE_A, 1], [EYE_B, -1]]) {                                                                    // orbits
-        const ps = ring.map(pt), c = { x: mean(ps.map(p => p.x)), y: mean(ps.map(p => p.y)) }, w = Math.max(...ps.map(p => dist(p, c)));
-        k.moveTo(c.x + w * 1.55, c.y); k.ellipse(c.x, c.y, w * 1.55, w * 1.2, roll, 0, 2 * Math.PI);
-        const side = dist(c, lft) < dist(c, rgt) ? lft : rgt, z0 = lerp(c, side, 0.45), z1 = lerp(side, pt(side === lft ? 127 : 356), 0.3);
-        k.moveTo(z0.x, z0.y + w * 0.9); k.quadraticCurveTo(lerp(z0, z1, 0.5).x, lerp(z0, z1, 0.5).y + w * 1.2, z1.x, z1.y + w * 0.6);       // zygomatic arch
-      }
-      const n0 = lerp(pt(168), pt(1), 0.45), n1 = lerp(pt(2), pt(1), 0.25), nw = dist(pt(98), pt(327)) * 0.45;           // nasal aperture
-      k.moveTo(n0.x, n0.y); k.bezierCurveTo(n0.x + R.x * nw * 1.4, n0.y + R.y * nw * 1.4, n1.x + R.x * nw * 1.3, n1.y + R.y * nw * 1.3, n1.x, n1.y);
-      k.bezierCurveTo(n1.x - R.x * nw * 1.3, n1.y - R.y * nw * 1.3, n0.x - R.x * nw * 1.4, n0.y - R.y * nw * 1.4, n0.x, n0.y);
-      // teeth: two rows following the lips; they part when the mouth opens
-      const mL = pt(61), mR = pt(291), up = pt(13), lo = pt(14), th = fh * 0.05, gap = Math.max(0, dist(up, lo) - fh * 0.01);
-      for (let t = 0; t < 14; t++) {
-        const u = (t + 0.5) / 14, bow = Math.sin(Math.PI * u) * fh * 0.03, base = lerp(mL, mR, u), wv = dist(mL, mR) / 14 * 0.8 * (0.7 + 0.3 * Math.sin(Math.PI * u));
-        const row = (dy, dir) => { const y0 = { x: base.x - U.x * (dy - bow), y: base.y - U.y * (dy - bow) }; const y1 = { x: y0.x - U.x * th * dir, y: y0.y - U.y * th * dir };
-          k.moveTo(y0.x - R.x * wv / 2, y0.y - R.y * wv / 2); k.lineTo(y1.x - R.x * wv / 2, y1.y - R.y * wv / 2); k.lineTo(y1.x + R.x * wv / 2, y1.y + R.y * wv / 2); k.lineTo(y0.x + R.x * wv / 2, y0.y + R.y * wv / 2); };
-        row(-fh * 0.004, -1); row(gap + fh * 0.004, 1);
-      }
-      for (let v = 0; v < 4; v++) { const c = L(0, -0.62 - v * 0.11); k.moveTo(c.x + fw * 0.09, c.y); k.ellipse(c.x, c.y, fw * 0.09, fh * 0.04, roll, 0, 2 * Math.PI); }   // cervical spine
-      glow(k, BONE, 1.6);
-      labels.push(['Frontal bone', L(0, 0.9)], ['Parietal bone', L(0.45, 0.62)], ['Orbit', L(0.2, 0.13)], ['Nasal cavity', L(0, -0.02)], ['Zygomatic arch', L(0.42, 0.04)],
-        ['Maxilla', L(-0.17, -0.12)], ['Teeth', L(0.1, -0.2)], ['Mandible', L(-0.25, -0.38)], ['Cervical spine', L(0, -0.75)]);
-    }
-    if (opt.eyes) {
-      const e = P();
-      for (const [iris, ring] of [[468, EYE_A], [473, EYE_B]]) {
-        const ps = ring.map(pt), c = lm[iris] ? pt(iris) : { x: mean(ps.map(p => p.x)), y: mean(ps.map(p => p.y)) }, r = fw * 0.075;
-        e.moveTo(c.x + r, c.y); e.arc(c.x, c.y, r, 0, 2 * Math.PI); e.moveTo(c.x + r * 0.42, c.y); e.arc(c.x, c.y, r * 0.42, 0, 2 * Math.PI);
-        const back = L(0, 0.22); e.moveTo(c.x, c.y); e.quadraticCurveTo(lerp(c, back, 0.5).x, lerp(c, back, 0.5).y - fh * 0.03, back.x, back.y);   // optic nerve
-      }
-      glow(e, EYE, 1.2);
-      labels.push(['Eye', L(-0.2, 0.13)], ['Optic nerve', L(0.05, 0.2)]);
-    }
-    g.restore();
-    return clip;              // the labels of the hidden part are dropped too
-  }
 
-  function drawHand(lm, labels) {
-    const p = lm.map(S), palm = dist(p[0], p[9]) || 1, b = P();
-    const bone = (a, c, w) => { b.moveTo(a.x, a.y); b.lineTo(c.x, c.y); joints.push([c, w * 0.62]); widths.push([a, c, w]); };
-    const joints = [], widths = [];
-    const base = i => lerp(p[0], p[i], 0.22);
-    for (const [k, f] of FINGERS.entries()) {
-      const m0 = k === 0 ? lerp(p[0], p[1], 0.35) : base(f[0]);
-      bone(m0, p[f[0]], palm * (k === 0 ? 0.11 : 0.085));                                         // metacarpals (the thumb's starts at the wrist)
-      bone(p[f[0]], p[f[1]], palm * 0.08); bone(p[f[1]], p[f[2]], palm * 0.065); bone(p[f[2]], p[f[3]], palm * 0.055);   // phalanges
+    function placeHead(data, lm, jaw) {
+      T.m.fromArray(data);
+      const e = T.m.elements;     // accept either memory layout
+      if (Math.abs(e[12]) + Math.abs(e[13]) + Math.abs(e[14]) < 1e-6 && Math.abs(e[3]) + Math.abs(e[7]) + Math.abs(e[11]) > 1e-3) T.m.transpose();
+      T.m.decompose(T.p, T.q, T.s);
+      if (!pose.found) { pose.p.copy(T.p); pose.q.copy(T.q); pose.s.copy(T.s); pose.fs = 1; pose.fx = pose.fy = 0; }
+      else { pose.p.lerp(T.p, 0.6); pose.q.slerp(T.q, 0.55); pose.s.lerp(T.s, 0.5); }
+      pose.found = true; pose.jaw += (jaw - pose.jaw) * 0.6;
+      head.matrix.compose(pose.p, pose.q, pose.s); head.matrixWorldNeedsUpdate = true;
+      // nudge the picture so the model's key points land on the tracked ones (least-squares scale + shift on screen)
+      const P = [], Q = [];
+      for (const id of fitIds) if (lm[id]) { T.v.fromArray(meta.fit[id]).applyMatrix4(head.matrix).applyMatrix4(base); P.push([T.v.x, T.v.y]); Q.push([lm[id].x * 2 - 1, 1 - lm[id].y * 2]); }
+      const avg = (A, k) => A.reduce((s, a) => s + a[k], 0) / A.length, px = avg(P, 0), py = avg(P, 1), qx = avg(Q, 0), qy = avg(Q, 1);
+      let num = 0, den = 0;
+      P.forEach(([x, y], i) => { num += (x - px) * (Q[i][0] - qx) + (y - py) * (Q[i][1] - qy); den += (x - px) ** 2 + (y - py) ** 2; });
+      const s = Math.max(0.6, Math.min(1.6, den > 1e-9 ? num / den : 1));
+      pose.fs += (s - pose.fs) * 0.5; pose.fx += (qx - pose.fs * px - pose.fx) * 0.7; pose.fy += (qy - pose.fs * py - pose.fy) * 0.7;
+      T.m.set(pose.fs, 0, 0, pose.fx, 0, pose.fs, 0, pose.fy, 0, 0, 1, 0, 0, 0, 0, 1);
+      cam.projectionMatrix.copy(base).premultiply(T.m); cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
+      jawPivot.rotation.x = Math.min(1, Math.max(0, pose.jaw)) * 0.36;
+      jawPivot.updateMatrix(); parts.jaw.updateMatrix(); T.jawM.copy(jawPivot.matrix).multiply(parts.jaw.matrix);
     }
-    const away = { x: (p[0].x - p[9].x) / palm, y: (p[0].y - p[9].y) / palm }, side = { x: -away.y, y: away.x };
-    for (const s of [-1, 1]) {                                                                        // radius and ulna
-      const a = { x: p[0].x + side.x * s * palm * 0.17, y: p[0].y + side.y * s * palm * 0.17 };
-      widths.push([a, { x: a.x + away.x * palm * 1.5, y: a.y + away.y * palm * 1.5 }, palm * (s > 0 ? 0.13 : 0.11)]);
+
+    function placeHand(rig, lm) {      // camera pixels, depth scaled like x
+      const fresh = !rig.grp.visible;
+      if (!rig.pts) rig.pts = lm.map(() => new THREE.Vector3());
+      lm.forEach((p, i) => { T.v.set(p.x * vw, (1 - p.y) * vh, -p.z * vw); fresh ? rig.pts[i].copy(T.v) : rig.pts[i].lerp(T.v, 0.65); });
+      const P = rig.pts;
+      T.e1.subVectors(P[5], P[0]); T.e2.subVectors(P[17], P[0]);
+      T.e3.crossVectors(T.e1, T.e2).normalize().multiplyScalar(Math.sqrt(T.e1.length() * T.e2.length()));
+      rig.palm.matrix.makeBasis(T.e1, T.e2, T.e3).setPosition(P[0]); rig.palm.matrixWorldNeedsUpdate = true;
+      T.c.subVectors(P[17], P[5]).normalize();                 // across the knuckles: gives each bone its roll
+      BONES.forEach(([a, b], i) => {
+        T.a.subVectors(P[b], P[a]); const len = Math.max(1e-6, T.a.length()); T.a.divideScalar(len);
+        T.b.copy(T.c).addScaledVector(T.a, -T.c.dot(T.a)); if (T.b.lengthSq() < 1e-6) T.b.set(1, 0, 0); T.b.normalize();
+        const L = len * (b % 4 === 0 ? 0.8 : 1);              // the fingertip point sits past the end of the bone
+        T.e3.crossVectors(T.a, T.b).multiplyScalar(L);
+        rig.bones[i].matrix.makeBasis(T.e1.copy(T.a).multiplyScalar(L), T.e2.copy(T.b).multiplyScalar(L), T.e3).setPosition(P[a]);
+        rig.bones[i].matrixWorldNeedsUpdate = true;
+      });
+      rig.grp.visible = true;
     }
-    for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) {                                          // carpals: two rows of four
-      const q = lerp(p[0], lerp(p[1], p[17], c / 3), 0.12 + r * 0.14);
-      b.moveTo(q.x + palm * 0.06, q.y); b.ellipse(q.x, q.y, palm * 0.06, palm * 0.045, 0, 0, 2 * Math.PI);
+
+    const clip = () => ({ all: null, left: [1, 0, 0], right: [-1, 0, 0], top: [0, 1, 2.5], lower: [0, -1, -2.5] }[opt.cut]);   // head cm; +x is your left
+    function style() {
+      const c = clip(), heavy = Math.max(1, ['skull', 'brain', 'muscles'].filter(k => opt[k]).length), share = 1 / (0.4 + 0.6 * heavy);  // glowing layers add up
+      for (const [k, m] of Object.entries(parts)) {
+        const u = m.material.uniforms;
+        m.visible = k === 'veil' || !!opt[LAYER[k]];
+        u.uAlpha.value = opt.see; u.uGain.value = opt.bright * (GAIN[k] || 1) * (k === 'skin' ? 1 : share);
+        u.uClipOn.value = c ? 1 : 0; if (c) u.uClip.value.set(c[0], c[1], 0, c[2] || 0);
+        if (k === 'jaw') u.uToHead.value.copy(T.jawM); else u.uToHead.value.identity();
+      }
+      for (const r of hands) for (const m of [r.palm, ...r.bones]) m.material.uniforms.uGain.value = opt.bright * 1.15;
     }
-    g.save(); g.globalCompositeOperation = 'lighter';
-    for (const [a, c, w] of widths) { const q = P(); q.moveTo(a.x, a.y); q.lineTo(c.x, c.y); glow(q, BONE, Math.max(1.5, w * 0.55)); }
-    for (const [c, r] of joints) { const q = P(); q.arc(c.x, c.y, Math.max(1.5, r * 0.6), 0, 2 * Math.PI); glow(q, BONE, 1); }
-    glow(b, BONE, 1.2); g.restore();
-    labels.push(['Phalanges', p[12]], ['Metacarpals', lerp(p[0], p[9], 0.55)], ['Carpals', lerp(p[0], p[9], 0.15)],
-      ['Radius', { x: p[0].x + away.x * palm * 1.1 + side.x * palm * 0.17, y: p[0].y + away.y * palm * 1.1 + side.y * palm * 0.17 }],
-      ['Ulna', { x: p[0].x + away.x * palm * 1.1 - side.x * palm * 0.17, y: p[0].y + away.y * palm * 1.1 - side.y * palm * 0.17 }]);
+
+    function headLabels() {
+      const out = [], c = clip();
+      for (const L of meta.labels) {
+        if (!opt[L.layer]) continue;
+        let best = null;
+        for (const p of L.pts) {
+          T.v.fromArray(p); if (L.jaw) T.v.applyMatrix4(T.jawM);
+          if (c && c[0] * T.v.x + c[1] * T.v.y < (c[2] || 0)) continue;                   // in the cut-away part
+          T.n.subVectors(T.v, centre).transformDirection(head.matrix); T.v.applyMatrix4(head.matrix);
+          const facing = -T.n.dot(T.a.copy(T.v).normalize());
+          T.v.applyMatrix4(cam.projectionMatrix);
+          if (!best || facing > best.f) best = { f: facing, x: (T.v.x + 1) / 2, y: (1 - T.v.y) / 2 };
+        }
+        if (best && best.f > -0.1) out.push([L.t, S(best)]);     // parts at the back of the head stay unlabelled when you face the camera
+      }
+      return out;
+    }
+
+    function veilHand(lm) {            // darken the real hand so the bones read clearly
+      const px = i => lm[i].x * vw, py = i => lm[i].y * vh, d = Math.hypot(px(5) - px(17), py(5) - py(17)) || 1, path = new Path2D();
+      [0, 1, 2, 5, 9, 13, 17].forEach((i, k) => k ? path.lineTo(px(i), py(i)) : path.moveTo(px(i), py(i))); path.closePath();
+      for (const f of FINGERS) [0, ...f].forEach((i, k) => k ? path.lineTo(px(i), py(i)) : path.moveTo(px(i), py(i)));
+      sh.save(); sh.filter = `blur(${(d * 0.06).toFixed(1)}px)`; sh.globalAlpha = opt.see * 0.92; sh.fillStyle = sh.strokeStyle = '#02060c';
+      sh.lineJoin = sh.lineCap = 'round'; sh.lineWidth = d * 0.36; sh.fill(path); sh.stroke(path); sh.restore();
+    }
+
+    function frame(data, lm, jaw, hs) {
+      size();
+      if (data) placeHead(data, lm, jaw); else pose.found = false;
+      head.visible = pose.found;
+      sh.clearRect(0, 0, shade.width, shade.height);
+      hands.forEach((r, i) => { if (hs[i]) { placeHand(r, hs[i]); veilHand(hs[i]); } else r.grp.visible = false; });
+      style();
+      renderer.clear(); renderer.render(headScene, cam); renderer.clearDepth(); renderer.render(handScene, ortho);
+      const handLabels = hs.map(h => { const p = h.map(S); return [['Phalanges', lerp(p[10], p[11], 0.5)], ['Metacarpals', lerp(p[0], p[9], 0.6)], ['Carpals (wrist)', lerp(p[0], p[9], 0.1)], ['Thumb', p[3]]]; });
+      return { head: pose.found ? headLabels() : [], hands: handLabels };
+    }
+    function clear() { pose.found = false; renderer.clear(); sh.clearRect(0, 0, shade.width, shade.height); }
+    R3 = { frame, clear };
   }
 
   function drawScan(f, h) {
@@ -337,33 +387,27 @@ export function createXray({ say = () => {}, onState = () => {} } = {}) {
   }
 
   const panelEl = root.querySelector('.panel'), panelLeft = () => panelEl.getBoundingClientRect().left || innerWidth;   // labels stay clear of the controls
-  function drawLabels(labels, centre) {
+  function drawLabels(labels, centre, half) {          // columns sit just outside the head or hand
     if (!labels.length) return;
-    const cx = centre.x, sides = { l: [], r: [] };
-    labels.forEach(([t, p]) => sides[p.x < cx ? 'l' : 'r'].push({ t, p }));
+    // split by position into two even columns beside the subject (centre only breaks ties)
+    const sorted = labels.map(([t, p]) => ({ t, p })).sort((a, b) => a.p.x - b.p.x || (a.p.x < centre.x ? -1 : 1)), mid = Math.ceil(sorted.length / 2);
+    const sides = { l: sorted.slice(0, mid), r: sorted.slice(mid) };
     g.save(); g.font = "500 12px 'Saira', system-ui, sans-serif"; g.textBaseline = 'middle';
     for (const [k, list] of Object.entries(sides)) {
       list.sort((a, b) => a.p.y - b.p.y);
-      const xs = list.map(l => l.p.x), edge = k === 'l' ? Math.min(...xs) - 40 : Math.max(...xs) + 40;
+      const xs = list.map(l => l.p.x), edge = k === 'l' ? Math.min(centre.x - half, ...xs) - 24 : Math.max(centre.x + half, ...xs) + 24;
       let y = -Infinity;
-      for (const l of list) {
-        y = Math.max(l.p.y, y + 18); const tw = g.measureText(l.t).width, tx = k === 'l' ? Math.max(8, edge - tw) : Math.min(panelLeft() - tw - 12, edge);
+      const ys = list.map(l => (y = Math.max(l.p.y, y + 18, 14)));
+      const over = y - (innerHeight - 14); if (over > 0) ys.forEach((v, i) => { ys[i] = v - over; });   // keep the column on screen
+      for (const [i, l] of list.entries()) {
+        y = ys[i]; const tw = g.measureText(l.t).width, tx = k === 'l' ? Math.max(8, edge - tw) : Math.min(panelLeft() - tw - 12, edge);
         g.strokeStyle = 'rgba(170, 215, 255, .55)'; g.lineWidth = 1; g.beginPath(); g.moveTo(l.p.x, l.p.y); g.lineTo(k === 'l' ? tx + tw + 4 : tx - 4, y); g.stroke();
         g.fillStyle = 'rgba(170, 215, 255, .9)'; g.beginPath(); g.arc(l.p.x, l.p.y, 2, 0, 2 * Math.PI); g.fill();
+        g.strokeStyle = 'rgba(2, 6, 12, .9)'; g.lineWidth = 3.5; g.strokeText(l.t, tx, y);
         g.fillStyle = '#e6f3ff'; g.fillText(l.t, tx, y);
       }
     }
     g.restore();
-  }
-
-  function makeGyri() {          // folds of the brain: wavy lines in a unit disc, fixed so they don't flicker
-    let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647, out = [];
-    for (let k = 0; k < 34; k++) {
-      let x = rnd() * 2 - 1, y = rnd() * 2 - 1, a = rnd() * 6.28; const c = [];
-      for (let i = 0; i < 14; i++) { c.push([x, y]); a += (rnd() - 0.5) * 2.2; x += Math.cos(a) * 0.09; y += Math.sin(a) * 0.09; }
-      out.push(c);
-    }
-    return out;
   }
 
   // ---------------------------------------------------------------- measuring
@@ -454,7 +498,7 @@ export function createXray({ say = () => {}, onState = () => {} } = {}) {
     try { await start(); return true; } catch (e) { console.warn('[XRAY]', e); close(); say("I couldn't open the camera."); return false; }
   }
   function close() {
-    show = false; root.classList.remove('on'); window.__jvFaceOff = false; g.clearRect(0, 0, cv.width, cv.height);
+    show = false; root.classList.remove('on'); window.__jvFaceOff = false; g.clearRect(0, 0, cv.width, cv.height); if (R3) R3.clear();
     if (!M.watch) { stopCam(); Object.assign(M, { started: 0, base: null, baseN: [], baseT: 0, bad: 0 }); hist.length = 0; resetSignal(); }
   }
   /** Measure without the mirror (posture watch keeps the camera on quietly). */
