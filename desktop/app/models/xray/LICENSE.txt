@@ -1,0 +1,9 @@
+Anatomy models (anatomy.bin, anatomy.json)
+
+BodyParts3D, (c) The Database Center for Life Science, licensed under
+Creative Commons Attribution-Share Alike 2.1 Japan
+(https://creativecommons.org/licenses/by-sa/2.1/jp/deed.en).
+https://lifesciencedb.jp/bp3d/
+
+Simplified and re-aligned to the MediaPipe face for the open-source X-Ray Mirror
+(github.com/masterofvfx2070/xray-mirror). These files are shared under the same licence.
