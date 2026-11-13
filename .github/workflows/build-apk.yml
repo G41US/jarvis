@@ -48,6 +48,8 @@ jobs:
       # GitHub's machines come with the Android SDK; the laptop gets it once (it stays for the next builds)
       - uses: android-actions/setup-android@v3
         if: runner.environment == 'self-hosted'
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'   # the old 'tools' package no longer exists
 
       - uses: actions/setup-node@v4
         with:
