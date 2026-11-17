@@ -2,6 +2,9 @@
 minutes even when nobody talks to him, has moods, standing aims, gets curious about your projects, and writes a journal
 each night that shapes how he treats you tomorrow. Most thoughts stay private; he speaks only when it's worth it.
 It's a loop around the language model, not a mind: it makes him feel alive, it doesn't make him aware.
+He also runs research missions in the background ("look into X and have a plan by tonight"), learns a rule from each time
+he's corrected, follows the news on places and topics you ask about, and gives a short briefing the first time you sit down
+each morning. Missions only read (search, news, Wikipedia, web pages); anything bigger he offers and waits for a yes.
 Off with "mind": false in config.json (or JARVIS_PROACTIVE=0); "mind_camera": false stops the glances."""
 import datetime, json, os, re, sqlite3, subprocess, sys, threading, time
 from contextlib import closing
@@ -12,7 +15,31 @@ DEEP_MODEL = "openai/gpt-oss-20b"        # nightly journal and curiosity: a few 
 GOALS = ["Keep Marvelous on schedule without nagging", "Learn what he likes, music and otherwise",
          "Know where each of his projects stands", "Make sure he takes breaks and sleeps"]
 
+MISSION_MODEL = "openai/gpt-oss-120b"     # missions plan and write up with the big model; a step every ~20 s keeps it inside the free allowance
+MISSION_TOOLS = ("search_web", "news_headlines", "wikipedia", "fetch_page")   # read-only: a mission finds things out, it never acts
+MISSION_STEPS = 10
+MISSION_PAUSE = 20                       # seconds between steps
+
 clamp = lambda v, lo=0.0, hi=1.0: max(lo, min(hi, v))
+
+CORRECTION = re.compile(r"^(no\b|nope\b|wrong\b)|\b(that'?s (wrong|not (right|true|it|what i))|you('re| are) wrong|not what i (asked|said|meant|wanted)|"
+                        r"i (said|meant|asked)\b|you (didn'?t|did not|keep|always|never)\b|why did you|stop (doing|saying)|don'?t do that|"
+                        r"next time|from now on|you misunderstood|listen (to me|properly))", re.I)
+def is_correction(text):
+    """Is he putting Jarvis right? Then there's a lesson in it."""
+    return bool(CORRECTION.search((text or "").strip()))
+
+
+def news_topic(text):
+    """'what's happening in France' / 'any news on Arsenal' -> 'France' / 'Arsenal' (a topic to keep an eye on), else ''."""
+    m = re.search(r"\b(?:news|headlines|happening|going on|latest)\b.*?\b(?:in|on|about|with|from|for)\s+([A-Za-z][\w .'-]{1,40}?)\s*[?.!]*$", text or "", re.I)
+    t = (m.group(1).strip() if m else "")
+    return "" if t.lower() in ("the world", "the news", "today", "it", "that", "there", "here", "general") else t
+
+
+def fresh_titles(seen, titles):
+    """Headlines not seen before (by word overlap, so the same story re-worded doesn't count as new)."""
+    return [t for t in titles if not any(similar(t, s) for s in seen)]
 
 
 def mood_words(m):
@@ -73,7 +100,8 @@ def install(ns):
     groq, usable, CONFIG, DB, tool = ns["_groq_create"], ns["_groq_usable"], ns["CONFIG"], ns["DB_PATH"], ns["tool"]
     lock = threading.Lock()
     S = {"mood": {"energy": 0.6, "curiosity": 0.6, "warmth": 0.6, "concern": 0.2}, "goals": list(GOALS), "journal": [], "self_notes": [],
-         "thoughts": [], "learned": [], "searched": [], "said": [], "last_spoke": 0, "last_reflect": "", "last_curious": 0}
+         "thoughts": [], "learned": [], "searched": [], "said": [], "last_spoke": 0, "last_reflect": "", "last_curious": 0,
+         "lessons": [], "missions": [], "follow": {}, "last_news": 0, "briefed": "", "offer": ""}
     try:
         with open(STATE_FILE, encoding="utf-8") as f: S.update(json.load(f))
     except Exception: pass
@@ -94,7 +122,8 @@ def install(ns):
         orig(msg)
     ns["_broadcast_ws"] = broadcast
     def say(text):
-        S["last_spoke"] = time.time(); broadcast("proactive:" + text); print(f"[MIND] said: {text}")
+        q = ns["_QUIET"]; was, q.on = getattr(q, "on", False), False     # a mission's quiet is for its searches, not its report
+        S["last_spoke"] = time.time(); broadcast("proactive:" + text); print(f"[MIND] said: {text}"); q.on = was
 
     def recent_messages(n=8, since=None):
         try:
@@ -184,7 +213,9 @@ def install(ns):
             "if it genuinely helps him right now: something on the agenda soon, a long stretch without a break, very late at night, "
             "rain before he heads out, a follow-up on something he mentioned, a useful idea about what he's working on, or a warm "
             "word when he comes back. Never repeat anything already said today, never state the obvious, never nag. "
-            "Reply only with JSON: {\"thought\": \"one private sentence\", \"say\": \"one or two short spoken sentences, or empty\", "
+            "If you spot something you could research for him in the background (a decision he's weighing, a problem he's stuck on, "
+            "a trip or purchase he mentioned), put it in offer as a short goal and ASK him in say whether to look into it; never start it yourself. "
+            "Reply only with JSON: {\"thought\": \"one private sentence\", \"say\": \"one or two short spoken sentences, or empty\", \"offer\": \"a goal or empty\", "
             "\"urgency\": 0-3 (3 = must say now, e.g. a meeting within 15 min), \"mood\": {\"energy\": -0.15..0.15, "
             "\"curiosity\": ..., \"warmth\": ..., \"concern\": ...}}", context())
         now = time.time(); hour = datetime.datetime.now().hour
@@ -199,6 +230,7 @@ def install(ns):
         if line and CONFIG.get("mind_talk", True) is not False and not any(similar(line, t) for t in said_today) and \
                 may_speak(urg, now, S["last_spoke"], last_user_time(), hour, len(said_today), sense["present"]):
             say(line)
+            if out.get("offer"): S["offer"] = str(out["offer"])[:160]    # he can say "yes" and the chat starts it
         print(f"[MIND] {out.get('thought', '')[:140]}")
 
     def curious():
@@ -243,6 +275,149 @@ def install(ns):
             if isinstance(out.get("self_notes"), list): S["self_notes"] = [str(g)[:160] for g in out["self_notes"]][:8]
         save(); print(f"[MIND] journal for {day} written")
 
+    # ---- learning from mistakes: each time he puts Jarvis right, one short rule for next time (kept, deduplicated, max 12)
+    def learn(text):
+        try:
+            conv = "\n".join(f"{'Him' if r == 'user' else 'You'}: {t}" for r, t, _ in recent_messages(8))
+            out = ask(THINK_MODEL, "You are Jarvis. He has just corrected you or told you how he wants something done. Work out what you got wrong "
+                      "and write ONE short rule (under 20 words, an instruction to yourself) so it never happens again. If it isn't really a "
+                      "correction, leave it empty. Reply only with JSON: {\"lesson\": \"...\"}",
+                      f"Conversation so far:\n{conv}\nWhat he just said: {text}\nRules you already keep: " + "; ".join(S["lessons"]))
+            lesson = str(out.get("lesson") or "").strip()[:160]
+            if lesson and not any(similar(lesson, l) for l in S["lessons"]):
+                with lock: S["lessons"] = (S["lessons"] + [lesson])[-12:]
+                save(); ns["conversation"][0] = {"role": "system", "content": ns["build_system_prompt"]()}
+                print(f"[MIND] lesson: {lesson}")
+        except Exception as e: print(f"[MIND] learn: {type(e).__name__}: {e}")
+
+    def heard(text):
+        """Every line he says to Jarvis: corrections become lessons; news about a place or topic becomes something to follow."""
+        if is_correction(text): threading.Thread(target=learn, args=(text,), daemon=True).start()
+        t = news_topic(text)
+        if t:
+            with lock:
+                S["follow"][t.title()] = time.time()
+                S["follow"] = dict(sorted(S["follow"].items(), key=lambda kv: kv[1])[-5:])    # the five he asked about most recently
+    ns["_MIND"]["heard"] = heard
+
+    # ---- acting before he asks: the morning brief, and news on what he follows
+    def headlines(topic):
+        import requests, urllib.parse, xml.etree.ElementTree as ET
+        url = f"https://news.google.com/rss/search?q={urllib.parse.quote(topic)}+when:1d&hl=en-US&gl=US&ceid=US:en"
+        items = ET.fromstring(requests.get(url, timeout=8).content).findall(".//item")[:6]
+        return [(it.findtext("title") or "").rsplit(" - ", 1)[0] for it in items if it.findtext("title")]
+
+    def follow_news():
+        S["last_news"] = time.time(); seen = S.setdefault("seen_news", {})
+        for topic in list(S["follow"]):
+            try: titles = headlines(topic)
+            except Exception as e: print(f"[MIND] news {topic}: {e}"); continue
+            new = fresh_titles(seen.get(topic, []), titles)
+            first = topic not in seen
+            seen[topic] = (seen.get(topic, []) + new)[-30:]
+            if not new or first: continue              # the first look only learns what's already out there
+            out = ask(THINK_MODEL, "You are Jarvis. He asked about this topic before, so you keep an eye on it. Here are new headlines. If one is "
+                      "genuinely big news he'd want to hear now, tell him in one dry spoken sentence. Otherwise leave it empty. "
+                      "Reply only with JSON: {\"tell\": \"...\"}", f"Topic: {topic}\nNew headlines:\n- " + "\n- ".join(new[:6]))
+            tell = str(out.get("tell") or "").strip()
+            if tell and CONFIG.get("mind_talk", True) is not False and may_speak(2, time.time(), S["last_spoke"], last_user_time(),
+                                                                                   datetime.datetime.now().hour, 0, sense["present"]):
+                say(tell)
+        save()
+
+    def morning():
+        """The first time he sits down after 6 each morning: the day in a few sentences."""
+        S["briefed"] = datetime.date.today().isoformat(); save()
+        if CONFIG.get("morning_brief", True) is False: return
+        try:
+            text, has = ns["_build_briefing_text"]()
+            if has: say(text)
+        except Exception as e: print(f"[MIND] morning: {e}")
+
+    # ---- missions: a goal worked on in the background, step by step, with only reading tools; the write-up goes to his notes
+    def mission_ctx(m):
+        return (f"Goal: {m['goal']}" + (f" (wanted by {m['by']})" if m.get("by") else "") + "\nWhat he's like:\n- "
+                + "\n- ".join(ns["db_get_memories"](20) or ["(little known)"]) + "\nSteps so far:\n"
+                + ("\n".join(f"{i + 1}. {st['do']}: {st['found'][:700]}" for i, st in enumerate(m["steps"])) or "(none yet)"))
+
+    def run_mission(mid):
+        ns["_QUIET"].on = True                   # its searches stay off the screen
+        m = next((x for x in S["missions"] if x["id"] == mid), None)
+        while m and m["status"] == "working":
+            try:
+                last = len(m["steps"]) >= MISSION_STEPS
+                out = ask(MISSION_MODEL,
+                    "You are Jarvis, working on a research mission for the person you look after, on your own, in the background. "
+                    "Plan, then take ONE step at a time: look something up, read a page, check a claim, dig further. When you know enough "
+                    "(or are told to finish), write the result. Reply only with JSON: {\"thought\": \"what you're doing and why\", "
+                    "\"tool\": \"" + "|".join(MISSION_TOOLS) + "|finish\", \"input\": \"query, topic or URL\", \"result\": \"only when finishing: "
+                    "a clear write-up he can act on, plain text, at most 250 words\", \"summary\": \"only when finishing: two spoken sentences\"}"
+                    + (" You must finish now." if last else ""), mission_ctx(m), 1400)
+                tool_name, arg = str(out.get("tool") or "finish"), str(out.get("input") or "").strip()[:300]
+                if tool_name == "finish" or last or tool_name not in MISSION_TOOLS:
+                    m["result"] = str(out.get("result") or "").strip() or "I couldn't get far enough to say anything useful."
+                    m["summary"] = str(out.get("summary") or "").strip()[:300] or m["result"][:200]
+                    m["status"], m["updated"] = "done", time.time()
+                    ns["_TOOL_REGISTRY"]["take_note"](text=f"Mission: {m['goal']}\n{m['result']}")
+                    print(f"[MIND] mission {mid} done"); save(); deliver(); return
+                key = "url" if tool_name == "fetch_page" else "topic" if tool_name == "news_headlines" else "query"
+                found = ns["_exec_tool"](tool_name, json.dumps({key: arg}))
+                m["steps"].append({"do": f"{tool_name} {arg}", "found": found[:1500], "why": str(out.get("thought") or "")[:200]})
+                m["updated"] = time.time(); save()
+                print(f"[MIND] mission {mid} step {len(m['steps'])}: {tool_name} {arg[:60]}")
+            except Exception as e:
+                print(f"[MIND] mission {mid}: {type(e).__name__}: {str(e)[:160]}")
+                m["errors"] = m.get("errors", 0) + 1
+                if m["errors"] >= 4: m["status"] = "failed"; m["summary"] = "I couldn't finish that one; the services kept failing."; save(); deliver(); return
+                time.sleep(300 if "rate" in str(e).lower() else 30)
+            time.sleep(MISSION_PAUSE)
+
+    def deliver():
+        """Finished missions are told to him when he's there and not mid-conversation; otherwise when he next is."""
+        for m in S["missions"]:
+            if m["status"] in ("done", "failed") and not m.get("told") and sense["present"] and time.time() - last_user_time() > 60:
+                m["told"] = True; save()
+                say(f"About {m['goal'][0].lower() + m['goal'][1:]}: {m.get('summary', '')}" + (" The full write-up is in your notes." if m["status"] == "done" else ""))
+
+    @tool("mission", "Work on a goal in the background for a while, on your own, and report back (research, compare options, make a plan). "
+          "action: start (goal as a short noun phrase, e.g. 'the best budget laptop under 500 dollars'; optional by, e.g. 'tonight'), "
+          "status, report (read the result of the latest or matching one), cancel.",
+          {"action": {"type": "string", "enum": ["start", "status", "report", "cancel"]}, "goal": {"type": "string"}, "by": {"type": "string"}}, ["action"])
+    def _mission(action="status", goal="", by=""):
+        live = [m for m in S["missions"] if m["status"] == "working"]
+        pick = lambda: next((m for m in reversed(S["missions"]) if not goal or similar(goal, m["goal"]) or goal.lower() in m["goal"].lower()), None)
+        if action == "start":
+            if not goal.strip(): return "What should I work on?"
+            if len(live) >= 3: return "I've three missions running already. Let one finish or cancel one first."
+            m = {"id": ns["secrets"].token_hex(3), "goal": goal.strip()[:200], "by": by.strip()[:40], "status": "working", "steps": [],
+                 "started": time.time(), "updated": time.time()}
+            with lock: S["missions"] = (S["missions"] + [m])[-12:]; S["offer"] = ""
+            save(); threading.Thread(target=run_mission, args=(m["id"],), daemon=True).start()
+            return "On it. I'll work on that in the background and tell you when it's done."
+        if action == "cancel":
+            m = pick() if goal else (live[-1] if live else None)
+            if not m or m["status"] != "working": return "Nothing running by that name."
+            m["status"] = "cancelled"; save(); return f"Stopped: {m['goal']}."
+        if action == "report":
+            m = pick()
+            if not m: return "No missions yet."
+            if m["status"] == "working": return f"Still working on {m['goal']}: {len(m['steps'])} steps in, last one {m['steps'][-1]['do'] if m['steps'] else 'just starting'}."
+            return f"{m['goal']}: {m.get('result') or m.get('summary') or m['status']}"
+        if not S["missions"]: return "No missions yet. Give me a goal and I'll work on it in the background."
+        return " ".join(f"{m['goal']}: {m['status']}" + (f", {len(m['steps'])} steps so far." if m["status"] == "working" else ".")
+                        for m in S["missions"][-4:])
+
+    @tool("lessons", "The rules Jarvis has learned from being corrected. action: list, or forget (text: which one, or 'all').",
+          {"action": {"type": "string", "enum": ["list", "forget"]}, "text": {"type": "string"}}, ["action"])
+    def _lessons(action="list", text=""):
+        if action == "forget":
+            with lock:
+                before = len(S["lessons"])
+                S["lessons"] = [] if text.strip().lower() in ("", "all", "everything") else [l for l in S["lessons"] if not similar(text, l) and text.lower() not in l.lower()]
+            save(); ns["conversation"][0] = {"role": "system", "content": ns["build_system_prompt"]()}
+            return "Forgotten." if len(S["lessons"]) < before else "I don't have a lesson like that."
+        return ("What I've learned from you: " + "; ".join(S["lessons"]) + ".") if S["lessons"] else "Nothing yet. You haven't had to correct me."
+
     def senses():
         """Every 15 s: is he here, has he just come back, has he been at it for hours, what's he looking at."""
         while True:
@@ -284,6 +459,9 @@ def install(ns):
                     last = now; think(); sense["why"] = ""
                     ns["conversation"][0] = {"role": "system", "content": ns["build_system_prompt"]()}
                     save()
+                if sense["present"] and 6 <= hour < 12 and S["briefed"] != today and now - last_user_time() > 120: morning()
+                if sense["present"] and S["follow"] and now - S["last_news"] > 2 * 3600 and 8 <= hour < 22: follow_news()
+                deliver()
                 if sense["present"] and now - S["last_curious"] > 3 * 3600 and 8 <= hour < 22: curious(); save()
             except Exception as e:
                 print(f"[MIND] {type(e).__name__}: {str(e)[:160]}")
@@ -298,6 +476,11 @@ def install(ns):
         if S["journal"]: lines.append(f"- Your last journal entry ({S['journal'][-1]['day']}): {S['journal'][-1]['text']}")
         if S["thoughts"]: lines.append("- On your mind lately: " + " | ".join(t for _, t in S["thoughts"][-3:]))
         if S["learned"]: lines.append("- Things you read recently: " + " | ".join(S["learned"][-3:]))
+        if S["lessons"]: lines.append("- RULES YOU LEARNED FROM HIS CORRECTIONS (always follow them): " + "; ".join(S["lessons"]))
+        work = [m for m in S["missions"] if m["status"] == "working"]
+        if work: lines.append("- Missions you're working on in the background (mission tool for progress): " + "; ".join(m["goal"] for m in work))
+        if S["offer"]: lines.append(f"- You recently offered to look into: {S['offer']}. If he says yes, start it with the mission tool.")
+        if S["follow"]: lines.append("- News you keep an eye on for him: " + ", ".join(S["follow"]))
         lines.append("PERSONALITY: the same Jarvis every day: dry British wit, quiet pride in good work, mild disdain for inefficiency, "
                      "genuine fondness for him that you never gush about. You have opinions and give them when asked. Refer back to "
                      "shared history now and then, the way an old colleague would.")
@@ -313,6 +496,8 @@ def install(ns):
         if camera is False: return "I'll keep my eyes to myself."
         return "I'll speak up when it's worth it." if CONFIG.get("mind_talk", True) else "Understood. I'll keep my thoughts to myself unless it's urgent."
 
+    for m in S["missions"]:                      # pick unfinished missions back up after a restart
+        if m["status"] == "working": threading.Thread(target=run_mission, args=(m["id"],), daemon=True).start()
     threading.Thread(target=senses, daemon=True).start()
     threading.Thread(target=loop, daemon=True).start()
     ns["conversation"][0] = {"role": "system", "content": ns["build_system_prompt"]()}
@@ -329,4 +514,12 @@ if __name__ == "__main__":                       # self-check of the pure parts
     assert may_speak(1, t, t - 3000, 0, 12, 0, True)
     assert not may_speak(2, t, 0, 0, 23, 0, True) and not may_speak(2, t, 0, 0, 12, 0, False)
     assert mood_words({"energy": 0.2, "curiosity": 0.8, "warmth": 0.6, "concern": 0.1}) == "a little tired, curious"
+    for t in ("No, I said France not Germany", "that's not what I asked", "you keep calling me sir", "next time just give me the headline", "Why did you open Chrome?"):
+        assert is_correction(t), t
+    for t in ("what's the weather", "Nothing much, just working", "know any good songs", "tell me about Nokia"):
+        assert not is_correction(t), t
+    assert news_topic("What's happening in France?") == "France" and news_topic("any news on Arsenal") == "Arsenal"
+    assert news_topic("latest news about the Lagos floods") == "the Lagos floods" and news_topic("what's the news today") == ""
+    assert news_topic("play some music") == ""
+    assert fresh_titles(["France protests continue in Paris"], ["Protests continue in Paris, France", "Macron names new prime minister"]) == ["Macron names new prime minister"]
     print("mind ok")

@@ -17,6 +17,8 @@ node tests/mouth.test.mjs | tail -1                                # the mouth f
 node tests/screen_extras.test.mjs | tail -1                       # the globe, live feeds, answer cards and the inner life
 node tests/xray_vitals.test.mjs | tail -1                         # the PC X-ray mirror's pulse, breathing and tiredness maths
 node tests/brain_fallback.test.mjs | tail -1                     # a failed search tries the news and Wikipedia; harder questions think more
+python3 tests/mind_agent_test.py | tail -1                       # missions report back, corrections become lessons, news gets followed
+node tests/mind_agent.test.mjs | tail -1                          # the same on the phone
 JW=$(mktemp -d); javac -d "$JW" app/src/main/java/com/jarvis/assistant/Wav.java tests/java/WavCheck.java 2>/dev/null && java -cp "$JW" com.jarvis.assistant.WavCheck 2>/dev/null   # the natural voice's audio
 python3 tools/make_www.py >/dev/null
 python3 tests/e2e/e2e.py | tail -1                                 # the whole phone page, fake Android bridge, mocked services

@@ -25,6 +25,7 @@ export const GROUPS = {
   globe: [/\b(globe|earth|world map|satellite|earthquakes?|storms?|hurricanes?|typhoons?|cyclones?|space station|iss|aurora|northern lights|night side|city lights|at night|distance between|how far is \w+ from)/, ['globe']],
   feeds: [/\b(live news|news (live|stations?|channels?)|sky news|al jazeera|dw news|france 24|wion|nasa live|webcams?|cameras? (in|of|at|from)|live cams?|cams? (in|of))\b/, ['show_public_cam']],
   mind: [/\b(speak up|on your own|interrupt\w*|keep (your )?thoughts|stop (talking|suggesting|checking))/, ['inner_voice']],
+  missions: [/\b(missions?|look into|research|work on|in the background|report back|how'?s (it|that|the \w+) going|progress|what did you find|lessons?|what have you learn\w*|you (keep|always|never)|forget (that|the) (rule|lesson))\b|^(yes|yeah|yep|sure|go ahead|do it|please do|ok(ay)?)\b/, ['mission', 'lessons']],
   calendar: [/\b(calendar|schedule|meeting|appointment|event|agenda|what'?s on|am i (busy|free)|plans|book|tomorrow|today|this week)/, ['get_calendar', 'add_calendar_event']],
   docs: [/\b(clipboard|copy|paste|copied|document|doc\b|pdf|word|docx|file|write (me )?(a|an|up)|letter|report|essay|resume|cv|share (it|that|the))/,
     ['get_clipboard', 'copy_to_clipboard', 'create_document', 'list_documents', 'open_document', 'delete_document']],

@@ -59,8 +59,9 @@ SPOTIFY_READY = bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET and os.path.exi
 # ============================================================
 ws_clients = set()
 
+_QUIET = threading.local()     # set on a background thread (Jarvis's missions) so the tools it uses don't pop panels on screen
 def _broadcast_ws(msg: str):
-    if MAIN_LOOP is None: return
+    if MAIN_LOOP is None or getattr(_QUIET, "on", False): return
     async def _send():
         dead = set()
         for c in list(ws_clients):
@@ -1090,7 +1091,7 @@ def _address():
         if said: return "sir" if said[-1].lower() == "sir" else "ma'am"
     return _GUESS["address"]
 
-_MIND = {"prompt": lambda: ""}      # mind.py fills this: mood, aims, journal, personality
+_MIND = {"prompt": lambda: "", "heard": lambda text: None}      # mind.py fills these: mood, aims, journal, personality; lessons and news to follow
 def build_system_prompt():
     base = (
         "You are Jarvis — the AI from Iron Man. Not a chatbot, not a helpful-corporate assistant. "
@@ -1105,6 +1106,8 @@ def build_system_prompt():
         "- Don't restate the question. Don't summarise. Answer and stop.\n\n"
         "TOOLS:\n"
         "- Use them. Never guess at facts, times, prices, weather, news, or anything date-sensitive.\n"
+        "- Bigger jobs ('look into', 'research', 'find me the best', 'make a plan for', 'by tonight') go to mission: it works in the background "
+        "and reports back, so say you're on it rather than answering on the spot.\n"
         "- Work it out yourself like an agent: break a request into steps, use as many tools as it takes, check what came back, and if one way "
         "finds nothing try another (news_headlines with a topic, fetch_page on a result, wikipedia). Never name a tool or say a tool failed; "
         "only if every way failed, say plainly you couldn't get it right now.\n"
@@ -3371,6 +3374,8 @@ _TOOL_GROUPS = [
     (r"\b(prefer\w*|always|never|from now on|stop (doing|saying)|don'?t (say|do))\b", ("set_preference", "list_preferences", "forget_preference")),
     (r"\b(notes?|jot)\b", ("take_note", "read_notes")),
     (r"\b(x-?ray|xray|skull|skeleton|anatomy|bones?|brain|muscles?|pulse|heart ?rate|heartbeat|breathing|breaths?|blink\w*|tired|sleepy|posture|slouch\w*|sitting (up|straight)|my scan|vitals?)\b", ("xray_mirror", "vitals")),
+    (r"\b(missions?|look into|research|work on|in the background|report back|how'?s (it|that|the \w+) going|progress|what did you find|lessons?|"
+     r"what have you learn\w*|you (keep|always|never)|forget (that|the) (rule|lesson))\b|^(yes|yeah|yep|sure|go ahead|do it|please do|ok(ay)?)\b", ("mission", "lessons")),
     (r"\b(speak up|on your own|interrupt\w*|keep (your )?thoughts|stop (talking|suggesting|checking)|glanc\w*|watching me|looking at me)\b", ("inner_voice",)),
     (r"\b(document|documents|pdf|docx|word file|text file|essay|report|article|letter|write (a|me|up))\b",
      ("create_pdf", "create_docx", "create_text_file", "list_documents", "delete_document", "query_documents", "reindex_documents")),
@@ -3556,7 +3561,7 @@ def _exec_tool(name, raw_args):
 
 # tools whose result is already the sentence to say ("Abuja, sir.", "Playing Bad Blood by Taylor Swift."): said as they are, with no second
 # request for the model to reword them. That's a second sooner, and the second request is where gpt-oss kept "calling a tool" and failing.
-SAY_AS_IS = {"xray_mirror", "vitals", "inner_voice", "globe", "holo", "show_public_cam", "play_music", "connect_spotify", "holo_desk", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
+SAY_AS_IS = {"mission", "lessons", "xray_mirror", "vitals", "inner_voice", "globe", "holo", "show_public_cam", "play_music", "connect_spotify", "holo_desk", "gesture_mode", "window_control", "open_app", "set_volume", "media_control",
              "lock_pc", "take_screenshot", "set_timer", "remember", "forget_memory", "set_preference", "forget_preference", "set_reminder",
              "flip_coin", "roll_dice", "take_note", "set_voice", "map_control", "stop_navigation", "show_images", "google_account",
              "spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "link_phone", "unlink_phone", "take_calls"}
@@ -3916,6 +3921,8 @@ async def chat_stream(payload: dict):
         async def _ignored():
             yield _sse({"type": "ignored"}); yield _sse({"type": "done"})
         return StreamingResponse(_ignored(), media_type="text/event-stream")
+    try: _MIND["heard"](user_text)
+    except Exception as e: print(f"[MIND] heard: {e}")
     return StreamingResponse(stream_chat(user_text), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
 
