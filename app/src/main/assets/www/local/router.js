@@ -8,7 +8,7 @@ export const CORE = ['get_time', 'get_weather', 'search_web', 'wikipedia', 'calc
 
 export const GROUPS = {
   memory: [/\b(remember|forget|memor|prefer|preference|notes?|what do you know|about me|wipe|erase)/, ['list_memories', 'forget_memory', 'set_preference', 'list_preferences', 'forget_preference', 'forget_all', 'read_notes', 'show_what_you_know']],
-  info: [/\b(news|headline|bitcoin|btc|ethereum|crypto|coin|price of|exchange rate|currency|convert|dollars?|naira|euros?|pounds?|yen|translat|how do you say|in (spanish|french|german|yoruba|igbo|hausa|chinese|arabic)|page|url|link|article|website says|countdown|until|days (until|to|left)|flip|dice|roll|password)/,
+  info: [/\b(news|headline|happening|going on|latest|current events|bitcoin|btc|ethereum|crypto|coin|price of|exchange rate|currency|convert|dollars?|naira|euros?|pounds?|yen|translat|how do you say|in (spanish|french|german|yoruba|igbo|hausa|chinese|arabic)|page|url|link|article|website says|countdown|until|days (until|to|left)|flip|dice|roll|password)/,
     ['news_headlines', 'crypto_price', 'currency_convert', 'translate', 'fetch_page', 'time_until', 'flip_coin', 'roll_dice', 'generate_password']],
   music: [/\b(music|song|songs|play|playing|pause|resume|skip|next (song|track)|previous|spotify|album|playlist|artist|podcast|youtube|video|listen)/,
     ['play_music', 'spotify_play', 'spotify_pause', 'spotify_next', 'spotify_previous', 'spotify_now_playing', 'play_youtube']],

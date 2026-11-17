@@ -144,12 +144,13 @@ export function registerGeneralTools(ctx) {
     if (!d || !d.rates || !d.rates[t]) return `I couldn't convert ${f} to ${t}.`;
     const v = Number(a.amount) * d.rates[t]; return `${a.amount} ${f} is about ${v.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${t}.`;
   });
-  const newsText = async () => {
-    const r = await httpRaw('https://feeds.bbci.co.uk/news/rss.xml', { timeoutMs: 8000 }); if (r.status !== 200) return '';
-    const items = [...r.text.matchAll(/<item>[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/g)].map(m => decode(m[1])).filter(Boolean).slice(0, 4);
+  const newsText = async (topic = '') => {
+    const url = topic ? `https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-US&gl=US&ceid=US:en` : 'https://feeds.bbci.co.uk/news/rss.xml';
+    const r = await httpRaw(url, { timeoutMs: 8000 }); if (r.status !== 200) return '';
+    const items = [...r.text.matchAll(/<item>[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/g)].map(m => decode(m[1]).replace(/ - [^-]+$/, '')).filter(Boolean).slice(0, topic ? 5 : 4);
     return items.length ? 'Headlines: ' + items.join('. ') + '.' : '';
   };
-  T('news_headlines', 'Top news headlines.', {}, [], async () => (await newsText()) || "I couldn't reach the news right now.");
+  T('news_headlines', 'Top news headlines, or the latest news about a topic or place.', { topic: { type: 'string' } }, [], async a => (await newsText(String(a.topic || '').trim())) || "I couldn't reach the news right now.");
   T('translate', 'Translate text into another language.', { text: { type: 'string' }, language: { type: 'string' } }, ['text', 'language'], async a => (ctx.llm ? ((await ctx.llm(`Translate to ${a.language}. Reply with only the translation.\n\n${a.text}`)) || "I couldn't translate that.") : 'Translation needs my brain online.'));
 
   // ---- briefing

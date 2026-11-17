@@ -31,11 +31,12 @@ export const isSmallTalk = text => {
 export function needsTool(text) { return !isSmallTalk(text); }
 
 // Harder questions get more thinking time; quick commands and simple facts stay fast.
-const DEEP = /\b(why|how (do|does|did|can|could|should|would|to|much|many|long)|explain|compare|difference|versus|vs|plan|planning|advice|advise|should i|what should|best (way|option|time|route)|what if|recommend|suggest|solve|work out|figure out|analy[sz]e|pros and cons|strategy|help me (decide|understand|write|figure|plan|think)|write (me )?(a|an|the)|draft|summari[sz]e|story|poem|essay|math|calculate|percent|budget|worth it|is it (good|bad|safe|true))\b/;
+const DEEP = /\b(what('?s| is| are) (happening|going on)|latest|current events|situation in|why|how (do|does|did|can|could|should|would|to|much|many|long)|explain|compare|difference|versus|vs|plan|planning|advice|advise|should i|what should|best (way|option|time|route)|what if|recommend|suggest|solve|work out|figure out|analy[sz]e|pros and cons|strategy|help me (decide|understand|write|figure|plan|think)|write (me )?(a|an|the)|draft|summari[sz]e|story|poem|essay|math|calculate|percent|budget|worth it|is it (good|bad|safe|true))\b/;
 export function effortFor(text, configured = 'auto') {
   const c = String(configured || 'auto').toLowerCase();
   if (c && c !== 'auto') return c;
   const t = String(text || '').toLowerCase(), words = t.split(/\s+/).filter(Boolean).length;
+  if (/\b(think (hard|deeply|carefully|it through)|take your time|deep dive|really think)\b/.test(t)) return 'high';
   return DEEP.test(t) || words > 22 ? 'medium' : 'low';
 }
 
@@ -90,6 +91,8 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
     "- Never say 'Certainly', 'Of course', 'Sure thing', 'Absolutely', 'I'd be happy to', 'Great question', 'As an AI', 'Let me know if you need anything else' or 'Is there anything else'. Contractions always. Don't restate the question.\n" +
     "- Talk like a real person on the phone, not a script: everyday words, short sentences that flow, the odd 'right', 'yeah' or 'okay' where a person would say it. No exclamation marks. Round numbers the way people say them ('about 30 degrees', 'half past two').\n\n" +
     "TOOLS:\n" +
+    "- Work it out yourself like an agent: break a request into steps, use as many tools as it takes, check what came back, and if one way finds nothing try another " +
+    "(news_headlines with a topic, fetch_page on a result, wikipedia). Never name a tool or say a tool failed; only if every way failed, say plainly you couldn't get it right now.\n" +
     "- Routing: time->get_time, weather->get_weather, math->calculate, facts->wikipedia or search_web, news->news_headlines/search_web, timer->set_timer, " +
     "'remember X'->remember, preferences->set_preference, crypto->crypto_price, currency->currency_convert, translate->translate, coin/dice->flip_coin/roll_dice, " +
     "password->generate_password, battery->system_info, open an app->open_app, URL reading->fetch_page, notes->take_note/read_notes, morning briefing->morning_briefing, " +
