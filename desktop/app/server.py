@@ -674,7 +674,17 @@ try:
     else: print("No GROQ_API_KEY - falling back to Ollama.")
 except ImportError: print("Groq SDK not installed.")
 
-GROQ_EFFORT = os.environ.get("JARVIS_REASONING", "low").strip().lower()   # gpt-oss thinks less = answers sooner
+GROQ_EFFORT = os.environ.get("JARVIS_REASONING", "auto").strip().lower()   # auto: quick commands think little, hard questions think more
+_TURN = {"effort": "low"}
+# Harder questions get more thinking time; quick commands and simple facts stay fast (same rule as the phone's brain.js).
+_DEEP = re.compile(r"\b(why|how (do|does|did|can|could|should|would|to|much|many|long)|explain|compare|difference|versus|vs|plan|planning|advice|advise|"
+                   r"should i|what should|best (way|option|time|route)|what if|recommend|suggest|solve|work out|figure out|analy[sz]e|pros and cons|strategy|"
+                   r"help me (decide|understand|write|figure|plan|think)|write (me )?(a|an|the)|draft|summari[sz]e|story|poem|essay|math|calculate|percent|"
+                   r"budget|worth it|is it (good|bad|safe|true)|what(.?s| is| are) (happening|going on)|latest|current events|situation in)\b")
+def _effort_for(text):
+    t = (text or "").lower()
+    if re.search(r"\b(think (hard|deeply|carefully|it through)|take your time|deep dive|really think)\b", t): return "high"
+    return "medium" if _DEEP.search(t) or len(t.split()) > 22 else "low"
 
 def _why(e):
     """Root cause of an SDK error. Groq's APIConnectionError hides the real reason (SSL, DNS, proxy, bad header...)."""
@@ -715,8 +725,9 @@ def _groq_create(**kw):
     while model in _MODEL_NEXT and time.time() < _MODEL_REST.get(model, 0): model = _MODEL_NEXT[model]
     kw["model"] = model
     extra = {}
-    if GROQ_EFFORT and str(model).startswith("openai/gpt-oss") and not GROQ_STATE["no_effort"]:
-        extra["reasoning_effort"] = GROQ_EFFORT
+    effort = _TURN["effort"] if GROQ_EFFORT == "auto" else GROQ_EFFORT
+    if effort and str(model).startswith("openai/gpt-oss") and not GROQ_STATE["no_effort"]:
+        extra["reasoning_effort"] = effort
     if not str(model).startswith("openai/gpt-oss"): kw.pop("parallel_tool_calls", None)
     try:
         return groq_client.chat.completions.create(**kw, **extra)
@@ -1094,6 +1105,9 @@ def build_system_prompt():
         "- Don't restate the question. Don't summarise. Answer and stop.\n\n"
         "TOOLS:\n"
         "- Use them. Never guess at facts, times, prices, weather, news, or anything date-sensitive.\n"
+        "- Work it out yourself like an agent: break a request into steps, use as many tools as it takes, check what came back, and if one way "
+        "finds nothing try another (news_headlines with a topic, fetch_page on a result, wikipedia). Never name a tool or say a tool failed; "
+        "only if every way failed, say plainly you couldn't get it right now.\n"
         "- Routing: time->get_time, weather->get_weather, math->calculate, facts->wikipedia, "
         "news->search_web/news_headlines, cams->show_public_cam, timer->set_timer, "
         "reminders->set_reminder, 'remember X'->remember, preferences->set_preference, "
@@ -3345,7 +3359,7 @@ _TOOL_GROUPS = [
     (r"\b(e-?mails?|gmail|inbox|mail|unread|messages? from)\b", ("gmail", "google_account")),
     (r"\b(google account|connect (my )?google|sign (me )?in|log ?in|disconnect)\b", ("google_account",)),
     (r"\b(time|date|day|clock|timezone|o'?clock|until|how long|countdown|days? (left|to))\b", ("get_time", "time_until")),
-    (r"\b(news|headlines?|search|look (it )?up|google|who (is|was)|what (is|was)|wiki\w*|tell me about)\b", ("search_web", "news_headlines", "wikipedia", "fetch_page")),
+    (r"\b(news|headlines?|search|look (it )?up|google|who (is|was)|what (is|was)|wiki\w*|tell me about|happening|going on|latest|current events)\b", ("search_web", "news_headlines", "wikipedia", "fetch_page")),
     (r"\b(url|website|web ?page|link|\.com|\.org)\b", ("fetch_page",)),
     (r"\b(spotify|music|songs?|play|player|track|album|playlist|pause|resume|skip|next|previous|volume|louder|quieter|softer|mute|unmute)\b",
      ("spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "spotify_now_playing", "spotify_devices", "play_music", "connect_spotify", "media_control", "set_volume")),
@@ -3509,17 +3523,36 @@ def _after_tool(name, args, result):
         try: h(name, args, result)
         except Exception as e: print(f"[PANELS] {name}: {type(e).__name__}: {e}")
 
+# When a way of finding something out fails or finds nothing, Jarvis tries the next way before saying anything to him.
+_FALLBACK = {"search_web": (("news_headlines", "topic"), ("wikipedia", "query")),
+             "news_headlines": (("search_web", "query"),),
+             "wikipedia": (("search_web", "query"),)}
+_NOTHING = re.compile(r"^(Tool \w+ (failed|got bad)|No results found|No headlines|No wikipedia entry|Unknown tool)", re.I)
+
+def _run_tool(name, args):
+    fn = _TOOL_REGISTRY.get(name)
+    if not fn: return f"Unknown tool: {name}"
+    try: return str(fn(**args))
+    except TypeError as e: return f"Tool {name} got bad arguments: {e}"
+    except Exception as e: return f"Tool {name} failed: {type(e).__name__}: {e}"
+
 def _exec_tool(name, raw_args):
     try: args = json.loads(raw_args or "{}")
     except Exception: args = {}
-    fn = _TOOL_REGISTRY.get(name)
-    if not fn: return f"Unknown tool: {name}"
-    try: result = fn(**args)
-    except TypeError as e: result = f"Tool {name} got bad arguments: {e}"
-    except Exception as e: result = f"Tool {name} failed: {type(e).__name__}: {e}"
-    print(f"[TOOL] {name} -> {str(result)[:120]}")
+    if not isinstance(args, dict): args = {}
+    result = _run_tool(name, args)
+    if _NOTHING.match(result) and name in _FALLBACK:
+        q = str(args.get("query") or args.get("topic") or "").strip()
+        for alt, key in _FALLBACK[name]:
+            if alt not in _TOOL_REGISTRY: continue
+            got = _run_tool(alt, {key: q or "latest news"})
+            print(f"[TOOL] {name} found nothing ({result[:80]}); tried {alt} -> {got[:80]}")
+            if not _NOTHING.match(got): result = got; break
+        else:
+            result = "Nothing could be found online for that just now (the search services didn't answer). Say so in a few words and offer to try again."
+    print(f"[TOOL] {name} -> {result[:120]}")
     _after_tool(name, args, result)
-    return str(result)
+    return result
 
 # tools whose result is already the sentence to say ("Abuja, sir.", "Playing Bad Blood by Taylor Swift."): said as they are, with no second
 # request for the model to reword them. That's a second sooner, and the second request is where gpt-oss kept "calling a tool" and failing.
@@ -3536,14 +3569,17 @@ def _stream_groq_tools(messages, scratch):
     spoke = False; extra = set()
     for attempt in range(2):
       try:
-          for rnd in range(4):
+          # quick asks: one round of tools. Questions that need thought: up to three rounds, so it can look something up, read
+          # what it found, check it and dig further before it answers (search -> open the best result -> answer)
+          tool_rounds = 1 if _TURN["effort"] == "low" else 3
+          for rnd in range(tool_rounds + 1):
               # the big model picks the tools; the fast one writes the answer from their results (its own per-minute allowance,
               # so the second request doesn't wait out the big model's free-tier limit)
-              model = GROQ_MODEL if rnd == 0 or GROQ_STATE.get("fast_off") else GROQ_FAST_MODEL
+              model = GROQ_MODEL if rnd < tool_rounds or GROQ_STATE.get("fast_off") else GROQ_FAST_MODEL
               kw = dict(model=model, messages=messages, stream=True, max_tokens=2000)
               # one round of tools, then the answer from their results with no tool list at all: with the list (even switched off) the fast
               # model re-called tools, invented arguments and said its answer twice; leaving it out also saves ~4,000 tokens a question
-              if rnd == 0: kw.update(tools=_pick_tools(messages, extra), tool_choice="auto", parallel_tool_calls=True)
+              if rnd < tool_rounds: kw.update(tools=_pick_tools(messages, extra), tool_choice="auto", parallel_tool_calls=True)
               text = []; calls = {}
               for chunk in _groq_create(**kw):
                   try: d = chunk.choices[0].delta
@@ -3776,6 +3812,7 @@ async def stream_chat(user_text: str):
         except Exception as e: print(f"[NAV] fastpath: {type(e).__name__}: {e}")
 
         use_tools = _needs_tool(user_text)
+        _TURN["effort"] = _effort_for(user_text)
         t_req = time.time(); scratch = []
         if use_tools and _groq_usable():
             yield _sse({"type": "status", "text": "thinking"})
