@@ -1801,6 +1801,19 @@ const desk = (() => {
 // ============================================================
 // SERVER MESSAGES
 // ============================================================
+// the X-ray mirror and the camera measurements (xray.js), loaded the first time they're asked for
+let xrayP = null;
+const xrayMod = () => (xrayP = xrayP || import('/xray.js').then(m => m.createXray({
+  say: t => window.__jvSay && window.__jvSay(t),
+  onState: o => { if (o.pulse || o.breath || o.tired || o.posture) fetch('/xray/vitals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(o) }).catch(() => {}); },
+})));
+async function xrayMsg(msg) {
+  const x = window.__jvXray = await xrayMod();
+  if (msg.cmd === 'open') { globe.hide(); desk.hide(); holo.clear(); feeds.close(); x.open(msg.opt || {}); }
+  else if (msg.cmd === 'close') x.close();
+  else if (msg.cmd === 'set') x.set(msg.opt || {});
+  else if (msg.cmd === 'watch') x.watch(!!msg.on);
+}
 window.__jvExtra = data => {
   const i = data.indexOf(':'), kind = data.slice(0, i); let msg = {};
   try { msg = JSON.parse(data.slice(i + 1)); } catch (e) { return; }
@@ -1816,6 +1829,7 @@ window.__jvExtra = data => {
   else if (kind === 'feeds') msg.cmd === 'close' ? feeds.close() : feeds.show(msg);
   else if (kind === 'music') music.msg(msg);
   else if (kind === 'desk') { if (msg.cmd === 'close') desk.hide(); else if (msg.cmd === 'clear') desk.clearAll(); else desk.show(msg.panel); }
+  else if (kind === 'xray') xrayMsg(msg);
   else if (kind === 'holo') {
     if (msg.cmd === 'on') { holo.setHead(true); gestures.start('head'); } else if (msg.cmd === 'off') { gestures.stop('head'); holo.setHead(false); }
     else if (msg.cmd === 'clear') holo.clear(); else if (msg.cmd === 'select') holo.select(msg.n); else if (msg.cmd === 'back') holo.back();
