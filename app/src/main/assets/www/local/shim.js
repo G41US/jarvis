@@ -286,7 +286,7 @@ brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, 
   onTool: name => W.dispatchEvent(new CustomEvent('jv-activity', { detail: name })),
   onToolResult: (name, args, out) => { extras.onToolResult(name, args, out).catch(() => {}); },
   extraPrompt: () => (mind ? mind.prompt() : ''),
-  onTurn: (user, said) => { if (learner) learner.observe(user, said); extras.onReply(user, said); if (mind) mind.noteUser(); } });
+  onTurn: (user, said) => { if (learner) learner.observe(user, said); extras.onReply(user, said); if (mind) mind.noteUser(user); } });
 mind = createMind({ brain, kv, config: cfgStore, broadcast, reg, ctx: gctx, log });   // his inner life: thoughts, moods, curiosity, a nightly journal
 W.__jvSay = t => broadcast('proactive:' + t);
 const learner = createLearner({ groqJson: b => brain.groqJson(b), kv, log, enabled: () => cfgStore.get('learn', true) !== false && brain.usable(), onChange: () => brain.refreshPrompt() });
