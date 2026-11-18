@@ -259,6 +259,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
 console.log('[JARVIS] v24 — speech-only, fast speech queue, quiet-voice friendly');
 
@@ -818,6 +819,7 @@ function doSwap(url) {
   });
 }
 function loadAvatar(url) {
+  if (window.__jvScan) return;                   // the face scan is up: the old avatars stay away
   if (currentAvatarUrl === url) return;
   currentAvatarUrl = url;
   if (!avatarModel) { avatarAlpha = 0; doSwap(url); return; }
@@ -838,6 +840,136 @@ function syncAvatarToVoice() {
   if (want !== currentAvatarUrl) loadAvatar(want);
 }
 window.__jvSyncFace = syncAvatarToVoice;
+
+// ============================================================
+// THE FACE: a real 3D face scan drawn as dots in Jarvis's gold. Only the front surface (no tongue or skull showing through),
+// ears, lit so the nose, lips and brow read; mouth shapes follow his voice; he breathes, drifts, nods on stressed words, leans
+// in and glows while listening. Model by Face Cap (bannaflak.com), fetched from the same CDN as three.js; when it can't be
+// reached (offline) the avatar face above stays.
+// ============================================================
+const SCAN_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/facecap.glb';
+const SCAN_MORPHS = ['jawOpen', 'mouthClose', 'mouthFunnel', 'mouthPucker', 'mouthSmile_L', 'mouthSmile_R', 'mouthLowerDown_L', 'mouthLowerDown_R',
+  'mouthUpperUp_L', 'mouthUpperUp_R', 'mouthStretch_L', 'mouthStretch_R', 'mouthPress_L', 'mouthPress_R', 'eyeBlink_L', 'eyeBlink_R',
+  'browInnerUp', 'browOuterUp_L', 'browOuterUp_R', 'cheekSquint_L', 'cheekSquint_R'];
+function buildScanFace(gltf) {
+  gltf.scene.updateMatrixWorld(true);
+  let head = null;
+  gltf.scene.traverse(o => { if (o.isMesh && o.morphTargetDictionary && 'jawOpen' in o.morphTargetDictionary &&
+    (!head || o.geometry.attributes.position.count > head.geometry.attributes.position.count)) head = o; });
+  if (!head) return null;
+  const geo = head.geometry, pa = geo.attributes.position, nV = pa.count, base = new Float32Array(nV * 3);
+  for (let i = 0; i < nV; i++) { base[i*3] = pa.getX(i); base[i*3+1] = pa.getY(i); base[i*3+2] = pa.getZ(i); }
+  const M = {}, rel = geo.morphTargetsRelative;
+  for (const n of SCAN_MORPHS) { const ix = head.morphTargetDictionary[n]; if (ix === undefined) continue; const a = geo.morphAttributes.position[ix], d = new Float32Array(nV * 3);
+    for (let i = 0; i < nV; i++) { d[i*3] = a.getX(i) - (rel ? 0 : base[i*3]); d[i*3+1] = a.getY(i) - (rel ? 0 : base[i*3+1]); d[i*3+2] = a.getZ(i) - (rel ? 0 : base[i*3+2]); }
+    M[n] = { d, w: 0, t: 0 }; }
+  // a face 2.35 units tall, centred on the origin, facing +z: the shapes below are measured in these units
+  const box = new THREE.Box3().setFromObject(head, true), c = box.getCenter(new THREE.Vector3()), s = 2.35 / (box.max.y - box.min.y);
+  const T = new THREE.Matrix4().makeScale(s, s, s).multiply(new THREE.Matrix4().makeTranslation(-c.x, -c.y, -c.z)).multiply(head.matrixWorld).elements;
+  const V = new Float32Array(nV * 3), I = geo.index ? geo.index.array : Uint32Array.from({ length: nV }, (_, i) => i), nT = I.length / 3;
+  const act = [];
+  const computeV = () => {
+    act.length = 0; for (const k in M) if (M[k].w > 0.002) act.push(M[k]);
+    for (let i = 0; i < nV; i++) { let x = base[i*3], y = base[i*3+1], z = base[i*3+2];
+      for (const m of act) { x += m.w * m.d[i*3]; y += m.w * m.d[i*3+1]; z += m.w * m.d[i*3+2]; }
+      V[i*3] = T[0]*x + T[4]*y + T[8]*z + T[12]; V[i*3+1] = T[1]*x + T[5]*y + T[9]*z + T[13]; V[i*3+2] = T[2]*x + T[6]*y + T[10]*z + T[14]; }
+  };
+  computeV();
+  // which triangles are the face we see: front-facing, the nearest surface (the mouth's inside and the skull's back drop out), plus the ears
+  const L = new THREE.Vector3(-0.35, 0.55, 0.85).normalize(), G = 0.03, hm = new Map(), key = (x, y) => Math.floor(x / G) + ',' + Math.floor(y / G);
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), info = [];
+  for (let t = 0; t < nT; t++) { A.fromArray(V, I[t*3]*3); B.fromArray(V, I[t*3+1]*3); C.fromArray(V, I[t*3+2]*3);
+    const n = new THREE.Vector3().subVectors(B, A).cross(new THREE.Vector3().subVectors(C, A)); const area = n.length() / 2; n.normalize();
+    const q = { x: (A.x + B.x + C.x) / 3, y: (A.y + B.y + C.y) / 3, z: (A.z + B.z + C.z) / 3, area, n }; info.push(q);
+    const k = key(q.x, q.y); hm.set(k, Math.max(hm.get(k) ?? -9, q.z)); }
+  const keep = [], cum = []; let acc = 0;
+  for (let t = 0; t < nT; t++) { const q = info[t];
+    const ear = Math.abs(q.x) > 0.7 && q.y > -0.4 && q.y < 0.5 && Math.abs(q.x) < 1.08 && q.z > -0.55;
+    if (!((q.n.z > -0.05 || (ear && q.n.z > -0.55)) && q.z >= hm.get(key(q.x, q.y)) - 0.12 && ((q.x / 0.8) ** 2 + ((q.y - 0.05) / 1.25) ** 2 <= 1 || ear))) continue;
+    q.dif = Math.max(0, q.n.dot(L)); q.rim = Math.pow(1 - Math.max(0, q.n.z), 3);
+    keep.push(t); acc += q.area * (0.06 + Math.pow(q.dif, 3) * 1.3 + q.rim * 1.1); cum.push(acc); }
+  const N = 26000, tri = new Uint32Array(N), bu = new Float32Array(N), bv = new Float32Array(N), pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { const r = Math.random() * acc; let lo = 0, hi = cum.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < r) lo = m + 1; else hi = m; }
+    let u = Math.random(), v = Math.random(); if (u + v > 1) { u = 1 - u; v = 1 - v; }
+    tri[i] = keep[lo]; bu[i] = u; bv[i] = v; const q = info[keep[lo]];
+    const b = Math.min(1, 0.12 + Math.pow(q.dif, 2.2) * 0.95 + 0.55 * q.rim) * (0.75 + 0.25 * Math.random()); col[i*3] = col[i*3+1] = col[i*3+2] = b; }
+  const place = () => { for (let i = 0; i < N; i++) { const t3 = tri[i] * 3, a = I[t3] * 3, b = I[t3+1] * 3, c2 = I[t3+2] * 3, u = bu[i], v = bv[i], w = 1 - u - v;
+    pos[i*3] = V[a]*w + V[b]*u + V[c2]*v; pos[i*3+1] = V[a+1]*w + V[b+1]*u + V[c2+1]*v; pos[i*3+2] = V[a+2]*w + V[b+2]*u + V[c2+2]*v; } };
+  place();
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); pg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({ vertexColors: true, color: 0xffd783, size: 0.013, map: glowTex, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+  const dots = new THREE.Points(pg, mat); dots.frustumCulled = false; dots.renderOrder = 1;
+  const kI = new Uint32Array(keep.length * 3); keep.forEach((t, j) => { kI[j*3] = I[t*3]; kI[j*3+1] = I[t*3+1]; kI[j*3+2] = I[t*3+2]; });
+  const og = new THREE.BufferGeometry(); og.setAttribute('position', new THREE.BufferAttribute(V, 3)); og.setIndex(new THREE.BufferAttribute(kI, 1));
+  const occluder = new THREE.Mesh(og, new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 4 }));
+  occluder.renderOrder = -1; occluder.frustumCulled = false;     // hides the dots on the far side of the head, as a solid head would
+  const turn = new THREE.Group(); turn.add(occluder, dots);
+  const holder = new THREE.Group(); holder.position.set(0, HEAD_CENTER_Y + 0.02, 0); holder.scale.setScalar(HEAD_UNITS * 1.12 / 2.35); holder.add(turn);
+  const S = { M, computeV, place, pg, og, mat, turn, holder, lis: 0, spk: 0, env: 0, envS: 0, nod: 0, brow: 0, syl: 0, shape: {}, blink: { next: 2, at: -1 }, fade: 0 };
+  return S;
+}
+// the mouth shapes he makes, picked a syllable at a time while the sound is on (lips meet on m/b/p, round on oo, wide on ee...)
+const SCAN_SHAPES = [{ mouthFunnel: 0.45 }, { mouthPucker: 0.6, mouthFunnel: 0.2 }, { mouthSmile_L: 0.18, mouthSmile_R: 0.18, mouthStretch_L: 0.15, mouthStretch_R: 0.15 },
+  { mouthUpperUp_L: 0.25, mouthUpperUp_R: 0.25 }, {}, {}];
+function updateScanFace(S, dt, t) {
+  const M = S.M, set = (n, v) => { if (M[n]) M[n].t = Math.max(M[n].t, v); };
+  for (const k in M) M[k].t = 0;
+  const listening = appState === 'listening' || appState === 'session', speaking = appState === 'speaking';
+  S.lis += ((listening ? 1 : 0) - S.lis) * Math.min(1, dt * 4); S.spk += ((speaking ? 1 : 0) - S.spk) * Math.min(1, dt * 5);
+  let lvl = 0;
+  if (speaking) { const real = window.__jvMouthLevel ? window.__jvMouthLevel() : -1;
+    lvl = real >= 0 ? real : (0.35 + 0.3 * Math.sin(t * 13) * Math.sin(t * 5.3)); }
+  S.env += (lvl - S.env) * Math.min(1, dt * 25); S.envS += (lvl - S.envS) * Math.min(1, dt * 4);
+  if (speaking) {
+    if (t > S.syl) { S.syl = t + 0.09 + Math.random() * 0.08; S.shape = lvl > 0.08 ? SCAN_SHAPES[Math.floor(Math.random() * SCAN_SHAPES.length)] : {}; }
+    const jaw = Math.min(0.55, S.env * 0.8);
+    set('jawOpen', jaw); set('mouthLowerDown_L', jaw * 0.6); set('mouthLowerDown_R', jaw * 0.6);
+    for (const k in S.shape) set(k, S.shape[k] * Math.min(1, S.env * 2.5));
+    if (S.env < 0.04) { set('mouthPress_L', 0.35); set('mouthPress_R', 0.35); }        // between words the lips meet
+    S.nod += ((S.env - S.envS) * 0.9 - S.nod) * Math.min(1, dt * 8);
+    S.brow += (Math.max(0, S.env - S.envS - 0.1) * 2.2 - S.brow) * Math.min(1, dt * 10);
+    set('browInnerUp', 0.12 + S.brow * 0.5); set('browOuterUp_L', S.brow * 0.35); set('browOuterUp_R', S.brow * 0.35);
+    set('cheekSquint_L', 0.08); set('cheekSquint_R', 0.08);
+  } else { S.nod *= 0.9; S.brow *= 0.9; }
+  if (listening) { set('browInnerUp', 0.25); set('browOuterUp_L', 0.15); set('browOuterUp_R', 0.15); }
+  const bl = S.blink;
+  if (t > bl.next && bl.at < 0) { bl.at = t; bl.next = t + 2.2 + Math.random() * 3.2; }
+  if (bl.at >= 0) { const e = (t - bl.at) / 0.16; if (e >= 1) bl.at = -1; else { const b = Math.sin(e * Math.PI); set('eyeBlink_L', b); set('eyeBlink_R', b); } }
+  let any = false;
+  for (const k in M) { const m = M[k], before = m.w; m.w += (m.t - m.w) * Math.min(1, dt * (k.startsWith('eye') ? 45 : 16)); if (Math.abs(m.w - before) > 1e-4 || m.w > 0.002) any = true; }
+  if (any || !S.still) { S.computeV(); S.place(); S.pg.attributes.position.needsUpdate = true; S.og.attributes.position.needsUpdate = true; S.still = !any; }
+  // alive: a slow drift and breath; calmer and leaning in while he listens; small nods on the words he stresses
+  const amp = 1 - 0.55 * S.lis - 0.3 * S.spk, br = Math.sin(t * 2 * Math.PI / 4.2);
+  S.turn.rotation.y = amp * (0.2 * Math.sin(t * 0.31) + 0.06 * Math.sin(t * 0.83 + 1)) + S.spk * 0.05 * Math.sin(t * 1.7);
+  S.turn.rotation.x = 0.035 * Math.sin(t * 0.47) + 0.012 * Math.sin(t * 1.3) - S.lis * 0.07 + S.nod * 0.12;
+  S.turn.rotation.z = 0.02 * Math.sin(t * 0.23) + S.spk * 0.015 * Math.sin(t * 1.1);
+  S.turn.position.y = 0.012 * br; S.turn.position.z = S.lis * 0.15; S.turn.scale.setScalar(1 + 0.004 * br + S.lis * 0.035);
+  // Jarvis's gold (it follows his state colours); while he listens every dot glows
+  const hr = window.__jvHear || 0;
+  S.fade = Math.min(1, S.fade + dt * 1.5);
+  S.mat.color.copy(currentCool).multiplyScalar(1.3 + S.lis * 0.35 + hr * 0.4); S.mat.size = 0.014 * (1 + S.lis * 0.4 + hr * 0.3 + S.spk * 0.1);
+  S.mat.opacity = S.fade * avatarAlphaForScan();
+  if (avatarModel) avatarModel.visible = false;
+}
+function avatarAlphaForScan() { return window.__jvFaceOff ? 0 : 1; }
+window.__jvScanUpdate = null;
+(function loadScanFace() {
+  const ktx = new KTX2Loader().setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/basis/').detectSupport(renderer);
+  new GLTFLoader().setKTX2Loader(ktx).setMeshoptDecoder(MeshoptDecoder).load(SCAN_URL, gltf => {
+    try {
+      const S = buildScanFace(gltf); if (!S) return;
+      window.__jvScan = true; pendingSwapUrl = null;
+      if (avatarModel) avatarModel.visible = false;
+      particles.visible = false;                  // a clean face: no dust around it
+      faceGroup.add(S.holder);
+      window.__jvScanUpdate = (dt, t) => updateScanFace(S, dt, t);
+      try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: 'scan' })); } catch (e) {}
+      console.log('[FACE] face scan ready');
+    } catch (e) { console.warn('[FACE] scan face failed; keeping the avatar', e); }
+  }, undefined, e => console.warn('[FACE] face scan unavailable (offline?); keeping the avatar', e));
+})();
 loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);
 
 const headHalo = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -962,6 +1094,7 @@ function animate() {
   speakingAmount += (target - speakingAmount) * Math.min(1, dt * 8.0);
   sharedUniforms.uSpeaking.value = speakingAmount; window.__jvSpeak = speakingAmount;
   driveLipSync(t, speakingAmount);
+  if (window.__jvScanUpdate) window.__jvScanUpdate(dt, t);
 
   { const bl = window.__jvBlinkMorphs; if (bl && bl.length) {
       const B = window.__jvBlink || (window.__jvBlink = { next: t + 2 + Math.random() * 3, start: -1, twice: false });

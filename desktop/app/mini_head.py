@@ -1,5 +1,5 @@
 """Jarvis's floating head: a small see-through window with his dot face that stays on top of everything while the Jarvis window is
-minimised or closed. It bobs gently, glows blue while he listens and talks when he talks. Click it to bring Jarvis back; drag it
+minimised or closed. It bobs gently, glows a paler gold while he listens and talks when he talks (Jarvis gold, like the face in the window). Click it to bring Jarvis back; drag it
 anywhere (it remembers where); right-click for the menu. jarvis_app.py starts it as its own process: Jarvis.exe --head
 """
 import json, math, os, sys, threading, time, urllib.request
