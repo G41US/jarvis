@@ -41,7 +41,7 @@ def auto_gain(x, recent_peak):
 
 
 def log(*a):
-    print("[WAKE]", *a, flush=True)
+    print(time.strftime("%H:%M:%S"), "[WAKE]", *a, flush=True)     # the time, so a log shows which start each line belongs to
 
 
 def load_model():
@@ -141,6 +141,7 @@ def main():
     peak = 0.0
     last_dbg = time.time()
     level, best, last_lvl, first_lvl = 0.0, 0.0, time.time(), True   # what the mic actually hears, logged so a dead or muted mic is obvious
+    dead_since = None     # a mic giving pure digital silence (another app holding it, or Windows switched device): reopen it
     state = {}
     log(f"waiting for 'Hey Jarvis' (trigger score {THRESHOLD})")
 
@@ -165,6 +166,20 @@ def main():
 
             x = np.frombuffer(pcm, dtype=np.int16)
             if len(x): level = max(level, float(np.max(np.abs(x))))
+            # a real room is never this quiet (even silence reads 20+): the mic is blocked or gone, so open it afresh
+            # (the default mic may have changed, e.g. a headset was plugged in or Windows handed it to another app)
+            if len(x) and np.max(np.abs(x)) <= 2:
+                dead_since = dead_since or time.time()
+                if time.time() - dead_since > 20:
+                    log("the mic has given pure silence for 20 s (muted, blocked, or the default mic changed); reopening it")
+                    try: stream.close()
+                    except Exception: pass
+                    try: pa.terminate(); pa = pyaudio.PyAudio()      # a fresh look at the devices: Windows may have a new default
+                    except Exception as e: log(f"audio restart failed: {e}")
+                    stream, dead_since = None, None
+                    time.sleep(1); continue
+            else:
+                dead_since = None
             if rate != RATE:
                 x = np.interp(np.linspace(0, len(x) - 1, CHUNK), np.arange(len(x)), x).astype(np.int16)
 

@@ -7,7 +7,7 @@ import json, math, os, sys, threading, time, urllib.request
 SERVER = os.environ.get("JARVIS_SERVER", "http://127.0.0.1:8000")
 HERE = os.path.dirname(os.path.abspath(__file__))
 W, H = 180, 220
-SHEETS = {"idle": 72, "listen": 72, "speak": 48}
+SHEETS = {"idle": 120, "listen": 72, "speak": 48}
 FPS = 12
 KEY = "#010203"          # Windows: this exact colour is see-through
 
@@ -97,7 +97,7 @@ def main():
             n = len(frames[sheet]); k = int((time.time() - t0) * FPS) % n
             canvas.itemconfigure(item, image=frames[sheet][k])
             if S["drag"] is None:                                    # a slow float up and down
-                bob = int(round(5 * math.sin((time.time() - t0) * 1.3)))
+                bob = int(round(3 * math.sin((time.time() - t0) * 1.3)))
                 root.geometry(f"+{S['x']}+{S['y'] + bob}")
         root.after(int(1000 / FPS), tick)
 
