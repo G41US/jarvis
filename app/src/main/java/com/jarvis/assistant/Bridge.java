@@ -727,6 +727,7 @@ public class Bridge {
     }
     /** The natural voice (Orpheus via the Jarvis service, or Groq with the user's own key). An empty url turns it off. */
     @JavascriptInterface public void setCloudVoice(String url, String headersJson, String voice) { if (piper != null) piper.setCloud(url, headersJson, voice); }
+    @JavascriptInterface public void setFishVoice(String key, String ref) { if (piper != null) piper.setFish(key, ref); }
     @JavascriptInterface public String cloudVoiceStatus() { return piper == null ? "off" : piper.cloudStatus(); }
     /** How fast he talks: 1 normal, 1.15 a bit faster, 1.3 fast (both the PC voice and the phone's voice). */
     @JavascriptInterface public void setSpeechSpeed(float s) { speechSpeed = Math.max(0.6f, Math.min(1.6f, s)); if (piper != null) piper.setSpeed(speechSpeed); }

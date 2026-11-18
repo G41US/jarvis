@@ -1,3 +1,4 @@
+import unicodedata
 import os
 _PROJECT_DIR = os.environ.get("JARVIS_HOME") or os.path.dirname(os.path.abspath(__file__))   # the installed app keeps its data in a user folder
 _CACHE_ROOT = os.path.join(_PROJECT_DIR, ".cache")
@@ -675,16 +676,9 @@ def load_config():
             with open(CONFIG_PATH, encoding="utf-8") as f: return json.load(f)
         except Exception: return {}
     return {}
-ORPHEUS_ALL = {"daniel": "male, crisp and composed", "troy": "male, deep and smooth", "austin": "male, warm and younger",
-               "hannah": "female, clear and warm", "diana": "female, poised and lower", "autumn": "female, bright and lively"}
-_KOKORO_BY = {("male", "american"): 5, ("male", "british"): 9, ("male", "default"): 6, ("female", "american"): 3, ("female", "british"): 7, ("female", "default"): 1}
-def _persona(): p = CONFIG.get("persona"); return p if isinstance(p, dict) and p.get("who") else None
-def _clamp(x, a, b, d):
-    try: return max(a, min(b, float(x)))
-    except (TypeError, ValueError): return d
-def _deliver(text):
-    p = _persona()
-    return f"[{p['delivery']}] {text}" if p and p.get("delivery") and not re.match(r"\s*\[[A-Za-z]", text or "") else text
+def _persona():
+    p = CONFIG.get("persona"); return p if isinstance(p, dict) and p.get("who") and p.get("voice_id") else None
+def _fish_key(): return (os.environ.get("FISH_API_KEY") or CONFIG.get("fish_key") or "").strip()
 
 def save_config(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f: json.dump(cfg, f, indent=2)
@@ -893,13 +887,43 @@ def _orpheus_chunks(text, limit=190):
     if rest: parts.append(rest)
     return parts
 
+_FISH = {"paused_until": 0.0, "asked": 0.0, "http": None}
+def synth_fish(text):
+    """A sentence in the character's own voice (Fish Audio). None if it can't: Jarvis's own voice says it instead."""
+    p, key = _persona(), _fish_key()
+    if not p or not key or not text or time.time() < _FISH["paused_until"]: return None
+    import requests
+    if _FISH["http"] is None: _FISH["http"] = requests.Session()
+    try:
+        r = _FISH["http"].post("https://api.fish.audio/v1/tts", timeout=(5, 25),
+                               headers={"Authorization": f"Bearer {key}", "model": CONFIG.get("fish_model", "s2.1-pro-free")},
+                               json={"text": text, "reference_id": p["voice_id"], "format": "mp3", "latency": "balanced"})
+        if r.status_code == 200 and r.content: return r.content
+        # 401 wrong key, 402 no free use left, 429 too many at once: Jarvis's own voice for a while, then try again
+        if r.status_code in (401, 402, 403, 429): _FISH["paused_until"] = time.time() + (120 if r.status_code == 429 else 600)
+        print(f"[FISH] {r.status_code}: {r.text[:160]}")
+    except Exception as e: print(f"[FISH] {type(e).__name__}: {e}")
+    return None
+
+_FISH_KEY_MSG = re.compile(r"\b([A-Za-z0-9_-]{24,80})\b")
+def _take_fish_key(text):
+    """'my fish key is ...' (or the bare key right after he asked for it): saved to .env, never sent to the AI. The reply, or None."""
+    t = (text or "").strip(); m = _FISH_KEY_MSG.search(t)
+    if not m or not (re.search(r"\bfish\b", t, re.I) or (time.time() - _FISH["asked"] < 900 and t == m.group(1))): return None
+    key = m.group(1); path = os.path.join(_PROJECT_DIR, ".env"); lines = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8-sig") as f: lines = [l.rstrip("\n") for l in f if not l.strip().startswith("FISH_API_KEY=")]
+    with open(path, "w", encoding="utf-8") as f: f.write("\n".join(lines + [f"FISH_API_KEY={key}"]) + "\n")
+    os.environ["FISH_API_KEY"] = key; _FISH["paused_until"] = 0; print(f"[SETUP] Fish Audio key saved (ends ...{key[-4:]}).")
+    return "Got it, your Fish Audio key is saved. Tell me who to be."
+
 _ORPHEUS_HTTP = None
 def synth_orpheus(text, voice_name=None):
     global _ORPHEUS_HTTP
     if not GROQ_API_KEY or CONFIG.get("natural_voice", True) is False or time.time() < _ORPHEUS["paused_until"]: return None
     import requests, io
     if _ORPHEUS_HTTP is None: _ORPHEUS_HTTP = requests.Session()
-    who = (_persona() or {}).get("voice") or ORPHEUS_VOICES.get(_sex(voice_name or CONFIG.get("voice") or ""), "daniel")
+    who = ORPHEUS_VOICES.get(_sex(voice_name or CONFIG.get("voice") or ""), "daniel")
     clips, parts = [], _orpheus_chunks(text)
     # MP3 is about a quarter the size of WAV: on a slow line that's most of the wait. Long sentences come in pieces, joined as WAV.
     fmt = _ORPHEUS.get("fmt", "mp3") if len(parts) == 1 else "wav"
@@ -1025,13 +1049,9 @@ def synth_kokoro(text, voice_name=None):
     if _KOKORO.get("rtf", 0) > 1.2 and any(VOICES.values()) and CONFIG.get("natural_voice") != "always": return None
     try:
         import numpy as np, io
-        p = _persona(); pitch = p["pitch"] if p else 1.0
-        # a character's voice: their nearest speaker; deeper or higher by playing it at another rate, made that much faster
-        # or slower first so the pace stays theirs
-        a = tts.generate(text, sid=p["kokoro"] if p else KOKORO_SPEAKERS.get(_sex(voice_name or CONFIG.get("voice") or ""), 6),
-                         speed=(p["speed"] if p else 1.0) / pitch)
+        a = tts.generate(text, sid=KOKORO_SPEAKERS.get(_sex(voice_name or CONFIG.get("voice") or ""), 6), speed=1.0)
         if not len(a.samples): return None
-        a_rate = int(a.sample_rate * pitch)
+        a_rate = a.sample_rate
         pcm = (np.clip(np.asarray(a.samples, dtype=np.float32), -1, 1) * 32767).astype("<i2").tobytes()
         out = io.BytesIO()
         with wave.open(out, "wb") as w: w.setnchannels(1); w.setsampwidth(2); w.setframerate(a_rate); w.writeframes(pcm)
@@ -1237,7 +1257,7 @@ def build_system_prompt():
         p = _persona()
         base += (f"\nYOU ARE PLAYING A CHARACTER: {p['who']}. Until the user says stop (then call stop_being), speak as {p['who']} would: their words, "
                  f"rhythm and attitude" + (f" ({p['style']})" if p.get("style") else "") + ". Stay in character in every reply, even short ones, but still do "
-                 "what's asked (tools work as normal) and never put the user at risk. Your voice is already set for the part: don't describe it.\n")
+                 "what's asked (tools work as normal) and never put the user at risk. You are speaking in their own voice. Don't add delivery directions in brackets.\n")
     if CONFIG.get("voice_engine", "kokoro") == "orpheus" and not _persona():        # the cloud voice can act: say how a line is delivered
         base += ("\nYOUR VOICE CAN ACT: put a short delivery direction in square brackets right before a sentence when the feeling matters, "
                  "e.g. '[chuckling] Fair point.', '[warm] Glad you're back.', '[sigh] Fine, Monday it is.', '[whisper] Between us...', "
@@ -2443,25 +2463,41 @@ def _list_voices_tool():
     cur = _friendly_name(CONFIG.get("voice") or pairs[0][0])
     return f"Available voices: {', '.join(fn for _, fn in pairs)}. Currently active: {cur}."
 
-# ---- characters and impressions ("be Ultron", "talk like Morgan Freeman"): he plays the part until told to stop. The AI picks how
-# they talk and the nearest voice he has (deeper or higher, slower or quicker, how each line is delivered). An impression made from
-# the voices on hand, not a copy of anyone's real voice. Kept in config.json, so it lasts through a restart, until "stop".
-@tool("become", "Play a character or do an impression of anyone the user names ('be Ultron', 'talk like Morgan Freeman', 'speak like a pirate') "
-      "and stay that way until told to stop. From what you know of how they sound, choose: gender; voice, the closest of: "
-      + ", ".join(f"{k} ({v})" for k, v in ORPHEUS_ALL.items()) + "; pitch (0.75-1.3, lower is deeper: a deep menacing robot about 0.85); "
-      "speed (0.8-1.2); delivery (1-3 words for how every line is said: 'menacing', 'cold calm', 'cheerful', 'gravelly', 'regal'); "
-      "accent ('american', 'british' or 'other'); style (one or two sentences on how they talk). Then answer as them.",
-      {"who": {"type": "string"}, "gender": {"type": "string", "enum": ["male", "female"]}, "voice": {"type": "string", "enum": list(ORPHEUS_ALL)},
-       "pitch": {"type": "number"}, "speed": {"type": "number"}, "delivery": {"type": "string"}, "accent": {"type": "string"}, "style": {"type": "string"}},
-      ["who", "gender", "voice"])
-def _become(who="", gender="male", voice="", pitch=1, speed=1, delivery="", accent="", style=""):
-    g = "female" if gender == "female" else "male"
-    acc = "british" if re.search(r"brit|english|uk", accent or "", re.I) else "american" if re.search(r"americ|\bus\b", accent or "", re.I) else "default"
-    CONFIG["persona"] = {"who": str(who)[:60], "gender": g, "voice": voice if voice in ORPHEUS_ALL else ("hannah" if g == "female" else "troy"),
-                         "pitch": _clamp(pitch, 0.75, 1.3, 1.0), "speed": _clamp(speed, 0.8, 1.2, 1.0),
-                         "delivery": re.sub(r"[^A-Za-z \-]", "", delivery or "").strip()[:28], "kokoro": _KOKORO_BY[(g, acc)], "style": str(style or "")[:300]}
-    save_config(CONFIG); _TTS_CACHE.clear()
-    return f"You are now {CONFIG['persona']['who']}. Answer as them from now on (an impression with the voices on hand). Say something short in character now."
+# ---- characters ("be Ultron", "talk like Morgan Freeman"): their real voice and way of talking until told to stop. The voice comes
+# from Fish Audio's public voice library (clones people have made of characters and famous voices), spoken by Fish Audio's free
+# voice API with the user's own key. No matching voice, or no key: he says so and stays himself. Kept in config.json until "stop".
+_FISH_LIBRARY = "https://api.fish.audio/model"
+def _words(t): return [w for w in re.sub(r"[^a-z0-9 ]+", " ", unicodedata.normalize("NFKD", str(t or "")).lower()).split() if len(w) > 1]
+def _find_fish_voice(who):
+    import requests
+    want = [w for w in _words(who) if w not in ("the", "mr", "mrs", "ms", "dr", "sir", "voice", "from")]
+    if not want: return None
+    for lang in ({"language": "en"}, {}):
+        r = requests.get(_FISH_LIBRARY, params={"title": " ".join(want), "page_size": 20, "sort_by": "score", **lang}, timeout=8); r.raise_for_status()
+        hits = [m for m in r.json().get("items", []) if m.get("state") == "trained" and m.get("type", "tts") == "tts"
+                and all(w in _words(m.get("title")) for w in want)]
+        if hits:
+            best = max(hits, key=lambda m: m.get("task_count") or 0)
+            return {"id": best["_id"], "title": str(best.get("title") or "").strip()}
+    return None
+
+@tool("become", "Become anyone the user names, with their real voice: a film or game character, a famous person ('be Ultron', 'talk like Morgan Freeman', "
+      "'imitate Optimus Prime'). Stay that way until told to stop. who: the name as it's best known (e.g. 'Ultron', 'Morgan Freeman'); "
+      "style: one or two sentences on how they talk (words, rhythm, attitude, signature phrases).",
+      {"who": {"type": "string"}, "style": {"type": "string"}}, ["who"])
+def _become(who="", style=""):
+    who = str(who or "").strip()[:60]
+    try: v = _find_fish_voice(who)
+    except Exception as e: print(f"[PERSONA] library: {e}"); return "Couldn't reach the voice library just now. Tell the user briefly, as yourself, and stay Jarvis."
+    if not v: return f"There's no voice for {who} in the voice library. Tell the user briefly, as yourself, that you can't do their voice, and stay Jarvis."
+    if not _fish_key():
+        _FISH["asked"] = time.time()
+        return (f"{who}'s voice is there, but speaking in it needs the user's free Fish Audio key (make an account at fish dot audio, then API keys). "
+                "They can just type it to you in a message. Tell them that briefly, as yourself, and stay Jarvis for now.")
+    CONFIG["persona"] = {"who": who, "voice_id": v["id"], "voice_title": v["title"], "style": str(style or "")[:300]}
+    save_config(CONFIG); _TTS_CACHE.clear(); _FISH["paused_until"] = 0
+    print(f"[PERSONA] {who}: Fish voice {v['title']!r} ({v['id']})")
+    return f"You are now {who}, in their voice. Answer as them from now on. Say something short in character now."
 
 @tool("stop_being", "Stop playing a character and be Jarvis again ('stop', 'be yourself', 'back to Jarvis', 'drop the act').")
 def _stop_being():
@@ -4048,6 +4084,10 @@ async def chat_stream(payload: dict):
         async def _empty(): yield _sse({"type": "done"})
         return StreamingResponse(_empty(), media_type="text/event-stream")
     hdrs = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
+    note = _take_fish_key(user_text)
+    if note:
+        async def _saved(): yield _sse({"type": "sentence", "text": note}); yield _sse({"type": "done"})
+        return StreamingResponse(_saved(), media_type="text/event-stream", headers=hdrs)
     if payload.get("interrupted"):                   # he talked over the last reply: the model should know it wasn't all heard
         for m in reversed(conversation):
             if m.get("role") == "assistant" and isinstance(m.get("content"), str):
@@ -4363,7 +4403,10 @@ def _synth_blocking(text, voice):
     el = synth_elevenlabs(_voice_text(text, "elevenlabs")) if engine == "elevenlabs" else None
     if el: return el, "audio/mpeg"
     use_groq = engine == "orpheus" or str(voice or CONFIG.get("voice") or "").startswith("groq-")
-    nat = synth_orpheus(_voice_text(_deliver(text), "orpheus"), voice) if use_groq else None      # network call: outside the Piper lock
+    if _persona():                                                       # a character: their own voice (Fish Audio)
+        fish = synth_fish(_voice_text(text, "offline"))
+        if fish: return fish, "audio/mpeg"
+    nat = synth_orpheus(_voice_text(text, "orpheus"), voice) if use_groq else None      # network call: outside the Piper lock
     if nat: return nat, ("audio/wav" if nat[:4] == b"RIFF" else "audio/mpeg")
     with _TTS_TURN:                      # the phonemiser isn't thread-safe; one voice job at a time, oldest first, so the first sentence never waits behind the third
         off = _voice_text(text, "offline")

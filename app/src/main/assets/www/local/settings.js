@@ -178,6 +178,7 @@ export function initSettings() {
   let gender = J().config.get('avatar_gender', 'male');
   const vsel = el('select', { 'aria-label': 'Voice' }); const vw = el('div'); vw.append(el('label', {}, 'Voice'), vsel); sVoice.append(vw);
   const vnote = el('p', { class: 'hint' }); sVoice.append(vnote);
+  add(sVoice, 'password', 'fish_key', 'Fish Audio key (for characters)', { ph: 'Paste your key', hint: 'Say "be Ultron" or "talk like Morgan Freeman" and Jarvis speaks in their real voice until you say stop. Needs a free key from fish.audio (API keys).' });
   // the PC voice for this face: status + download
   const pcRow = el('div', { class: 'row', style: 'align-items:center' }), pcText = el('div', { style: 'flex:2;font-size:14px;color:#b9cfe3' }), pcBtn = el('button', { type: 'button' }, 'Download');
   pcRow.append(pcText, pcBtn); sVoice.append(pcRow);
