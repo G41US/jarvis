@@ -303,6 +303,10 @@ def install(ns):
     async def hud_extra_js():
         return FileResponse(os.path.join(ns.get("_PROJECT_DIR", "."), "hud_extra.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
+    @app.get("/lips.js")
+    async def lips_js():
+        return FileResponse(os.path.join(ns.get("_PROJECT_DIR", "."), "lips.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
     @app.get("/xray.js")
     async def xray_js():
         return FileResponse(os.path.join(ns.get("_PROJECT_DIR", "."), "xray.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache"})
