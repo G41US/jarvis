@@ -87,7 +87,36 @@ public final class PiperTts {
     private final ExecutorService synth = Executors.newSingleThreadExecutor();   // the only thread that touches the on-phone voice (tts)
     private volatile int kokoroSid = 6;                                          // which Kokoro speaker (6 Michael, 1 Bella, ...)
     private volatile long cloudPausedUntil = 0;                              // refused (terms not accepted, bad key): try again in a while
-    private boolean cloudOn() { return !cloudUrl.isEmpty() && !cloudVoice.isEmpty() && System.currentTimeMillis() > cloudPausedUntil; }
+    private boolean cloudOn() { return fishOn() || (!cloudUrl.isEmpty() && !cloudVoice.isEmpty() && System.currentTimeMillis() > cloudPausedUntil); }
+    // ---- a character's own voice ("be Ultron"): a voice from Fish Audio's library, spoken by Fish Audio with the user's key
+    private volatile String fishKey = "", fishRef = "";
+    private volatile long fishPausedUntil = 0;
+    private boolean fishOn() { return !fishKey.isEmpty() && !fishRef.isEmpty() && System.currentTimeMillis() > fishPausedUntil; }
+    public void setFish(String key, String ref) {
+        String k = key == null ? "" : key.trim(), r = ref == null ? "" : ref.trim();
+        if (!k.equals(fishKey) || !r.equals(fishRef)) { ready.clear(); fishPausedUntil = 0; }
+        fishKey = k; fishRef = r;
+    }
+    private float[][] fetchFish(String text) throws Exception {
+        String said = SpokenText.offline(text);                                   // no "[warm]" read out
+        if (said.isEmpty()) return new float[][]{new float[0], {24000, 0}};
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("https://api.fish.audio/v1/tts").openConnection();
+        c.setRequestMethod("POST"); c.setDoOutput(true); c.setConnectTimeout(8000); c.setReadTimeout(25000);
+        c.setRequestProperty("Content-Type", "application/json"); c.setRequestProperty("Authorization", "Bearer " + fishKey);
+        c.setRequestProperty("model", "s2.1-pro-free");
+        JSONObject body = new JSONObject().put("text", said).put("reference_id", fishRef).put("format", "wav").put("sample_rate", 24000).put("latency", "balanced");
+        try (java.io.OutputStream o = c.getOutputStream()) { o.write(body.toString().getBytes("UTF-8")); }
+        int code = c.getResponseCode();
+        if (code != 200) {
+            String err = ""; try (java.io.InputStream es = c.getErrorStream()) { if (es != null) { byte[] eb = new byte[2048]; int n = es.read(eb); if (n > 0) err = new String(eb, 0, n, "UTF-8"); } } catch (Exception ignored) { }
+            // 401 wrong key, 402 no free use left, 429 too many: Jarvis's own voice for a while, then try again
+            if (code == 401 || code == 402 || code == 403 || code == 429) { fishPausedUntil = System.currentTimeMillis() + (code == 429 ? 2 : 10) * 60000; cloudNote = code == 402 ? "fish-credits" : code == 429 ? "fish-busy" : "fish-key"; }
+            throw new java.io.IOException("fish " + code + " " + err);
+        }
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+        try (java.io.InputStream in = c.getInputStream()) { byte[] b = new byte[16384]; int n; while ((n = in.read(b)) > 0) bo.write(b, 0, n); }
+        float[][] w = Wav.decode(bo.toByteArray()); w[0] = Wav.trim(w[0], (int) w[1][0]); return new float[][]{w[0], {w[1][0], 1}};
+    }
     public void setCloud(String url, String headersJson, String voice) {
         cloudUrl = url == null ? "" : url; cloudHeaders = headersJson == null ? "{}" : headersJson; cloudVoice = voice == null ? "" : voice;
     }
@@ -98,6 +127,7 @@ public final class PiperTts {
     /** A sentence from the natural voice: {samples, {sampleRate}}. Groq takes up to 200 characters a request, so a long
      *  sentence goes in pieces cut at commas or spaces, joined back together. */
     private float[][] fetchCloud(String text) throws Exception {
+        if (fishOn()) return fetchFish(text);
         java.util.List<String> parts = new java.util.ArrayList<>();
         String rest = text.trim();
         while (rest.length() > 190) {

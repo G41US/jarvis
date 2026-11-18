@@ -115,15 +115,15 @@ function chosenVoice() {
   return { raw: v ? v.raw : '', name: v ? v.name : (g === 'm' ? 'Phone voice, deeper' : 'Phone voice, higher'), pitch: real ? 1 : fallbackPitch(g), id: `${hint(g)}~${v ? v.raw : 'default'}`, gender: g, pc: '' };
 }
 function applyVoice() {
-  const c = chosenVoice(), role = persona && persona.get();          // a character: their voice, deeper or higher, slower or quicker
-  tts.pitchMul = c.pitch * (role ? role.pitch : 1);
+  const c = chosenVoice(), role = persona && persona.voice();        // a character ("be Ultron"): their own voice, from Fish Audio
+  tts.pitchMul = c.pitch;
   const kok = natural() !== 'false' && pcReady('kokoro');   // the free natural voice on the phone, when downloaded
-  try { if (has('pcVoiceUse')) bridge().pcVoiceUse(kok ? `kokoro:${role ? role.offline : KOKORO[gender()]}` : (c.pc || '')); if (!c.pc && has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {}
-  try { if (has('setVoicePitch')) bridge().setVoicePitch(role ? role.pitch : 1);
-    if (has('setSpeechSpeed')) bridge().setSpeechSpeed((Number(cfgStore.get('speech_speed', 1.15)) || 1.15) * (role ? role.speed : 1)); } catch {}
+  try { if (has('pcVoiceUse')) bridge().pcVoiceUse(kok ? `kokoro:${KOKORO[gender()]}` : (c.pc || '')); if (!c.pc && has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {}
+  try { if (has('setSpeechSpeed')) bridge().setSpeechSpeed(role ? 1 : (Number(cfgStore.get('speech_speed', 1.15)) || 1.15));   // their voice at its own pace
+    if (has('setFishVoice')) bridge().setFishVoice(role ? role.key : '', role ? role.id : ''); } catch {}
   try {                                                // the natural voice online (Groq Orpheus) until the day's free allowance runs out; then the phone's
     const on = api.ready() && (natural() === 'true' || (natural() === 'phone' && !kok));
-    if (has('setCloudVoice')) bridge().setCloudVoice(on ? api.base() + '/audio/speech' : '', JSON.stringify(api.headers()), role ? role.voice : NATURAL_VOICE[gender()]);
+    if (has('setCloudVoice')) bridge().setCloudVoice(on ? api.base() + '/audio/speech' : '', JSON.stringify(api.headers()), NATURAL_VOICE[gender()]);
   } catch {}
   return c;
 }
@@ -241,7 +241,7 @@ const httpJson = makeHttp({ userAgent: NAV_UA, language: 'en', timeoutMs: 12000,
 const reg = new Registry();
 persona = createPersona({ reg, cfgStore, onChange: () => { try { applyVoice(); if (brain) brain.refreshPrompt(); } catch {} } });
 /** What the voice is given for a line: readable out loud, and in the character's delivery when he's playing one. */
-function spoken(text) { const t = forSpeech(text); return t && persona ? persona.deliver(t) : t; }
+function spoken(text) { return forSpeech(text); }
 const navigator_ = new Navigator({ language: cfgStore.get('nav_language', 'en-US'), units: cfgStore.get('units', 'auto') }, httpJson);
 function deliveryConfig() {
   const c = cfgStore.all(), d = {};
@@ -430,7 +430,9 @@ async function handle(method, path, query, body, signal) {
     case '/chat_stream': {
       const ctl = new AbortController(); if (signal) signal.addEventListener('abort', () => ctl.abort());
       const enc = new TextEncoder(), said = String((body && body.text) || '');
-      const it = (interp.on ? interp.respond(said, lastHeardLang) : brain.chat(said, ctl.signal))[Symbol.asyncIterator]();
+      const keyNote = !interp.on && persona ? persona.takeKey(said) : null;   // "my fish key is ...": saved, never sent to the AI
+      const it = (keyNote ? (async function* () { yield { type: 'sentence', text: keyNote }; yield { type: 'done' }; })()
+        : interp.on ? interp.respond(said, lastHeardLang) : brain.chat(said, ctl.signal))[Symbol.asyncIterator]();
       const pre = !interp.on && has('ttsPrefetch'); let gone = false;
       const stream = new ReadableStream({
         start(c) {   // read the whole reply as it's written (not as the page speaks it), so each sentence's voice is ready before its turn
