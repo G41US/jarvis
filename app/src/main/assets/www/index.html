@@ -188,7 +188,10 @@
 { "imports": { "three": "./vendor/three/build/three.module.js",
   "three/addons/": "./vendor/three/examples/jsm/" } }
 </script>
+<script src="lips.js"></script>
+<script>window.__jvUnstage = t => String(t || "").replace(/\[[A-Za-z][A-Za-z \-]{1,28}\]\s*/g, "").replace(/[*(]\s*(laughs?|laughing|chuckles?|chuckling|giggles?|sighs?|sighing|smiles?|grins?)\s*[*)]\s*/gi, "").trim();</script>
 <script type="module" src="local/boot.js"></script>
+<script type="module" src="local/console.js"></script>
 
 <script type="module">
 import * as THREE from 'three';
@@ -199,6 +202,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
 console.log('[JARVIS] v24 — speech-only, fast speech queue, quiet-voice friendly');
 
@@ -682,6 +686,61 @@ function makeBeard(model, skin, skinGeo, eyeMeshes, invRoot, head, span) {
   return cloud;
 }
 
+// look at a point on the screen for a moment (a card that pops up, a notification): his head turns there, then comes back
+window.__jvLookAt = (x, y, ms = 1200) => {
+  const yaw = Math.max(-0.34, Math.min(0.34, (x / innerWidth - 0.5) * 0.75)), pitch = Math.max(-0.18, Math.min(0.18, (y / innerHeight - 0.45) * 0.5));
+  window.__jvLook = { yaw, pitch, until: performance.now() + ms };
+};
+// his head moves with what he says: each sentence, as its sound starts, schedules a nod on "yes", a small shake on "no",
+// a tilt at each comma and a questioning tilt at a "?"
+window.addEventListener('jv-say', e => {
+  const text = String(e.detail.text || ''), dur = isFinite(e.detail.dur) && e.detail.dur > 0 ? e.detail.dur : text.length * 0.065;
+  const t0 = performance.now() / 1000, G = window.__jvGest || (window.__jvGest = []), words = window.__jvUnstage(text).split(/\s+/).filter(Boolean);
+  const chars = Math.max(1, words.join(" ").length); let at = 0;
+  words.forEach((w, i) => {
+    const when = t0 + dur * at / chars, bare = w.toLowerCase().replace(/[^a-z']/g, '');
+    if (/^(yes|yeah|yep|sure|absolutely|exactly|definitely|right|indeed|agreed|done)$/.test(bare) && i < 3) G.push({ kind: 'nod', at: when, d: 0.42, a: 0.1 });
+    if (/^(no|nope|not|never|don't|can't|won't|isn't|nothing|nobody|wasn't|shouldn't)$/.test(bare)) G.push({ kind: 'shake', at: when, d: 0.7, a: 0.06 });
+    if (/,$/.test(w)) G.push({ kind: 'tilt', at: when + 0.1, d: 0.6, a: 0.045 * (i % 2 ? -1 : 1) });
+    at += w.length + 1;
+  });
+  if (/\?\s*$/.test(text)) G.push({ kind: 'ask', at: t0 + dur * 0.55, d: dur * 0.45 + 0.6, a: 0.06 });
+  // how he says it shows on his face: a smile when he's amused or warm, a thinking look on "Hmm", a sigh, raised brows on "Oh"
+  if (/\[(chuckling|laughing|giggling|cheerful|warm|excited|playful)\]|\bHa!|\bhaha\b|[*(]\s*(laughs?|chuckles?|giggles?|grins?|smiles?)\s*[*)]/i.test(text)) G.push({ kind: 'smile', at: t0, d: dur + 0.4, a: 0.4 });
+  if (/^\s*(\[[^\]]*\]\s*)?(hmm+|hm)\b/i.test(text)) G.push({ kind: 'hmm', at: t0, d: 0.9, a: 1 });
+  if (/\[(sigh|exasperated sigh|tired)\]|[*(]\s*sighs?\s*[*)]|^\s*(phew|ugh)\b/i.test(text)) G.push({ kind: 'sigh', at: t0, d: 1.1, a: 1 });
+  if (/^\s*(\[[^\]]*\]\s*)?(oh|whoa|ooh|wow)\b/i.test(text)) G.push({ kind: 'wow', at: t0, d: 0.8, a: 1 });
+});
+
+// ---- phone: when each sentence really starts (added by make_www.py)
+(function () {
+  let pending = null, cur = null, spc = 0.066;
+  try { spc = Math.min(0.12, Math.max(0.04, parseFloat(localStorage.getItem('jv-spc')) || 0.066)); } catch (e) {}
+  window.addEventListener('jv-saying', e => { pending = { text: String(e.detail || ''), at: performance.now() }; });
+  const go = now => {
+    const text = window.__jvUnstage(pending.text), dur = Math.max(0.6, text.length * spc);
+    cur = { text, at: now, n: text.length };
+    try { window.__jvBrowserLips = { tl: window.__jvLips.build(pending.text, null, dur), t0: now }; } catch (e) {}
+    try { window.dispatchEvent(new CustomEvent('jv-say', { detail: { text: pending.text, dur } })); } catch (e) {}
+    pending = null;
+  };
+  (function tick() {
+    const now = performance.now(), lvl = window.__jvMouthLevel ? window.__jvMouthLevel() : -1;
+    if (pending && (lvl > 0.04 || now - pending.at > (lvl < 0 ? 150 : 2500))) go(now);    // no level to go on: start now
+    const talking = window.speechSynthesis && window.speechSynthesis.speaking;
+    if (cur && !talking && !pending) {                                                     // it ended: learn the pace
+      const took = (now - cur.at) / 1000;
+      if (cur.n > 12 && took > 0.4) { spc = spc * 0.7 + Math.min(0.12, Math.max(0.04, took / cur.n)) * 0.3; try { localStorage.setItem('jv-spc', spc.toFixed(4)); } catch (e) {} }
+      cur = null; window.__jvBrowserLips = null;
+    }
+    requestAnimationFrame(tick);
+  })();
+  window.__jvViseme = () => {
+    const b = window.__jvBrowserLips;
+    return b && window.__jvLips ? window.__jvLips.at(b.tl, (performance.now() - b.t0) / 1000) : null;
+  };
+})();
+
 function doSwap(url) {
   if (avatarModel) { faceGroup.remove(avatarModel); disposeAvatar(avatarModel); avatarModel = null; }
   particleFx = null;
@@ -757,6 +816,8 @@ function doSwap(url) {
   });
 }
 function loadAvatar(url) {
+  if (window.__jvScan) { const on = /kofi|adam/i.test(url); window.__jvScanOn(on);   // the male face is the face scan
+    if (on) { currentAvatarUrl = url; try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: 'scan' })); } catch (e) {} return; } }
   if (currentAvatarUrl === url) return;
   currentAvatarUrl = url;
   if (!avatarModel) { avatarAlpha = 0; doSwap(url); return; }
@@ -777,6 +838,185 @@ function syncAvatarToVoice() {
   if (want !== currentAvatarUrl) loadAvatar(want);
 }
 window.__jvSyncFace = syncAvatarToVoice;
+// ============================================================
+// THE FACE: a real 3D face scan drawn as dots in Jarvis's gold. Only the front surface (no tongue or skull showing through),
+// ears, lit so the nose, lips and brow read; mouth shapes follow his voice; he breathes, drifts, nods on stressed words, leans
+// in and glows while listening. Model by Face Cap (bannaflak.com), fetched from the same CDN as three.js; when it can't be
+// reached (offline) the avatar face above stays.
+// ============================================================
+const SCAN_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/facecap.glb';
+const SCAN_MORPHS = ['jawOpen', 'mouthClose', 'mouthFunnel', 'mouthPucker', 'mouthSmile_L', 'mouthSmile_R', 'mouthLowerDown_L', 'mouthLowerDown_R',
+  'mouthUpperUp_L', 'mouthUpperUp_R', 'mouthStretch_L', 'mouthStretch_R', 'mouthPress_L', 'mouthPress_R', 'eyeBlink_L', 'eyeBlink_R',
+  'browInnerUp', 'browOuterUp_L', 'browOuterUp_R', 'cheekSquint_L', 'cheekSquint_R', 'eyeSquint_L', 'eyeSquint_R', 'mouthRollLower', 'mouthRollUpper'];
+function buildScanFace(gltf) {
+  gltf.scene.updateMatrixWorld(true);
+  let head = null;
+  gltf.scene.traverse(o => { if (o.isMesh && o.morphTargetDictionary && 'jawOpen' in o.morphTargetDictionary &&
+    (!head || o.geometry.attributes.position.count > head.geometry.attributes.position.count)) head = o; });
+  if (!head) return null;
+  const geo = head.geometry, pa = geo.attributes.position, nV = pa.count, base = new Float32Array(nV * 3);
+  for (let i = 0; i < nV; i++) { base[i*3] = pa.getX(i); base[i*3+1] = pa.getY(i); base[i*3+2] = pa.getZ(i); }
+  const M = {}, rel = geo.morphTargetsRelative;
+  for (const n of SCAN_MORPHS) { const ix = head.morphTargetDictionary[n]; if (ix === undefined) continue; const a = geo.morphAttributes.position[ix], d = new Float32Array(nV * 3);
+    for (let i = 0; i < nV; i++) { d[i*3] = a.getX(i) - (rel ? 0 : base[i*3]); d[i*3+1] = a.getY(i) - (rel ? 0 : base[i*3+1]); d[i*3+2] = a.getZ(i) - (rel ? 0 : base[i*3+2]); }
+    M[n] = { d, w: 0, t: 0 }; }
+  // a face 2.35 units tall, centred on the origin, facing +z: the shapes below are measured in these units
+  const box = new THREE.Box3().setFromObject(head, true), c = box.getCenter(new THREE.Vector3()), s = 2.35 / (box.max.y - box.min.y);
+  const T = new THREE.Matrix4().makeScale(s, s, s).multiply(new THREE.Matrix4().makeTranslation(-c.x, -c.y, -c.z)).multiply(head.matrixWorld).elements;
+  const V = new Float32Array(nV * 3), I = geo.index ? geo.index.array : Uint32Array.from({ length: nV }, (_, i) => i), nT = I.length / 3;
+  const act = [];
+  const computeV = () => {
+    act.length = 0; for (const k in M) if (M[k].w > 0.002) act.push(M[k]);
+    for (let i = 0; i < nV; i++) { let x = base[i*3], y = base[i*3+1], z = base[i*3+2];
+      for (const m of act) { x += m.w * m.d[i*3]; y += m.w * m.d[i*3+1]; z += m.w * m.d[i*3+2]; }
+      V[i*3] = T[0]*x + T[4]*y + T[8]*z + T[12]; V[i*3+1] = T[1]*x + T[5]*y + T[9]*z + T[13]; V[i*3+2] = T[2]*x + T[6]*y + T[10]*z + T[14]; }
+  };
+  computeV();
+  // which triangles are the face we see: front-facing, the nearest surface (the mouth's inside and the skull's back drop out), plus the ears
+  const L = new THREE.Vector3(-0.35, 0.55, 0.85).normalize(), G = 0.03, hm = new Map(), key = (x, y) => Math.floor(x / G) + ',' + Math.floor(y / G);
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), info = [];
+  for (let t = 0; t < nT; t++) { A.fromArray(V, I[t*3]*3); B.fromArray(V, I[t*3+1]*3); C.fromArray(V, I[t*3+2]*3);
+    const n = new THREE.Vector3().subVectors(B, A).cross(new THREE.Vector3().subVectors(C, A)); const area = n.length() / 2; n.normalize();
+    const q = { x: (A.x + B.x + C.x) / 3, y: (A.y + B.y + C.y) / 3, z: (A.z + B.z + C.z) / 3, area, n }; info.push(q);
+    const k = key(q.x, q.y); hm.set(k, Math.max(hm.get(k) ?? -9, q.z)); }
+  const keep = [], cum = []; let acc = 0;
+  for (let t = 0; t < nT; t++) { const q = info[t];
+    const ear = Math.abs(q.x) > 0.7 && q.y > -0.4 && q.y < 0.5 && Math.abs(q.x) < 1.08 && q.z > -0.55;
+    if (!((q.n.z > -0.05 || (ear && q.n.z > -0.55)) && q.z >= hm.get(key(q.x, q.y)) - 0.12 && ((q.x / 0.8) ** 2 + ((q.y - 0.05) / 1.25) ** 2 <= 1 || ear))) continue;
+    q.dif = Math.max(0, q.n.dot(L)); q.rim = Math.pow(1 - Math.max(0, q.n.z), 3);
+    keep.push(t); acc += q.area * (0.06 + Math.pow(q.dif, 3) * 1.3 + q.rim * 1.1); cum.push(acc); }
+  const N = 26000, tri = new Uint32Array(N), bu = new Float32Array(N), bv = new Float32Array(N), pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { const r = Math.random() * acc; let lo = 0, hi = cum.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < r) lo = m + 1; else hi = m; }
+    let u = Math.random(), v = Math.random(); if (u + v > 1) { u = 1 - u; v = 1 - v; }
+    tri[i] = keep[lo]; bu[i] = u; bv[i] = v; const q = info[keep[lo]];
+    const b = Math.min(1, 0.12 + Math.pow(q.dif, 2.2) * 0.95 + 0.55 * q.rim) * (0.75 + 0.25 * Math.random()); col[i*3] = col[i*3+1] = col[i*3+2] = b; }
+  const place = () => { for (let i = 0; i < N; i++) { const t3 = tri[i] * 3, a = I[t3] * 3, b = I[t3+1] * 3, c2 = I[t3+2] * 3, u = bu[i], v = bv[i], w = 1 - u - v;
+    pos[i*3] = V[a]*w + V[b]*u + V[c2]*v; pos[i*3+1] = V[a+1]*w + V[b+1]*u + V[c2+1]*v; pos[i*3+2] = V[a+2]*w + V[b+2]*u + V[c2+2]*v; } };
+  place();
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); pg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({ vertexColors: true, color: 0xffd783, size: 0.013, map: glowTex, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+  const dots = new THREE.Points(pg, mat); dots.frustumCulled = false; dots.renderOrder = 1;
+  const kI = new Uint32Array(keep.length * 3); keep.forEach((t, j) => { kI[j*3] = I[t*3]; kI[j*3+1] = I[t*3+1]; kI[j*3+2] = I[t*3+2]; });
+  const og = new THREE.BufferGeometry(); og.setAttribute('position', new THREE.BufferAttribute(V, 3)); og.setIndex(new THREE.BufferAttribute(kI, 1));
+  const occluder = new THREE.Mesh(og, new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 4 }));
+  occluder.renderOrder = -1; occluder.frustumCulled = false;     // hides the dots on the far side of the head, as a solid head would
+  const turn = new THREE.Group(); turn.add(occluder, dots);
+  const holder = new THREE.Group(); holder.position.set(0, HEAD_CENTER_Y + 0.02, 0); holder.scale.setScalar(HEAD_UNITS * 1.12 / 2.35); holder.add(turn);
+  const S = { M, computeV, place, pg, og, mat, turn, holder, lis: 0, spk: 0, env: 0, envS: 0, nod: 0, brow: 0, syl: 0, shape: {}, blink: { next: 2, at: -1 }, fade: 0 };
+  return S;
+}
+// the mouth shapes he makes, picked a syllable at a time while the sound is on (lips meet on m/b/p, round on oo, wide on ee...)
+const SCAN_SHAPES = [{ mouthFunnel: 0.45 }, { mouthPucker: 0.6, mouthFunnel: 0.2 }, { mouthSmile_L: 0.18, mouthSmile_R: 0.18, mouthStretch_L: 0.15, mouthStretch_R: 0.15 },
+  { mouthUpperUp_L: 0.25, mouthUpperUp_R: 0.25 }, {}, {}];
+function updateScanFace(S, dt, t) {
+  const M = S.M, set = (n, v) => { if (M[n]) M[n].t = Math.max(M[n].t, v); };
+  for (const k in M) M[k].t = 0;
+  const listening = appState === 'listening' || appState === 'session', speaking = appState === 'speaking';
+  S.lis += ((listening ? 1 : 0) - S.lis) * Math.min(1, dt * 4); S.spk += ((speaking ? 1 : 0) - S.spk) * Math.min(1, dt * 5);
+  let lvl = 0;
+  if (speaking) { const real = window.__jvMouthLevel ? window.__jvMouthLevel() : -1;
+    lvl = real >= 0 ? real : (0.35 + 0.3 * Math.sin(t * 13) * Math.sin(t * 5.3)); }
+  S.env += (lvl - S.env) * Math.min(1, dt * 25); S.envS += (lvl - S.envS) * Math.min(1, dt * 4);
+  if (speaking) {
+    // the shapes of the words he's saying, timed to the sound (lips.js); the jaw opens with the loudness of each syllable
+    const vz = window.__jvViseme ? window.__jvViseme() : null;
+    if (vz) {
+      const amp = Math.min(1, S.env * 2.2), a = vz.a, b = vz.b, k = vz.k;
+      const ja = a.jaw * (1 - k) + (b ? b.jaw : a.jaw) * k;
+      const jaw = (a.closed && k < 0.5) || (b && b.closed && k >= 0.5) ? 0 : Math.min(0.6, ja * (0.45 + 0.9 * amp));
+      set('jawOpen', jaw); set('mouthLowerDown_L', jaw * 0.4); set('mouthLowerDown_R', jaw * 0.4);
+      for (const n in a.m) set(n, a.m[n] * (1 - k)); if (b) for (const n in b.m) set(n, b.m[n] * k);
+    } else {                    // no timing to go on (the browser's own voice): open and close with the sound
+      if (t > S.syl) { S.syl = t + 0.09 + Math.random() * 0.08; S.shape = lvl > 0.08 ? SCAN_SHAPES[Math.floor(Math.random() * SCAN_SHAPES.length)] : {}; }
+      const jaw = Math.min(0.55, S.env * 0.8);
+      set('jawOpen', jaw); set('mouthLowerDown_L', jaw * 0.6); set('mouthLowerDown_R', jaw * 0.6);
+      for (const k in S.shape) set(k, S.shape[k] * Math.min(1, S.env * 2.5));
+    }
+    if (S.env < 0.04) { set('mouthPress_L', 0.35); set('mouthPress_R', 0.35); }        // between words the lips meet
+    S.nod += ((S.env - S.envS) * 0.9 - S.nod) * Math.min(1, dt * 8);
+    S.brow += (Math.max(0, S.env - S.envS - 0.1) * 2.2 - S.brow) * Math.min(1, dt * 10);
+    set('browInnerUp', 0.12 + S.brow * 0.5); set('browOuterUp_L', S.brow * 0.35); set('browOuterUp_R', S.brow * 0.35);
+    set('cheekSquint_L', 0.08); set('cheekSquint_R', 0.08);
+  } else { S.nod *= 0.9; S.brow *= 0.9; }
+  if (listening) { set('browInnerUp', 0.25); set('browOuterUp_L', 0.15); set('browOuterUp_R', 0.15); }
+  const bl = S.blink;
+  if (t > bl.next && bl.at < 0) { bl.at = t; bl.next = t + 2.2 + Math.random() * 3.2; }
+  if (bl.at >= 0) { const e = (t - bl.at) / 0.16; if (e >= 1) bl.at = -1; else { const b = Math.sin(e * Math.PI); set('eyeBlink_L', b); set('eyeBlink_R', b); } }
+  for (const k in (S.pend || {})) set(k, S.pend[k]); S.pend = {};          // the head's expressions (thinking squint, the brow on a question)
+  let any = false;
+  for (const k in M) { const m = M[k], before = m.w; m.w += (m.t - m.w) * Math.min(1, dt * (k.startsWith('eye') ? 45 : k.startsWith('mouth') || k === 'jawOpen' ? 26 : 16)); if (Math.abs(m.w - before) > 1e-4 || m.w > 0.002) any = true; }
+  if (any || !S.still) { S.computeV(); S.place(); S.pg.attributes.position.needsUpdate = true; S.og.attributes.position.needsUpdate = true; S.still = !any; }
+  // where he looks, like a person: mostly still, facing you; glances at things on purpose (the clock, a card that pops up, your mouse),
+  // turns straight to you when you say "Hey Jarvis" and tilts while he listens, looks up and aside while he thinks, nods on "yes",
+  // shakes a little on "no", tilts at a comma and on a question. Every turn starts quick and settles soft (a damped spring).
+  const H = S.head || (S.head = { y: 0, p: 0, r: 0, vy: 0, vp: 0, vr: 0, glanceAt: t + 4 + Math.random() * 4, glance: null, was: '', snapUntil: 0 });
+  const busy = speaking || listening || appState === 'thinking';
+  if (appState !== H.was) { if ((appState === 'session' || appState === 'listening') && H.was !== 'session' && H.was !== 'listening') H.snapUntil = t + 0.7; H.was = appState; }
+  let tgt = [0, 0, 0], k = 38;
+  const look = window.__jvLook && window.__jvLook.until > performance.now() ? window.__jvLook : null;
+  const mouseFresh = performance.now() - (window.__jvMouseAt || -1e9) < 2200;
+  if (appState === 'thinking') { tgt = [-0.18, -0.13, -0.03]; k = 45; }
+  else if (look) { tgt = [look.yaw, look.pitch, 0]; k = 70; }
+  else if (listening) { tgt = [0, -0.03, 0.035 + 0.035 * Math.min(1, (window.__jvHear || 0) * 3)]; k = t < H.snapUntil ? 150 : 50; }
+  else if (mouseFresh && !speaking) { tgt = [Math.max(-0.34, Math.min(0.34, mouseNormX * 0.36)), Math.max(-0.18, Math.min(0.18, -mouseNormY * 0.2)), 0]; k = 60; }
+  else if (!busy) {
+    if (!H.glance && t > H.glanceAt) {
+      const spots = [[0.26, -0.09], [-0.24, -0.08], [-0.2, 0.12], [0.18, 0.06], [0.08, -0.12]];
+      const g = spots[Math.floor(Math.random() * spots.length)]; H.glance = { yaw: g[0], pitch: g[1], until: t + 1.1 + Math.random() * 1.2 };
+    }
+    if (H.glance) { tgt = [H.glance.yaw, H.glance.pitch, 0.01]; k = 55; if (t > H.glance.until) { H.glance = null; H.glanceAt = t + 5 + Math.random() * 6; } }
+  } else { H.glance = null; if (H.glanceAt < t + 3) H.glanceAt = t + 3 + Math.random() * 4; }
+  const z = 0.92, sub = 3, h = Math.min(0.05, dt) / sub;
+  for (let i = 0; i < sub; i++) {
+    H.vy += (k * (tgt[0] - H.y) - 2 * Math.sqrt(k) * z * H.vy) * h; H.y += H.vy * h;
+    H.vp += (k * (tgt[1] - H.p) - 2 * Math.sqrt(k) * z * H.vp) * h; H.p += H.vp * h;
+    H.vr += (k * (tgt[2] - H.r) - 2 * Math.sqrt(k) * z * H.vr) * h; H.r += H.vr * h;
+  }
+  // gestures on his words (scheduled from each sentence as its sound starts)
+  let gy = 0, gp = 0, gr = 0; const now = performance.now() / 1000, pulse = (a, d) => now < a || now > a + d ? 0 : Math.sin((now - a) / d * Math.PI);
+  const G = window.__jvGest || []; window.__jvGest = G.filter(g => now < g.at + g.d + 0.2);
+  for (const g of window.__jvGest) {
+    if (g.kind === 'nod') gp += g.a * pulse(g.at, g.d);
+    else if (g.kind === 'shake' && now > g.at && now < g.at + g.d) { const q = (now - g.at) / g.d; gy += g.a * Math.sin(q * Math.PI * 4) * (1 - q); }
+    else if (g.kind === 'tilt') gr += g.a * pulse(g.at, g.d);
+    else if (g.kind === 'smile' && now > g.at) { const e = Math.min(1, (now - g.at) / 0.3) * Math.min(1, (g.at + g.d - now) / 0.4); Object.assign(S.pend, { mouthSmile_L: g.a * e, mouthSmile_R: g.a * e, cheekSquint_L: 0.3 * e, cheekSquint_R: 0.3 * e, eyeSquint_L: 0.15 * e, eyeSquint_R: 0.15 * e }); }
+    else if (g.kind === 'hmm') { const e = pulse(g.at, g.d); gy -= 0.08 * e; gp -= 0.07 * e; if (e > 0) Object.assign(S.pend, { eyeSquint_L: 0.3 * e, eyeSquint_R: 0.3 * e, browInnerUp: 0.25 * e, browOuterUp_R: 0.25 * e }); }
+    else if (g.kind === 'sigh') { const e = pulse(g.at, g.d); gp += 0.06 * e; if (e > 0) Object.assign(S.pend, { eyeBlink_L: 0.35 * e, eyeBlink_R: 0.35 * e, browInnerUp: 0.3 * e }); }
+    else if (g.kind === 'wow') { const e = pulse(g.at, g.d); gp -= 0.03 * e; if (e > 0) Object.assign(S.pend, { browInnerUp: 0.55 * e, browOuterUp_L: 0.45 * e, browOuterUp_R: 0.45 * e }); }
+    else if (g.kind === 'ask' && now > g.at) { gr += g.a * Math.min(1, (now - g.at) / 0.4) * (now > g.at + g.d ? Math.max(0, 1 - (now - g.at - g.d) / 0.8) : 1); S.pend.browInnerUp = 0.3; }
+  }
+  if (appState === 'thinking') Object.assign(S.pend, { eyeSquint_L: 0.3, eyeSquint_R: 0.3, browInnerUp: 0.3, browOuterUp_R: 0.2 });   // the face these make shows next frame
+  const br = Math.sin(t * 2 * Math.PI / 4.6);
+  S.turn.rotation.y = H.y + gy + 0.006 * Math.sin(t * 0.7);
+  S.turn.rotation.x = H.p + gp + S.nod * 0.08 + 0.004 * br;
+  S.turn.rotation.z = H.r + gr;
+  S.turn.position.y = 0.01 * br; S.turn.position.z = S.lis * 0.15; S.turn.scale.setScalar(1 + 0.004 * br + S.lis * 0.035);
+  // Jarvis's gold (it follows his state colours); while he listens every dot glows
+  const hr = window.__jvHear || 0;
+  S.fade = Math.min(1, S.fade + dt * 1.5);
+  S.mat.color.copy(currentCool).multiplyScalar(1.3 + S.lis * 0.35 + hr * 0.4); S.mat.size = 0.014 * (1 + S.lis * 0.4 + hr * 0.3 + S.spk * 0.1);
+  S.mat.opacity = S.fade * avatarAlphaForScan();
+  if (avatarModel) avatarModel.visible = false;
+}
+function avatarAlphaForScan() { return window.__jvFaceOff ? 0 : 1; }
+window.__jvScanUpdate = null;
+(function loadScanFace() {
+  const ktx = new KTX2Loader().setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/basis/').detectSupport(renderer);
+  new GLTFLoader().setKTX2Loader(ktx).setMeshoptDecoder(MeshoptDecoder).load(SCAN_URL, gltf => {
+    try {
+      const S = buildScanFace(gltf); if (!S) return;
+      // phone: the scan is the male face; the female face and the orb stay as they were (local/faces.js)
+      window.__jvScan = true; faceGroup.add(S.holder);
+      window.__jvScanOn = on => { window.__jvScanActive = on; S.holder.visible = on; particles.visible = !on; if (avatarModel) avatarModel.visible = !on; if (on) S.fade = 0; };
+      window.__jvScanOn(!currentAvatarUrl || /kofi|adam/i.test(currentAvatarUrl));
+      window.__jvScanUpdate = (dt, t) => { if (window.__jvScanActive) updateScanFace(S, dt, t); };
+      try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: 'scan' })); } catch (e) {}
+      console.log('[FACE] face scan ready');
+    } catch (e) { console.warn('[FACE] scan face failed; keeping the avatar', e); }
+  }, undefined, e => console.warn('[FACE] face scan unavailable (offline?); keeping the avatar', e));
+})();
 loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);
 
 const headHalo = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -892,6 +1132,7 @@ function animate() {
   speakingAmount += (target - speakingAmount) * Math.min(1, dt * 8.0);
   sharedUniforms.uSpeaking.value = speakingAmount; window.__jvSpeak = speakingAmount;
   driveLipSync(t, speakingAmount);
+  if (window.__jvScanUpdate) window.__jvScanUpdate(dt, t);
 
   { const bl = window.__jvBlinkMorphs; if (bl && bl.length) {
       const B = window.__jvBlink || (window.__jvBlink = { next: t + 2 + Math.random() * 3, start: -1, twice: false });
@@ -911,8 +1152,8 @@ function animate() {
     if (avatarAlpha > 1) avatarAlpha = 1;
     applyAvatarAlpha(avatarAlpha);
   }
-  camera.position.x = CAM_BASE.x + Math.sin(t*0.1)*0.08;
-  camera.position.y = CAM_BASE.y + Math.cos(t*0.08)*0.06;
+  camera.position.x = CAM_BASE.x;
+  camera.position.y = CAM_BASE.y;
   camera.position.z = CAM_BASE.z * camFit;
   { const want = window.__jvStage || { ty: 0, s: 1 }, cur = window.__jvStageCur || (window.__jvStageCur = { ty: 0, s: 1 });
     const k = window.__jvStageInstant ? 1 : Math.min(1, dt * 7);
@@ -923,7 +1164,7 @@ function animate() {
     else if (cur.on) { camera.zoom = 1; camera.clearViewOffset(); camera.updateProjectionMatrix(); cur.on = false; } }
   camera.lookAt(CAM_LOOK);
   const spin = window.__jvSpin || { yaw: 0, pitch: 0 };                  // the user turning his head by touch (ui.js)
-  const yaw = mouseNormX * 0.05 + spin.yaw, pitch = -mouseNormY * 0.03 + spin.pitch, follow = spin.drag ? 0.35 : 0.08;
+  const yaw = (window.__jvScanActive ? 0 : mouseNormX * 0.05) + spin.yaw, pitch = (window.__jvScanActive ? 0 : -mouseNormY * 0.03) + spin.pitch, follow = spin.drag ? 0.35 : 0.08;
   faceGroup.rotation.y += (yaw - faceGroup.rotation.y) * follow;
   faceGroup.rotation.x += (pitch - faceGroup.rotation.x) * follow;
   const breath = 1 + Math.sin(t*1.4)*0.006;
@@ -1256,6 +1497,7 @@ setInterval(() => {
 }, 1000);
 
 function addMsg(text, who) {
+  if (who === 'jarvis' || who === 'proactive') text = window.__jvUnstage(text);   // "[warm]" is how it's said, not what's shown
   const d = document.createElement('div');
   d.className = 'msg ' + who;
   if (who === 'sys' || who === 'proactive') d.textContent = text;

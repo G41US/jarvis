@@ -12,6 +12,7 @@ const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } ca
 export function forSpeech(text) {
   let s = String(text || '');
   s = s.replace(/```[\s\S]*?```/g, ' ');                                     // code blocks are not for reading out
+  s = s.replace(/\*\s*(laughs?|laughing|chuckles?|chuckling|giggles?|sighs?|sighing|smiles?|grins?)\s*\*/gi, '($1)');   // *laughs* is a stage direction (the voice acts it or skips it)
   s = s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '$1');                     // [text](url) -> text
   s = s.replace(/https?:\/\/[^\s)]+/g, m => host(m));                         // bare links -> the site's name
   s = s.replace(/^\s{0,3}#{1,6}\s+(.*)$/gm, (m, t) => /[.!?:;,]$/.test(t.trim()) ? t.trim() : t.trim() + '.');   // headings
