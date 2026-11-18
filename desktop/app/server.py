@@ -2468,7 +2468,9 @@ def _list_voices_tool():
 # voice API with the user's own key. No matching voice, or no key: he says so and stays himself. Kept in config.json until "stop".
 _FISH_LIBRARY = "https://api.fish.audio/model"
 def _words(t): return [w for w in re.sub(r"[^a-z0-9 ]+", " ", unicodedata.normalize("NFKD", str(t or "")).lower()).split() if len(w) > 1]
-def _find_fish_voice(who):
+def _find_fish_voices(who):
+    """The library's voices for a name, best first: every word of the name in the title, the most liked first (users like the
+    ones that really sound like the person; the most used are often just the first ones made)."""
     import requests
     want = [w for w in _words(who) if w not in ("the", "mr", "mrs", "ms", "dr", "sir", "voice", "from")]
     if not want: return None
@@ -2477,9 +2479,12 @@ def _find_fish_voice(who):
         hits = [m for m in r.json().get("items", []) if m.get("state") == "trained" and m.get("type", "tts") == "tts"
                 and all(w in _words(m.get("title")) for w in want)]
         if hits:
-            best = max(hits, key=lambda m: m.get("task_count") or 0)
-            return {"id": best["_id"], "title": str(best.get("title") or "").strip()}
-    return None
+            hits.sort(key=lambda m: (-(m.get("like_count") or 0), -(m.get("task_count") or 0)))
+            return [{"id": m["_id"], "title": str(m.get("title") or "").strip()} for m in hits]
+    return []
+def _find_fish_voice(who): return (_find_fish_voices(who) or [None])[0]
+def _keep_voice(who, vid):           # the voice kept for each name: "that's not his voice" moves on, the one he ends up with is remembered
+    CONFIG.setdefault("fish_picks", {})[" ".join(_words(who))] = vid
 
 @tool("become", "Become anyone the user names, with their real voice: a film or game character, a famous person ('be Ultron', 'talk like Morgan Freeman', "
       "'imitate Optimus Prime'). Stay that way until told to stop. who: the name as it's best known (e.g. 'Ultron', 'Morgan Freeman'); "
@@ -2487,17 +2492,30 @@ def _find_fish_voice(who):
       {"who": {"type": "string"}, "style": {"type": "string"}}, ["who"])
 def _become(who="", style=""):
     who = str(who or "").strip()[:60]
-    try: v = _find_fish_voice(who)
+    try: vs = _find_fish_voices(who); kept = CONFIG.get("fish_picks", {}).get(" ".join(_words(who))); v = next((x for x in vs if x["id"] == kept), vs[0] if vs else None)
     except Exception as e: print(f"[PERSONA] library: {e}"); return "Couldn't reach the voice library just now. Tell the user briefly, as yourself, and stay Jarvis."
     if not v: return f"There's no voice for {who} in the voice library. Tell the user briefly, as yourself, that you can't do their voice, and stay Jarvis."
     if not _fish_key():
         _FISH["asked"] = time.time()
         return (f"{who}'s voice is there, but speaking in it needs the user's free Fish Audio key (make an account at fish dot audio, then API keys). "
                 "They can just type it to you in a message. Tell them that briefly, as yourself, and stay Jarvis for now.")
-    CONFIG["persona"] = {"who": who, "voice_id": v["id"], "voice_title": v["title"], "style": str(style or "")[:300]}
-    save_config(CONFIG); _TTS_CACHE.clear(); _FISH["paused_until"] = 0
+    CONFIG["persona"] = {"who": who, "voice_id": v["id"], "voice_title": v["title"], "tried": [v["id"]], "style": str(style or "")[:300]}
+    _keep_voice(who, v["id"]); save_config(CONFIG); _TTS_CACHE.clear(); _FISH["paused_until"] = 0
     print(f"[PERSONA] {who}: Fish voice {v['title']!r} ({v['id']})")
     return f"You are now {who}, in their voice. Answer as them from now on. Say something short in character now."
+
+@tool("try_another_voice", "The character's voice is wrong ('that's not his voice', 'he doesn't sound like that', 'wrong voice', "
+      "'try another voice'): switch to the next voice for them in the library.")
+def _try_another_voice():
+    p = _persona()
+    if not p: return "You aren't playing anyone right now."
+    try: vs = _find_fish_voices(p["who"])
+    except Exception: return "Couldn't reach the voice library just now. Say so briefly."
+    tried = p.get("tried") or [p["voice_id"]]; nxt = next((x for x in vs if x["id"] not in tried), None)
+    if not nxt: return f"That was the last voice for {p['who']} in the library. Say so briefly, in character, and offer to stop."
+    p.update(voice_id=nxt["id"], voice_title=nxt["title"], tried=tried + [nxt["id"]]); _keep_voice(p["who"], nxt["id"])
+    save_config(CONFIG); _TTS_CACHE.clear(); print(f"[PERSONA] {p['who']}: now Fish voice {nxt['title']!r} ({nxt['id']})")
+    return f"Switched to another voice for {p['who']} ({len(tried) + 1} of {len(vs)}). Say one short line in character so the user can hear it."
 
 @tool("stop_being", "Stop playing a character and be Jarvis again ('stop', 'be yourself', 'back to Jarvis', 'drop the act').")
 def _stop_being():
@@ -3499,9 +3517,9 @@ def _spawn_summary():
 # so sending them every time meant a second question within a minute waited. The last two things he said pick the groups.
 _TOOL_CORE = ("get_time", "get_weather", "search_web", "wikipedia", "calculate", "remember")
 _PERSONA_WORDS = (r"\b(be|become|act (like|as)|pretend|imitate|impression|impersonat\w*|sound like|talk like|speak like|play(ing)? (the role|as)|you'?re now|"
-                  r"in character|stop being|be yourself|back to (normal|jarvis|yourself)|drop the act|that'?s enough)\b")
+                  r"in character|stop being|be yourself|back to (normal|jarvis|yourself)|drop the act|that'?s enough|wrong voice|(not|isn'?t) (his|her|their|the right) voice|(doesn'?t|don'?t) sound like|another voice)\b")
 _TOOL_GROUPS = [
-    (_PERSONA_WORDS, ("become", "stop_being")),
+    (_PERSONA_WORDS, ("become", "stop_being", "try_another_voice")),
     (r"\b(desk|holo ?desk|holodesk|mirror|hologram mode|mirror mode)\b", ("holo_desk",)),
     (r"\b(close|take away|remove|hide|dismiss|clear|get rid of|put away|bring back|card|cards|panels?|floating|your face)\b", ("holo", "globe", "show_public_cam")),
     (r"\b(e-?mails?|gmail|inbox|mail|unread|messages? from)\b", ("gmail", "google_account")),
@@ -3553,13 +3571,13 @@ def _pick_tools(messages, extra=()):
     want = set(_TOOL_CORE) | set(extra)
     for pat, names in _TOOL_GROUPS:
         if re.search(pat, said): want.update(names)
-    if _persona(): want.add("stop_being")                 # in character: "stop" must always be able to end it
+    if _persona(): want.update(("stop_being", "try_another_voice"))   # in character: "stop" and "wrong voice" always work
     return [s for s in _TOOL_SCHEMAS if s["function"]["name"] in want]
 
 def _needs_tool(text: str) -> bool:
     t = text.lower().strip()
     if re.search(_PERSONA_WORDS, t) and (re.search(r"\b(be|become|imitate|impression|impersonat\w*|talk like|speak like|sound like|act (like|as)|pretend)\b", t) or _persona()): return True
-    if _persona() and re.search(r"\b(stop|enough|normal|yourself|jarvis)\b", t): return True
+    if _persona() and re.search(r"\b(stop|enough|normal|yourself|jarvis|voice|sound)\b", t): return True
     if re.search(r'\b(phone|link|unlink|continue|carry on|left off)\b', t): return True    # phone handoff
     if re.search(r'\b(holo ?desk|holodesk|mirror mode|on the desk|the desk)\b', t): return True
     if re.search(r'\b(close|take away|remove|hide|dismiss|clear|get rid of|put away|turn off|stop)\b.*\b(card|cards|panel|panels|this|that|it|them|those|everything|feeds?|globe|window|'
