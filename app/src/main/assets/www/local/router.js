@@ -35,6 +35,7 @@ export const GROUPS = {
   nav: [/\b(navigat\w*|directions?|route|map|maps|take me|drive (me )?to|walk(ing)? to|get to|how far|eta|arriv|where am i|my location|location|gps|i'?m (in|at)|i am (in|at)|save (this|it|here|place)|home|work|zoom|traffic|toll|highway|reroute|stop navigation|guidance)/,
     ['navigate_to', 'start_delivery_navigation', 'stop_navigation', 'navigation_status', 'map_control', 'open_in_maps_app', 'save_place', 'where_am_i', 'set_my_location']],
   voice: [/\b(voice|accent|sound like|speak (like|as)|male|female|man|woman|face|avatar|look like|orb)/, ['list_voices', 'set_voice', 'choose_face']],
+  persona: [/\b(be|become|act (like|as)|pretend|imitate|impression|impersonat\w*|sound like|talk like|speak like|play(ing)? (the role|as)|you'?re now|in character|stop being|be yourself|back to (normal|jarvis|yourself)|drop the act|that'?s enough)\b/, ['become', 'stop_being']],
   interpreter: [/\b(interpret|interpreter|translat\w* (for|between|conversation)|conversation mode|speak to (him|her|them)|talk to (him|her|them)|in (spanish|french|german|portuguese|chinese|arabic|hindi|yoruba|igbo|hausa|swahili|japanese|korean|russian|italian))/,
     ['start_interpreter', 'stop_interpreter']],
   driving: [/\b(park|parked|parking|car|gas|fuel|petrol|station|shift|mileage|miles|mile log|tax|deduct|irs|break|drive|driving|driven|clock (in|out)|start (my )?(shift|dash|day)|end (my )?(shift|dash|day))/,

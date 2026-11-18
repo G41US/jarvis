@@ -730,6 +730,8 @@ public class Bridge {
     @JavascriptInterface public String cloudVoiceStatus() { return piper == null ? "off" : piper.cloudStatus(); }
     /** How fast he talks: 1 normal, 1.15 a bit faster, 1.3 fast (both the PC voice and the phone's voice). */
     @JavascriptInterface public void setSpeechSpeed(float s) { speechSpeed = Math.max(0.6f, Math.min(1.6f, s)); if (piper != null) piper.setSpeed(speechSpeed); }
+    /** A character's voice ("be Ultron"): how deep or high the natural and offline voices sound (1 = his own). */
+    @JavascriptInterface public void setVoicePitch(float p) { if (piper != null) piper.setPitch(p); }
     /** This APK's build number (the GitHub Actions run that made it). 0 for a build made by hand. */
     @JavascriptInterface public int appBuild() {
         try { long v = Build.VERSION.SDK_INT >= 28 ? activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).getLongVersionCode()

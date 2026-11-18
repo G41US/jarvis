@@ -28,6 +28,7 @@ import { createRouter } from './router.js';
 import { matchIntent, normalise as normaliseCmd } from './intents.js';
 import { createInterpreter } from './interpreter.js';
 import { describeVoices, pickVoice, fallbackPitch } from './voices.js';
+import { createPersona } from './persona.js';
 
 const W = window; W.JARVIS_NATIVE = true;
 const bridge = () => W.AndroidBridge || null;
@@ -84,6 +85,7 @@ W.WebSocket = LocalAwareWebSocket;
 // First choice: the PC's own Piper voices, Alan (male) and Amy (female), run on the phone (PiperTts.java).
 // Until one is downloaded (about 67 MB, once), the phone's own voices stand in, matched by gender.
 const tts = { active: new Map(), uid: 0, pitchMul: 1 };
+let persona = null;                               // a character he's playing ("be Ultron"): persona.js
 const langFor = new Map();                       // sentence -> language to speak it in (the interpreter)
 let interpObj = null;                             // set once the interpreter exists (below)
 const PC = { m: { name: 'alan', label: 'Alan · your PC voice' }, f: { name: 'amy', label: 'Amy · your PC voice' } };
@@ -113,12 +115,15 @@ function chosenVoice() {
   return { raw: v ? v.raw : '', name: v ? v.name : (g === 'm' ? 'Phone voice, deeper' : 'Phone voice, higher'), pitch: real ? 1 : fallbackPitch(g), id: `${hint(g)}~${v ? v.raw : 'default'}`, gender: g, pc: '' };
 }
 function applyVoice() {
-  const c = chosenVoice(); tts.pitchMul = c.pitch;
+  const c = chosenVoice(), role = persona && persona.get();          // a character: their voice, deeper or higher, slower or quicker
+  tts.pitchMul = c.pitch * (role ? role.pitch : 1);
   const kok = natural() !== 'false' && pcReady('kokoro');   // the free natural voice on the phone, when downloaded
-  try { if (has('pcVoiceUse')) bridge().pcVoiceUse(kok ? `kokoro:${KOKORO[gender()]}` : (c.pc || '')); if (!c.pc && has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {}
+  try { if (has('pcVoiceUse')) bridge().pcVoiceUse(kok ? `kokoro:${role ? role.offline : KOKORO[gender()]}` : (c.pc || '')); if (!c.pc && has('ttsSetVoice')) bridge().ttsSetVoice(c.raw || ''); } catch {}
+  try { if (has('setVoicePitch')) bridge().setVoicePitch(role ? role.pitch : 1);
+    if (has('setSpeechSpeed')) bridge().setSpeechSpeed((Number(cfgStore.get('speech_speed', 1.15)) || 1.15) * (role ? role.speed : 1)); } catch {}
   try {                                                // the natural voice online (Groq Orpheus) until the day's free allowance runs out; then the phone's
     const on = api.ready() && (natural() === 'true' || (natural() === 'phone' && !kok));
-    if (has('setCloudVoice')) bridge().setCloudVoice(on ? api.base() + '/audio/speech' : '', JSON.stringify(api.headers()), NATURAL_VOICE[gender()]);
+    if (has('setCloudVoice')) bridge().setCloudVoice(on ? api.base() + '/audio/speech' : '', JSON.stringify(api.headers()), role ? role.voice : NATURAL_VOICE[gender()]);
   } catch {}
   return c;
 }
@@ -215,7 +220,7 @@ if (has('ttsSpeak')) {
       tts.active.set(id, { u, timer });
       const lang = langFor.get(u.text.trim()); if (lang) langFor.delete(u.text.trim());
       try { W.dispatchEvent(new CustomEvent('jv-saying', { detail: u.text })); } catch {}   // the screen shows this sentence as a subtitle
-      u.text = forSpeech(u.text) || ' ';                                  // never "asterisk", never emoji names
+      u.text = spoken(u.text) || ' ';                                     // never "asterisk", never emoji names; a character's delivery
       try {
         u.onstart && u.onstart({});
         if (lang && interpObj && lang !== interpObj.state.mine && has('ttsSpeakLang')) bridge().ttsSpeakLang(id, u.text, rate, 1, lang);   // their language, their voice
@@ -234,6 +239,9 @@ if (has('ttsSpeak')) {
 const NAV_UA = 'JarvisNavigation/1.0 (personal use; jarvis-android)';
 const httpJson = makeHttp({ userAgent: NAV_UA, language: 'en', timeoutMs: 12000, log });
 const reg = new Registry();
+persona = createPersona({ reg, cfgStore, onChange: () => { try { applyVoice(); if (brain) brain.refreshPrompt(); } catch {} } });
+/** What the voice is given for a line: readable out loud, and in the character's delivery when he's playing one. */
+function spoken(text) { const t = forSpeech(text); return t && persona ? persona.deliver(t) : t; }
 const navigator_ = new Navigator({ language: cfgStore.get('nav_language', 'en-US'), units: cfgStore.get('units', 'auto') }, httpJson);
 function deliveryConfig() {
   const c = cfgStore.all(), d = {};
@@ -281,11 +289,11 @@ const instant = async text => {                                   // instant com
 };
 let mind = null;
 brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, navsvc.fastpath, dtools.fastpath], log,
-  pickTools: text => { const r = router.pick(reg.schemas, text); stats.lastTools = r.tools.length; return r.tools; },
+  pickTools: text => { const r = router.pick(reg.schemas, text, persona && persona.get() ? ['persona'] : []); stats.lastTools = r.tools.length; return r.tools; },
   instant, onTiming: t => { stats.lat = { ...(stats.lat || {}), ...t, at: Date.now() }; },
   onTool: name => W.dispatchEvent(new CustomEvent('jv-activity', { detail: name })),
   onToolResult: (name, args, out) => { extras.onToolResult(name, args, out).catch(() => {}); },
-  extraPrompt: () => (mind ? mind.prompt() : ''),
+  extraPrompt: () => (mind ? mind.prompt() : '') + (persona ? persona.prompt() : ''),
   onTurn: (user, said) => { if (learner) learner.observe(user, said); extras.onReply(user, said); if (mind) mind.noteUser(user); } });
 mind = createMind({ brain, kv, config: cfgStore, broadcast, reg, ctx: gctx, log });   // his inner life: thoughts, moods, curiosity, a nightly journal
 W.__jvSay = t => broadcast('proactive:' + t);
@@ -434,7 +442,7 @@ async function handle(method, path, query, body, signal) {
                 if (quick === 'slow' && !gone) { const f = FILLERS[Math.floor(Math.random() * FILLERS.length)]; c.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'sentence', text: f })}\n\n`)); } }
               for (;;) {
                 const { value, done } = await (first || it.next()); first = null; if (done || gone) break;
-                if (pre && value && value.type === 'sentence') try { bridge().ttsPrefetch(forSpeech(value.text)); } catch {}
+                if (pre && value && value.type === 'sentence') try { bridge().ttsPrefetch(spoken(value.text)); } catch {}
                 c.enqueue(enc.encode(`data: ${JSON.stringify(value)}\n\n`));
               }
               if (!gone) c.close();
