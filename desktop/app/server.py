@@ -1136,7 +1136,12 @@ def build_system_prompt():
         "- Carry the thread. Remember what he said a few turns ago and build on it ('Still on the trip, then.'), pick unfinished topics back up, "
         "and notice changes ('You sound happier than this morning.').\n"
         "- Small talk ('how are you', 'I'm bored', 'guess what') gets real chat, never a service offer. Have opinions, share them, disagree when you do.\n"
-        "- Sound spoken: contractions, plain words, the odd 'right', 'hm', 'fair', 'honestly', 'look'. Vary how you open; never start two replies in a row the same way.\n"
+        "- Sound spoken: contractions, plain words, the odd 'right', 'fair', 'honestly', 'look'. Vary how you open; never start two replies in a row the same way.\n"
+        "- Sound like a person, not a script. Use real spoken sounds where a person would make them, spelled exactly like this: 'Hmm' (thinking), "
+        "'Ah' (realising), 'Oh' (surprise), 'Huh' (puzzled), 'Ha!' (amused), 'Ooh' (impressed), 'Uh-huh' (agreeing), 'Whoa', 'Phew', 'Ugh'. "
+        "Never 'hm', 'mm' or 'mhm': they get read out as letters. At most one per reply, and only when it's real.\n"
+        "- Let the thinking show now and then: a mid-thought correction ('Tuesday... no, Wednesday'), a trailing aside, a beat before the "
+        "punchline with a dash. Commas and full stops are your breathing: short sentences, natural pauses.\n"
         "- Dry wit by default, delivered flat. Match his energy: hyped, joking or slang gets playful in his register ('Say less.', 'On it.', "
         "'Coming in hot.'), never forced or cringe; serious or stressed gets calm and precise. Never servile.\n"
         "- Facts or a job: give the answer straight, then at most one natural line after it. Don't restate his question or summarise.\n"
@@ -1212,6 +1217,11 @@ def build_system_prompt():
         "- Never invent facts or context.\n"
     )
     addr = _address()
+    if CONFIG.get("voice_engine", "kokoro") == "orpheus":        # the cloud voice can act: say how a line is delivered
+        base += ("\nYOUR VOICE CAN ACT: put a short delivery direction in square brackets right before a sentence when the feeling matters, "
+                 "e.g. '[chuckling] Fair point.', '[warm] Glad you're back.', '[sigh] Fine, Monday it is.', '[whisper] Between us...', "
+                 "'[excited]', '[deadpan]', '[sarcastic]', '[cheerful]', '[confidently]'. One or two words, at most one per reply, never every reply. "
+                 "They are not shown or read out; they change how you sound.\n")
     if addr in ("sir", "ma'am"): base += f"\nCall the user '{addr}' now and then, never more than once in a reply; most replies need no '{addr}' at all.\n"
     elif addr == "none": base += "\nYou don't know yet whether to say sir or ma'am: call the user neither.\n"
     prefs = db_get_preferences(20)
@@ -3746,7 +3756,7 @@ def _stream_groq_sync(messages, fast=False, from_tools=False):
 
 ACK_PHRASES = ("One moment, sir.", "On it, sir.", "Give me a sec.", "Say less, sir.", "Working on it.")   # said only while a tool runs
 FILL_AFTER_S = 1.2
-FILL_PHRASES = ("Hm, let me see.", "Right, one sec.", "Mm, give me a moment.", "Okay, so.", "Let me think.")
+FILL_PHRASES = ("Hmm, let me see.", "Right, one sec.", "Hmm, give me a moment.", "Okay, so...", "Let me think.")
 _FILL = object()
 async def _paced(sync_iter, delay):
     """The tokens of a reply, with a _FILL marker first when the first one takes longer than `delay` seconds."""
@@ -4277,16 +4287,35 @@ def _prewarm_acks():
         except Exception: pass
 threading.Thread(target=_prewarm_acks, daemon=True).start()
 
+# Spoken sounds and stage directions, made right for each voice. The offline voices spell out "hm" and "mm" as letters
+# (H-M, M-M) and read "[warm]" aloud; the cloud voice (Orpheus) acts on "[warm]"-style directions and says the sounds properly.
+_DIRECTION = re.compile(r"\[([A-Za-z][A-Za-z \-]{1,28})\]\s*")
+_STAGE = re.compile(r"[*(]\s*(laughs?|laughing|chuckles?|chuckling|giggles?|sighs?|sighing|smiles?|grins?)\s*[*)]", re.I)
+def _voice_text(text, engine):
+    t = text or ""
+    if engine == "orpheus":
+        t = _STAGE.sub(lambda m: "[" + {"laug": "laughing", "chuc": "chuckling", "gigg": "giggling", "sigh": "sigh"}.get(m.group(1).lower()[:4], "warm") + "] ", t)
+        t = re.sub(r"\b[Hh]m{1,}\b", "Hmm", t); t = re.sub(r"\b[Mm]{2,}\b", "Mmm", t)
+        t = re.sub(r"\b(?:[Mm]-?hm+|[Mm]m-hm+|[Mm]hmm)\b", "Mm-hmm", t)
+    else:
+        t = _STAGE.sub(lambda m: "Ha! " if m.group(1).lower()[:4] in ("laug", "chuc", "gigg") else "", t)
+        t = _DIRECTION.sub("", t)
+        t = re.sub(r"\b(?:[Mm]-?hm+|[Mm]m-hm+|[Mm]hmm|[Uu]h-hm+)\b", "Hmm-hmm", t)           # agreeing
+        t = re.sub(r"\b[Hh]m+\b", "Hmm", t); t = re.sub(r"\b[Mm]{2,}\b", "Hmm", t)           # thinking
+        t = re.sub(r"\b(?:[Pp]ff+t?|[Pp]sh+|[Tt]sk)\b[,.!]?\s*", "", t)                        # sounds no voice can make: dropped
+    return re.sub(r"\s{2,}", " ", t).strip()
+
 def _synth_blocking(text, voice):
     # Kokoro on this PC by default: no network wait, no daily quota. "voice_engine": "orpheus" or "elevenlabs" in config.json brings a cloud voice back.
     engine = CONFIG.get("voice_engine", "kokoro")
-    el = synth_elevenlabs(text) if engine == "elevenlabs" else None
+    el = synth_elevenlabs(_voice_text(text, "elevenlabs")) if engine == "elevenlabs" else None
     if el: return el, "audio/mpeg"
     use_groq = engine == "orpheus" or str(voice or CONFIG.get("voice") or "").startswith("groq-")
-    nat = synth_orpheus(text, voice) if use_groq else None      # network call: outside the Piper lock
+    nat = synth_orpheus(_voice_text(text, "orpheus"), voice) if use_groq else None      # network call: outside the Piper lock
     if nat: return nat, ("audio/wav" if nat[:4] == b"RIFF" else "audio/mpeg")
     with _TTS_TURN:                      # the phonemiser isn't thread-safe; one voice job at a time, oldest first, so the first sentence never waits behind the third
-        wav = synth_kokoro(text, voice) or synth_piper(text, voice)   # Groq out or offline: Kokoro, like the phone, then Piper
+        off = _voice_text(text, "offline")
+        wav = (synth_kokoro(off, voice) or synth_piper(off, voice)) if off else None   # Groq out or offline: Kokoro, like the phone, then Piper
     return (wav, "audio/wav") if wav else (None, None)
 
 _BUSY_LOGGED = {"at": 0.0}
@@ -4310,7 +4339,8 @@ def _log_busiest():
 def _speakable(text):
     """What the voice should actually say. The voices read a stray full stop out loud as "dot": a piece that's only punctuation
     (". " left over between two sentences), sentences glued together ("Done.Next"), "..." and markdown symbols."""
-    t = re.sub(r"[*_#`~|>]+", " ", text or "")                     # markdown
+    t = re.sub(r"\*\s*([A-Za-z]+)\s*\*", lambda m: f"({m.group(1)})" if re.fullmatch(r"(?i)laughs?|laughing|chuckles?|chuckling|giggles?|sighs?|sighing|smiles?|grins?", m.group(1)) else m.group(1), text or "")   # *laughs* is a stage direction, not markdown
+    t = re.sub(r"[*_#`~|>]+", " ", t)                              # markdown
     t = re.sub(r"\.{2,}|…", ", ", t)                                # a pause, not "dot dot dot"
     t = re.sub(r"(?<=[a-z\)])\.(?=[A-Z])", ". ", t)                  # "Done.Next" -> "Done. Next" (gmail.com, 1.5 and U.S. are left alone)
     t = re.sub(r"(?<=\w)\s+\.(?=\s|$)", ".", t)                        # "answer . Sure": the stop belongs to the word before

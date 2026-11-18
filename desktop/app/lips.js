@@ -94,7 +94,7 @@
 
   // the timeline: [{ t0, t1, v }] in seconds from the start of the sound
   function build(text, audioBuffer, duration) {
-    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const words = (window.__jvUnstage ? window.__jvUnstage(text) : String(text || '')).split(/\s+/).filter(Boolean);   // "[warm]" isn't said
     const items = words.map(w => {
       const v = wordShapes(w); const weight = v.reduce((a, x) => a + (LEN[x] || 1), 0) || 1;
       return { v, weight, pause: /[,;:.!?…—-]$/.test(w) };

@@ -282,6 +282,7 @@
 </script>
 
 <script src="/lips.js"></script>
+<script>window.__jvUnstage = t => String(t || "").replace(/\[[A-Za-z][A-Za-z \-]{1,28}\]\s*/g, "").replace(/[*(]\s*(laughs?|laughing|chuckles?|chuckling|giggles?|sighs?|sighing|smiles?|grins?)\s*[*)]\s*/gi, "").trim();</script>
 <script type="module">
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -349,8 +350,8 @@ window.__jvLookAt = (x, y, ms = 1200) => {
 // a tilt at each comma and a questioning tilt at a "?"
 window.addEventListener('jv-say', e => {
   const text = String(e.detail.text || ''), dur = isFinite(e.detail.dur) && e.detail.dur > 0 ? e.detail.dur : text.length * 0.065;
-  const t0 = performance.now() / 1000, G = window.__jvGest || (window.__jvGest = []), words = text.split(/\s+/).filter(Boolean);
-  const chars = Math.max(1, text.length); let at = 0;
+  const t0 = performance.now() / 1000, G = window.__jvGest || (window.__jvGest = []), words = window.__jvUnstage(text).split(/\s+/).filter(Boolean);
+  const chars = Math.max(1, words.join(" ").length); let at = 0;
   words.forEach((w, i) => {
     const when = t0 + dur * at / chars, bare = w.toLowerCase().replace(/[^a-z']/g, '');
     if (/^(yes|yeah|yep|sure|absolutely|exactly|definitely|right|indeed|agreed|done)$/.test(bare) && i < 3) G.push({ kind: 'nod', at: when, d: 0.42, a: 0.1 });
@@ -359,6 +360,11 @@ window.addEventListener('jv-say', e => {
     at += w.length + 1;
   });
   if (/\?\s*$/.test(text)) G.push({ kind: 'ask', at: t0 + dur * 0.55, d: dur * 0.45 + 0.6, a: 0.06 });
+  // how he says it shows on his face: a smile when he's amused or warm, a thinking look on "Hmm", a sigh, raised brows on "Oh"
+  if (/\[(chuckling|laughing|giggling|cheerful|warm|excited|playful)\]|\bHa!|\bhaha\b|[*(]\s*(laughs?|chuckles?|giggles?|grins?|smiles?)\s*[*)]/i.test(text)) G.push({ kind: 'smile', at: t0, d: dur + 0.4, a: 0.4 });
+  if (/^\s*(\[[^\]]*\]\s*)?(hmm+|hm)\b/i.test(text)) G.push({ kind: 'hmm', at: t0, d: 0.9, a: 1 });
+  if (/\[(sigh|exasperated sigh|tired)\]|[*(]\s*sighs?\s*[*)]|^\s*(phew|ugh)\b/i.test(text)) G.push({ kind: 'sigh', at: t0, d: 1.1, a: 1 });
+  if (/^\s*(\[[^\]]*\]\s*)?(oh|whoa|ooh|wow)\b/i.test(text)) G.push({ kind: 'wow', at: t0, d: 0.8, a: 1 });
 });
 
 const hud = new THREE.Group(); scene.add(hud);
@@ -1037,6 +1043,10 @@ function updateScanFace(S, dt, t) {
     if (g.kind === 'nod') gp += g.a * pulse(g.at, g.d);
     else if (g.kind === 'shake' && now > g.at && now < g.at + g.d) { const q = (now - g.at) / g.d; gy += g.a * Math.sin(q * Math.PI * 4) * (1 - q); }
     else if (g.kind === 'tilt') gr += g.a * pulse(g.at, g.d);
+    else if (g.kind === 'smile' && now > g.at) { const e = Math.min(1, (now - g.at) / 0.3) * Math.min(1, (g.at + g.d - now) / 0.4); Object.assign(S.pend, { mouthSmile_L: g.a * e, mouthSmile_R: g.a * e, cheekSquint_L: 0.3 * e, cheekSquint_R: 0.3 * e, eyeSquint_L: 0.15 * e, eyeSquint_R: 0.15 * e }); }
+    else if (g.kind === 'hmm') { const e = pulse(g.at, g.d); gy -= 0.08 * e; gp -= 0.07 * e; if (e > 0) Object.assign(S.pend, { eyeSquint_L: 0.3 * e, eyeSquint_R: 0.3 * e, browInnerUp: 0.25 * e, browOuterUp_R: 0.25 * e }); }
+    else if (g.kind === 'sigh') { const e = pulse(g.at, g.d); gp += 0.06 * e; if (e > 0) Object.assign(S.pend, { eyeBlink_L: 0.35 * e, eyeBlink_R: 0.35 * e, browInnerUp: 0.3 * e }); }
+    else if (g.kind === 'wow') { const e = pulse(g.at, g.d); gp -= 0.03 * e; if (e > 0) Object.assign(S.pend, { browInnerUp: 0.55 * e, browOuterUp_L: 0.45 * e, browOuterUp_R: 0.45 * e }); }
     else if (g.kind === 'ask' && now > g.at) { gr += g.a * Math.min(1, (now - g.at) / 0.4) * (now > g.at + g.d ? Math.max(0, 1 - (now - g.at - g.d) / 0.8) : 1); S.pend.browInnerUp = 0.3; }
   }
   if (appState === 'thinking') Object.assign(S.pend, { eyeSquint_L: 0.3, eyeSquint_R: 0.3, browInnerUp: 0.3, browOuterUp_R: 0.2 });   // the face these make shows next frame
@@ -1771,6 +1781,7 @@ function isEcho(transcript, threshold = ECHO_SIMILARITY_THRESHOLD) {
   return { echo: false };
 }
 function rememberJarvisReply(text) {
+  text = window.__jvUnstage(text);
   if (!text || text.length < 3) return;
   recentJarvisReplies.push({ text, time: performance.now() });
   if (recentJarvisReplies.length > 10) recentJarvisReplies.shift();
@@ -2273,7 +2284,7 @@ unlockAudio(); setInterval(() => { if ([audioCtx, audioCaptureCtx].some(c => c &
   }
   // a sentence of his: dropped in word by word over ~70% of its sound, so the words lead his voice a little
   function sayLine(text, dur) {
-    text = fixAddress(String(text || '').trim()); if (!text) return;
+    text = fixAddress(window.__jvUnstage(text)); if (!text) return;
     const k = keyOf(text), w = waiting.findIndex(x => keyOf(x) === k); if (w >= 0) waiting.splice(w, 1);
     if (!himRow) { himRow = newRow('him'); if (youRow) youRow.classList.remove('old'); }
     const m = himRow.querySelector('.m');
@@ -2311,14 +2322,14 @@ unlockAudio(); setInterval(() => { if ([audioCtx, audioCaptureCtx].some(c => c &
   }, 400);
   const _addMsg = addMsg;
   addMsg = function (text, who) {
-    if (who === 'jarvis' || who === 'proactive') text = fixAddress(text);
+    if (who === 'jarvis' || who === 'proactive') text = fixAddress(window.__jvUnstage(text));
     _addMsg(text, who);
     if (who === 'user') showYou(text);
     else if (who === 'jarvis' || who === 'proactive') { if (who === 'proactive') { youRow = null; himRow = null; window.__jvLookAt && window.__jvLookAt(innerWidth * 0.15, innerHeight * 0.38, 1000); } queueLine(text); }
     else if (!/^— .* —$/.test(text)) showNote(text);       // status lines ("Jarvis online.", "Microphone access denied.")
   };
   const _append = appendJarvisSentence;
-  appendJarvisSentence = function (text) { _append(text); queueLine(text); };
+  appendJarvisSentence = function (text) { text = window.__jvUnstage(text); _append(text); queueLine(text); };
   const _partial = showPartial;
   showPartial = function (text) { _partial(text); showYou(text); };
   // the console stays up long enough to read the whole answer, then fades
