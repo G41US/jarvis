@@ -675,6 +675,17 @@ def load_config():
             with open(CONFIG_PATH, encoding="utf-8") as f: return json.load(f)
         except Exception: return {}
     return {}
+ORPHEUS_ALL = {"daniel": "male, crisp and composed", "troy": "male, deep and smooth", "austin": "male, warm and younger",
+               "hannah": "female, clear and warm", "diana": "female, poised and lower", "autumn": "female, bright and lively"}
+_KOKORO_BY = {("male", "american"): 5, ("male", "british"): 9, ("male", "default"): 6, ("female", "american"): 3, ("female", "british"): 7, ("female", "default"): 1}
+def _persona(): p = CONFIG.get("persona"); return p if isinstance(p, dict) and p.get("who") else None
+def _clamp(x, a, b, d):
+    try: return max(a, min(b, float(x)))
+    except (TypeError, ValueError): return d
+def _deliver(text):
+    p = _persona()
+    return f"[{p['delivery']}] {text}" if p and p.get("delivery") and not re.match(r"\s*\[[A-Za-z]", text or "") else text
+
 def save_config(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f: json.dump(cfg, f, indent=2)
 CONFIG = load_config()
@@ -888,7 +899,7 @@ def synth_orpheus(text, voice_name=None):
     if not GROQ_API_KEY or CONFIG.get("natural_voice", True) is False or time.time() < _ORPHEUS["paused_until"]: return None
     import requests, io
     if _ORPHEUS_HTTP is None: _ORPHEUS_HTTP = requests.Session()
-    who = ORPHEUS_VOICES.get(_sex(voice_name or CONFIG.get("voice") or ""), "daniel")
+    who = (_persona() or {}).get("voice") or ORPHEUS_VOICES.get(_sex(voice_name or CONFIG.get("voice") or ""), "daniel")
     clips, parts = [], _orpheus_chunks(text)
     # MP3 is about a quarter the size of WAV: on a slow line that's most of the wait. Long sentences come in pieces, joined as WAV.
     fmt = _ORPHEUS.get("fmt", "mp3") if len(parts) == 1 else "wav"
@@ -1014,11 +1025,16 @@ def synth_kokoro(text, voice_name=None):
     if _KOKORO.get("rtf", 0) > 1.2 and any(VOICES.values()) and CONFIG.get("natural_voice") != "always": return None
     try:
         import numpy as np, io
-        a = tts.generate(text, sid=KOKORO_SPEAKERS.get(_sex(voice_name or CONFIG.get("voice") or ""), 6), speed=1.0)
+        p = _persona(); pitch = p["pitch"] if p else 1.0
+        # a character's voice: their nearest speaker; deeper or higher by playing it at another rate, made that much faster
+        # or slower first so the pace stays theirs
+        a = tts.generate(text, sid=p["kokoro"] if p else KOKORO_SPEAKERS.get(_sex(voice_name or CONFIG.get("voice") or ""), 6),
+                         speed=(p["speed"] if p else 1.0) / pitch)
         if not len(a.samples): return None
+        a_rate = int(a.sample_rate * pitch)
         pcm = (np.clip(np.asarray(a.samples, dtype=np.float32), -1, 1) * 32767).astype("<i2").tobytes()
         out = io.BytesIO()
-        with wave.open(out, "wb") as w: w.setnchannels(1); w.setsampwidth(2); w.setframerate(a.sample_rate); w.writeframes(pcm)
+        with wave.open(out, "wb") as w: w.setnchannels(1); w.setsampwidth(2); w.setframerate(a_rate); w.writeframes(pcm)
         return out.getvalue()
     except Exception as e: print(f"[KOKORO] {e}"); return None
 
@@ -1217,7 +1233,12 @@ def build_system_prompt():
         "- Never invent facts or context.\n"
     )
     addr = _address()
-    if CONFIG.get("voice_engine", "kokoro") == "orpheus":        # the cloud voice can act: say how a line is delivered
+    if _persona():
+        p = _persona()
+        base += (f"\nYOU ARE PLAYING A CHARACTER: {p['who']}. Until the user says stop (then call stop_being), speak as {p['who']} would: their words, "
+                 f"rhythm and attitude" + (f" ({p['style']})" if p.get("style") else "") + ". Stay in character in every reply, even short ones, but still do "
+                 "what's asked (tools work as normal) and never put the user at risk. Your voice is already set for the part: don't describe it.\n")
+    if CONFIG.get("voice_engine", "kokoro") == "orpheus" and not _persona():        # the cloud voice can act: say how a line is delivered
         base += ("\nYOUR VOICE CAN ACT: put a short delivery direction in square brackets right before a sentence when the feeling matters, "
                  "e.g. '[chuckling] Fair point.', '[warm] Glad you're back.', '[sigh] Fine, Monday it is.', '[whisper] Between us...', "
                  "'[excited]', '[deadpan]', '[sarcastic]', '[cheerful]', '[confidently]'. One or two words, at most one per reply, never every reply. "
@@ -2422,6 +2443,31 @@ def _list_voices_tool():
     cur = _friendly_name(CONFIG.get("voice") or pairs[0][0])
     return f"Available voices: {', '.join(fn for _, fn in pairs)}. Currently active: {cur}."
 
+# ---- characters and impressions ("be Ultron", "talk like Morgan Freeman"): he plays the part until told to stop. The AI picks how
+# they talk and the nearest voice he has (deeper or higher, slower or quicker, how each line is delivered). An impression made from
+# the voices on hand, not a copy of anyone's real voice. Kept in config.json, so it lasts through a restart, until "stop".
+@tool("become", "Play a character or do an impression of anyone the user names ('be Ultron', 'talk like Morgan Freeman', 'speak like a pirate') "
+      "and stay that way until told to stop. From what you know of how they sound, choose: gender; voice, the closest of: "
+      + ", ".join(f"{k} ({v})" for k, v in ORPHEUS_ALL.items()) + "; pitch (0.75-1.3, lower is deeper: a deep menacing robot about 0.85); "
+      "speed (0.8-1.2); delivery (1-3 words for how every line is said: 'menacing', 'cold calm', 'cheerful', 'gravelly', 'regal'); "
+      "accent ('american', 'british' or 'other'); style (one or two sentences on how they talk). Then answer as them.",
+      {"who": {"type": "string"}, "gender": {"type": "string", "enum": ["male", "female"]}, "voice": {"type": "string", "enum": list(ORPHEUS_ALL)},
+       "pitch": {"type": "number"}, "speed": {"type": "number"}, "delivery": {"type": "string"}, "accent": {"type": "string"}, "style": {"type": "string"}},
+      ["who", "gender", "voice"])
+def _become(who="", gender="male", voice="", pitch=1, speed=1, delivery="", accent="", style=""):
+    g = "female" if gender == "female" else "male"
+    acc = "british" if re.search(r"brit|english|uk", accent or "", re.I) else "american" if re.search(r"americ|\bus\b", accent or "", re.I) else "default"
+    CONFIG["persona"] = {"who": str(who)[:60], "gender": g, "voice": voice if voice in ORPHEUS_ALL else ("hannah" if g == "female" else "troy"),
+                         "pitch": _clamp(pitch, 0.75, 1.3, 1.0), "speed": _clamp(speed, 0.8, 1.2, 1.0),
+                         "delivery": re.sub(r"[^A-Za-z \-]", "", delivery or "").strip()[:28], "kokoro": _KOKORO_BY[(g, acc)], "style": str(style or "")[:300]}
+    save_config(CONFIG); _TTS_CACHE.clear()
+    return f"You are now {CONFIG['persona']['who']}. Answer as them from now on (an impression with the voices on hand). Say something short in character now."
+
+@tool("stop_being", "Stop playing a character and be Jarvis again ('stop', 'be yourself', 'back to Jarvis', 'drop the act').")
+def _stop_being():
+    p = _persona(); CONFIG.pop("persona", None); save_config(CONFIG); _TTS_CACHE.clear()
+    return f"Back to being Jarvis (no longer {p['who']}). Say so briefly, as yourself." if p else "You're already yourself."
+
 @tool("set_voice", "Change the speaking voice.", {"voice_name": {"type": "string"}}, ["voice_name"])
 def _set_voice_tool(voice_name):
     if not VOICES: return "No voices loaded."
@@ -3416,7 +3462,10 @@ def _spawn_summary():
 # Only the tools a question could need go with it: all ~75 descriptions are ~4,500 tokens, and Groq's free tier allows 8,000 a minute,
 # so sending them every time meant a second question within a minute waited. The last two things he said pick the groups.
 _TOOL_CORE = ("get_time", "get_weather", "search_web", "wikipedia", "calculate", "remember")
+_PERSONA_WORDS = (r"\b(be|become|act (like|as)|pretend|imitate|impression|impersonat\w*|sound like|talk like|speak like|play(ing)? (the role|as)|you'?re now|"
+                  r"in character|stop being|be yourself|back to (normal|jarvis|yourself)|drop the act|that'?s enough)\b")
 _TOOL_GROUPS = [
+    (_PERSONA_WORDS, ("become", "stop_being")),
     (r"\b(desk|holo ?desk|holodesk|mirror|hologram mode|mirror mode)\b", ("holo_desk",)),
     (r"\b(close|take away|remove|hide|dismiss|clear|get rid of|put away|bring back|card|cards|panels?|floating|your face)\b", ("holo", "globe", "show_public_cam")),
     (r"\b(e-?mails?|gmail|inbox|mail|unread|messages? from)\b", ("gmail", "google_account")),
@@ -3468,10 +3517,13 @@ def _pick_tools(messages, extra=()):
     want = set(_TOOL_CORE) | set(extra)
     for pat, names in _TOOL_GROUPS:
         if re.search(pat, said): want.update(names)
+    if _persona(): want.add("stop_being")                 # in character: "stop" must always be able to end it
     return [s for s in _TOOL_SCHEMAS if s["function"]["name"] in want]
 
 def _needs_tool(text: str) -> bool:
     t = text.lower().strip()
+    if re.search(_PERSONA_WORDS, t) and (re.search(r"\b(be|become|imitate|impression|impersonat\w*|talk like|speak like|sound like|act (like|as)|pretend)\b", t) or _persona()): return True
+    if _persona() and re.search(r"\b(stop|enough|normal|yourself|jarvis)\b", t): return True
     if re.search(r'\b(phone|link|unlink|continue|carry on|left off)\b', t): return True    # phone handoff
     if re.search(r'\b(holo ?desk|holodesk|mirror mode|on the desk|the desk)\b', t): return True
     if re.search(r'\b(close|take away|remove|hide|dismiss|clear|get rid of|put away|turn off|stop)\b.*\b(card|cards|panel|panels|this|that|it|them|those|everything|feeds?|globe|window|'
@@ -4311,7 +4363,7 @@ def _synth_blocking(text, voice):
     el = synth_elevenlabs(_voice_text(text, "elevenlabs")) if engine == "elevenlabs" else None
     if el: return el, "audio/mpeg"
     use_groq = engine == "orpheus" or str(voice or CONFIG.get("voice") or "").startswith("groq-")
-    nat = synth_orpheus(_voice_text(text, "orpheus"), voice) if use_groq else None      # network call: outside the Piper lock
+    nat = synth_orpheus(_voice_text(_deliver(text), "orpheus"), voice) if use_groq else None      # network call: outside the Piper lock
     if nat: return nat, ("audio/wav" if nat[:4] == b"RIFF" else "audio/mpeg")
     with _TTS_TURN:                      # the phonemiser isn't thread-safe; one voice job at a time, oldest first, so the first sentence never waits behind the third
         off = _voice_text(text, "offline")

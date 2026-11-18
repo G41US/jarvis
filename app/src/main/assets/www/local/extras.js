@@ -52,7 +52,7 @@ export function whereIs(place) {
 const NICE = { get_time: 'Time', time_until: 'Countdown', set_timer: 'Timer', set_reminder: 'Reminder', list_reminders: 'Reminders', remember: 'Remembered', recall: 'Memory',
   list_memories: 'Memories', take_note: 'Note', read_notes: 'Notes', translate: 'Translation', flip_coin: 'Coin', roll_dice: 'Dice', where_am_i: 'Location', morning_briefing: 'Briefing',
   list_preferences: 'Preferences', get_calendar: 'Calendar', system_info: 'Phone', fetch_page: 'Page' };
-const SHOW = new Set([...Object.keys(NICE), 'get_weather', 'crypto_price', 'currency_convert', 'calculate', 'wikipedia', 'news_headlines', 'search_web']);
+const SHOW = new Set(['get_weather', 'crypto_price', 'currency_convert', 'wikipedia', 'news_headlines', 'search_web', 'list_reminders', 'read_notes', 'get_calendar', 'list_memories']);   // answers worth seeing (numbers, lists, a picture); everything else is in the console under the face
 export function toolCards(name, args, result) {
   const r = String(result || '').trim(); args = args || {};
   if (!r || !SHOW.has(name) || /^(i couldn'?t|couldn'?t|tool |unknown|tell me which)/i.test(r)) return null;
@@ -65,7 +65,7 @@ export function toolCards(name, args, result) {
   if (name === 'calculate') return [{ kind: 'stat', label: String(args.expression || ''), value: r.slice(0, 18), sub: '' }];
   if (name === 'news_headlines') { const l = r.replace(/^Headlines:\s*/, '').split(/\.\s+/).filter(Boolean); return [{ kind: 'list', title: 'Headlines', rows: l.map((t, i) => ({ t: String(i + 1), title: t.replace(/\.$/, '') })) }]; }
   if (name === 'search_web') { const rows = [...r.matchAll(/^- (.*?): (.*)$/gm)].map((x, i) => ({ t: String(i + 1), title: x[1], sub: x[2].slice(0, 120) })); if (rows.length) return [{ kind: 'list', title: String(args.query || 'Search'), rows }]; }
-  if (name === 'wikipedia') return [{ kind: 'note', title: String(args.query || 'Wikipedia'), text: r.slice(0, 900), source: 'wikipedia', wiki: String(args.query || '') }];
+  if (name === 'wikipedia') return [{ kind: 'note', title: String(args.query || 'Wikipedia'), text: r.slice(0, 900), source: 'wikipedia', wiki: String(args.query || ''), pictureOnly: true }];
   return [{ kind: 'note', title: NICE[name] || name.replace(/_/g, ' '), text: r.slice(0, 700), source: '' }];
 }
 
@@ -85,13 +85,12 @@ export function registerExtras(ctx) {
       const j = await getJson('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(w.wiki.replace(/ /g, '_')), { headers: { 'User-Agent': 'Jarvis/1.0 (personal assistant)' } });
       const img = (j.originalimage || j.thumbnail || {}).source; if (j.title) w.title = j.title; if (img) cards.unshift({ title: w.title, image: img, source: 'wikipedia' });
     } catch {}
+    if (w && w.pictureOnly) { const i = cards.indexOf(w); cards.splice(i, 1); if (!cards.length) return; }   // a fact: just its picture (the words are in the console)
     turnCards++; panels(NICE[name] || name, cards);
   }
   function onReply(question, answer) {
     const had = turnCards; turnCards = 0;
-    if (had || String(answer).length < 240) return;          // short replies stay as subtitles
-    const q = String(question).replace(/^(hey |ok )?jarvis[,\s]*/i, '').trim();
-    panels(q, [{ kind: 'note', title: (q[0] || '').toUpperCase() + q.slice(1, 70), text: String(answer).slice(0, 900), source: 'jarvis' }]);
+    // a long spoken answer no longer gets a card too: the console under the face shows it in full
   }
 
   // ---- places: countries and states from the globe's own labels (centred properly), anything else from Open-Meteo's place search

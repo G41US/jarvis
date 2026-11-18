@@ -101,6 +101,7 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
     "password->generate_password, battery->system_info, open an app->open_app, URL reading->fetch_page, notes->take_note/read_notes, morning briefing->morning_briefing, " +
     "reminders->set_reminder (give `at` as local 'YYYY-MM-DDTHH:MM' worked out from the current time below, or in_minutes; they ring even when you're closed), list/cancel->list_reminders/cancel_reminder, wake-up alarm->set_alarm.\n" +
     "- YOUR VOICE AND FACE: 'switch to the female voice', 'be a woman', 'go back to the male voice'->set_voice with 'female' or 'male' (the face changes with it).\n" +
+    "- CHARACTERS AND IMPRESSIONS: 'be Ultron', 'talk like Morgan Freeman', 'do your best Yoda', 'speak like a pirate'->become (you pick their voice settings and how they talk), then stay in character until 'stop', 'be yourself' or 'back to Jarvis'->stop_being.\n" +
     "- PHONE: websites->open_website, 'show me results'->search_in_browser, YouTube->play_youtube, live cams->show_public_cam. " +
     "Calls and messages by name or number->phone_call, send_text (opens ready to send), whatsapp_message; 'read my messages'->read_notifications, 'reply to X'->reply_to_message, read new messages aloud->announce_messages. " +
     "Calendar->get_calendar / add_calendar_event. Clipboard->get_clipboard / copy_to_clipboard. Documents->create_document (pdf, docx or txt; you write the full content), list_documents, open_document (share=true to send it), delete_document. " +

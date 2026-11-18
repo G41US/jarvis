@@ -22,6 +22,8 @@ assert.equal(toolCards('news_headlines', {}, 'Headlines: One thing. Another thin
 assert.equal(toolCards('search_web', { query: 'q' }, '- Title A: snippet a\n- Title B: snippet b')[0].rows[1].title, 'Title B');
 assert.equal(toolCards('get_weather', {}, "I couldn't reach the weather service."), null);
 assert.equal(toolCards('flashlight', {}, 'Flashlight on.'), null);              // device actions get no card
+assert.equal(toolCards('get_time', {}, 'It is 7:42 PM.'), null);                 // plain answers: the console shows them, no card
+assert.equal(toolCards('remember', { fact: 'x' }, 'Got it.'), null);
 
 const t = 10_000_000;
 assert.ok(maySpeak(3, t, t - 10, 0, 2, 9));                 // urgent beats night and the daily cap

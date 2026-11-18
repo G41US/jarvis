@@ -55,6 +55,9 @@ public final class PiperTts {
     private volatile long envBase = 0;
     private volatile float speed = 1f;                                        // the user's speaking speed (1 = normal)
     public void setSpeed(float s) { speed = Math.max(0.6f, Math.min(1.6f, s)); }
+    /** A character's voice ("be Ultron"): deeper or higher without changing the speed. 1 is his own voice. */
+    private volatile float pitch = 1f;
+    public void setPitch(float p) { pitch = Math.max(0.6f, Math.min(1.6f, p)); }
 
     /** Loudness (RMS) of what the speaker is playing right now; 0 when quiet. */
     public float level() {
@@ -323,7 +326,7 @@ public final class PiperTts {
                 envLen = 0; envBase = base;
                 Sink sink = new Sink();
                 float play = audio[1].length > 1 && audio[1][1] == 1 ? speed : 1f;   // the cloud voice is sped up while playing, without going squeaky
-                try { track.setPlaybackParams(new android.media.PlaybackParams().setSpeed(play).setPitch(1f)); } catch (Exception ignored) { }
+                try { track.setPlaybackParams(new android.media.PlaybackParams().setSpeed(play).setPitch(pitch)); } catch (Exception ignored) { }
                 sink.invoke(audio[0]);
                 // wait for the speaker to finish what was written (the page waits for this "done" before listening again)
                 long deadline = System.currentTimeMillis() + 2000 + (long) (sink.written * 1000.0 / sr / Math.min(1f, play));   // slowed down plays longer
