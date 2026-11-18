@@ -415,6 +415,7 @@ W.JARVIS = {
 };
 
 // ---------------------------------------------------------------- the local "HTTP server"
+const FILLERS = ['Hmm, let me see.', 'Right, one sec.', 'Hmm, give me a moment.', 'Okay, so...', 'Let me think.'];
 const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
 async function handle(method, path, query, body, signal) {
   switch (path) {
@@ -427,8 +428,12 @@ async function handle(method, path, query, body, signal) {
         start(c) {   // read the whole reply as it's written (not as the page speaks it), so each sentence's voice is ready before its turn
           (async () => {
             try {
+              // the first words are slow (a tool, a slow line): a quick spoken "hmm" so it isn't dead air, like the PC
+              let first = it.next();
+              if (!interp.on) { const quick = await Promise.race([first.then(() => 'ok', () => 'ok'), new Promise(r => setTimeout(() => r('slow'), 1200))]);
+                if (quick === 'slow' && !gone) { const f = FILLERS[Math.floor(Math.random() * FILLERS.length)]; c.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'sentence', text: f })}\n\n`)); } }
               for (;;) {
-                const { value, done } = await it.next(); if (done || gone) break;
+                const { value, done } = await (first || it.next()); first = null; if (done || gone) break;
                 if (pre && value && value.type === 'sentence') try { bridge().ttsPrefetch(forSpeech(value.text)); } catch {}
                 c.enqueue(enc.encode(`data: ${JSON.stringify(value)}\n\n`));
               }

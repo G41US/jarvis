@@ -293,7 +293,7 @@ public class Bridge {
             synchronized (this) { if (speaking == 0) takeFocus(); speaking++; }
             Bundle p = new Bundle();
             p.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
-            int r = tts.speak(text, TextToSpeech.QUEUE_ADD, p, "u" + id);
+            int r = tts.speak(SpokenText.offline(text), TextToSpeech.QUEUE_ADD, p, "u" + id);
             if (r != TextToSpeech.SUCCESS) finished("u" + id, "error");
         } catch (Exception e) {
             Log.w(TAG, "speak", e);

@@ -116,7 +116,7 @@ public final class PiperTts {
         c.setRequestMethod("POST"); c.setDoOutput(true); c.setConnectTimeout(8000); c.setReadTimeout(20000);
         c.setRequestProperty("Content-Type", "application/json");
         JSONObject h = new JSONObject(cloudHeaders); for (java.util.Iterator<String> k = h.keys(); k.hasNext(); ) { String n = k.next(); c.setRequestProperty(n, h.getString(n)); }
-        JSONObject body = new JSONObject().put("model", "canopylabs/orpheus-v1-english").put("voice", cloudVoice).put("input", text).put("response_format", "wav");
+        JSONObject body = new JSONObject().put("model", "canopylabs/orpheus-v1-english").put("voice", cloudVoice).put("input", SpokenText.cloud(text)).put("response_format", "wav");
         try (java.io.OutputStream o = c.getOutputStream()) { o.write(body.toString().getBytes("UTF-8")); }
         int code = c.getResponseCode();
         if (code != 200) {
@@ -147,7 +147,9 @@ public final class PiperTts {
     private float[][] synthLocal(String text) throws Exception {
         if (!ensureLoaded()) throw new java.io.IOException("no voice on the phone");
         boolean kok = "kokoro".equals(loaded);
-        com.k2fsa.sherpa.onnx.GeneratedAudio a = tts.generate(text, kok ? kokoroSid : 0, kok ? speed : PC_SPEED * speed);
+        String said = SpokenText.offline(text);                                      // "Hmm", not "H-M"; no "[warm]" read out
+        if (said.isEmpty()) return new float[][]{new float[0], {24000, 0}};
+        com.k2fsa.sherpa.onnx.GeneratedAudio a = tts.generate(said, kok ? kokoroSid : 0, kok ? speed : PC_SPEED * speed);
         return new float[][]{Wav.trim(a.getSamples(), a.getSampleRate()), {a.getSampleRate(), 0}};
     }
 

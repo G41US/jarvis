@@ -111,6 +111,43 @@ fitCamera();
 """
 
 
+# How a line reads on screen: no delivery directions ("[warm]") or stage directions ("(laughs)"). Same as the PC page.
+UNSTAGE_JS = r"""window.__jvUnstage = t => String(t || "").replace(/\[[A-Za-z][A-Za-z \-]{1,28}\]\s*/g, "").replace(/[*(]\s*(laughs?|laughing|chuckles?|chuckling|giggles?|sighs?|sighing|smiles?|grins?)\s*[*)]\s*/gi, "").trim();"""
+
+# The phone speaks through Android (shim.js hands each sentence to the voice and says 'jv-saying'). Cloud speech starts a
+# moment later, so his words, lips and gestures start when the sound does: the first rise of the voice's level.
+# How long a sentence takes is learnt from the ones before (seconds per letter).
+PHONE_SPEECH_JS = r"""
+// ---- phone: when each sentence really starts (added by make_www.py)
+(function () {
+  let pending = null, cur = null, spc = 0.066;
+  try { spc = Math.min(0.12, Math.max(0.04, parseFloat(localStorage.getItem('jv-spc')) || 0.066)); } catch (e) {}
+  window.addEventListener('jv-saying', e => { pending = { text: String(e.detail || ''), at: performance.now() }; });
+  const go = now => {
+    const text = window.__jvUnstage(pending.text), dur = Math.max(0.6, text.length * spc);
+    cur = { text, at: now, n: text.length };
+    try { window.__jvBrowserLips = { tl: window.__jvLips.build(pending.text, null, dur), t0: now }; } catch (e) {}
+    try { window.dispatchEvent(new CustomEvent('jv-say', { detail: { text: pending.text, dur } })); } catch (e) {}
+    pending = null;
+  };
+  (function tick() {
+    const now = performance.now(), lvl = window.__jvMouthLevel ? window.__jvMouthLevel() : -1;
+    if (pending && (lvl > 0.04 || now - pending.at > (lvl < 0 ? 150 : 2500))) go(now);    // no level to go on: start now
+    const talking = window.speechSynthesis && window.speechSynthesis.speaking;
+    if (cur && !talking && !pending) {                                                     // it ended: learn the pace
+      const took = (now - cur.at) / 1000;
+      if (cur.n > 12 && took > 0.4) { spc = spc * 0.7 + Math.min(0.12, Math.max(0.04, took / cur.n)) * 0.3; try { localStorage.setItem('jv-spc', spc.toFixed(4)); } catch (e) {} }
+      cur = null; window.__jvBrowserLips = null;
+    }
+    requestAnimationFrame(tick);
+  })();
+  window.__jvViseme = () => {
+    const b = window.__jvBrowserLips;
+    return b && window.__jvLips ? window.__jvLips.at(b.tl, (performance.now() - b.t0) / 1000) : null;
+  };
+})();
+"""
+
 def main():
     src_html = os.path.join(SRC, 'index.html')
     assert os.path.exists(src_html), f'cannot find {src_html} - pass the PC Jarvis folder as the first argument'
@@ -267,6 +304,43 @@ def main():
     html = sub_once(html, "      else if (data.startsWith('proactive:')) {", "      else if (data.startsWith('globe:')) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }\n"
                     "      else if (data.startsWith('proactive:')) {", 'globe messages')
 
+    # ================================================================ the PC's newer face and voice, carried over
+    # The gold dot face (a real face scan), a head that moves with purpose and with his words, lips that make the shapes of
+    # the words, expressions, and the answer console. Taken from the PC page so both stay the same; phone differences below.
+    a = desk.index('// ============================================================\n// THE FACE: a real 3D face scan')
+    b = desk.index("loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);")
+    scan = desk[a:b]
+    # (the face scan and its texture decoder come from the same CDN as on the PC: no face scan offline, the old face stays)
+    scan = sub_once(scan, """      window.__jvScan = true; pendingSwapUrl = null;
+      if (avatarModel) avatarModel.visible = false;
+      particles.visible = false;                  // a clean face: no dust around it
+      faceGroup.add(S.holder);
+      window.__jvScanUpdate = (dt, t) => updateScanFace(S, dt, t);""", """      // phone: the scan is the male face; the female face and the orb stay as they were (local/faces.js)
+      window.__jvScan = true; faceGroup.add(S.holder);
+      window.__jvScanOn = on => { window.__jvScanActive = on; S.holder.visible = on; particles.visible = !on; if (avatarModel) avatarModel.visible = !on; if (on) S.fade = 0; };
+      window.__jvScanOn(!currentAvatarUrl || /kofi|adam/i.test(currentAvatarUrl));
+      window.__jvScanUpdate = (dt, t) => { if (window.__jvScanActive) updateScanFace(S, dt, t); };""", 'scan: male face only')
+    html = sub_once(html, "loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);", scan + "loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);", 'scan face')
+    html = sub_once(html, "function loadAvatar(url) {\n", "function loadAvatar(url) {\n"
+                    "  if (window.__jvScan) { const on = /kofi|adam/i.test(url); window.__jvScanOn(on);   // the male face is the face scan\n"
+                    "    if (on) { currentAvatarUrl = url; try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: 'scan' })); } catch (e) {} return; } }\n", 'scan face choice')
+    html = sub_once(html, "import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';\n",
+                    "import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';\nimport { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';\n", 'ktx2 loader')
+    html = sub_once(html, "  driveLipSync(t, speakingAmount);\n", "  driveLipSync(t, speakingAmount);\n  if (window.__jvScanUpdate) window.__jvScanUpdate(dt, t);\n", 'scan face each frame')
+    # the head turns for a reason, never on a loop: no camera drift, no fixed tilt
+    html = sub_once(html, "  camera.position.x = CAM_BASE.x + Math.sin(t*0.1)*0.08;", "  camera.position.x = CAM_BASE.x;", 'no camera drift x')
+    html = sub_once(html, "  camera.position.y = CAM_BASE.y + Math.cos(t*0.08)*0.06;", "  camera.position.y = CAM_BASE.y;", 'no camera drift y')
+    html = sub_once(html, "  const yaw = mouseNormX * 0.05 + spin.yaw, pitch = -mouseNormY * 0.03 + spin.pitch,",
+                    "  const yaw = (window.__jvScanActive ? 0 : mouseNormX * 0.05) + spin.yaw, pitch = (window.__jvScanActive ? 0 : -mouseNormY * 0.03) + spin.pitch,", 'scan: no fixed tilt')
+    a = desk.index('// look at a point on the screen for a moment')
+    b = desk.index("G.push({ kind: 'wow', at: t0, d: 0.8, a: 1 });\n});\n") + len("G.push({ kind: 'wow', at: t0, d: 0.8, a: 1 });\n});\n")
+    html = sub_once(html, "function doSwap(url) {", desk[a:b] + PHONE_SPEECH_JS + "\nfunction doSwap(url) {", 'head gestures and speech timing')
+    # lips.js (mouth shapes for the words) and the "[warm]"-free text, before the page's scripts; the console after the page
+    html = sub_once(html, '<script type="module" src="local/boot.js"></script>',
+                    '<script src="lips.js"></script>\n<script>' + UNSTAGE_JS + '</script>\n<script type="module" src="local/boot.js"></script>\n'
+                    '<script type="module" src="local/console.js"></script>', 'lips and console scripts')
+    html = sub_once(html, "function addMsg(text, who) {\n", "function addMsg(text, who) {\n  if (who === 'jarvis' || who === 'proactive') text = window.__jvUnstage(text);   // \"[warm]\" is how it's said, not what's shown\n", 'no directions on screen')
+
     # no localhost anywhere: the page must only talk to its own origin (which the app answers itself)
     os.makedirs(WWW, exist_ok=True)
     open(os.path.join(WWW, 'index.html'), 'w', encoding='utf-8').write(html)
@@ -302,6 +376,10 @@ def main():
     shutil.copyfile(os.path.join(SRC, 'nav_core.js'), os.path.join(WWW, 'nav_core.js'))
     # the globe: the PC's own module and its pictures, borders and names
     shutil.copyfile(os.path.join(DESK, 'hud_extra.js'), os.path.join(WWW, 'hud_extra.js'))
+    shutil.copyfile(os.path.join(DESK, 'lips.js'), os.path.join(WWW, 'lips.js'))
+    os.makedirs(os.path.join(WWW, 'fonts'), exist_ok=True)
+    shutil.copyfile(os.path.join(DESK, 'models', 'fonts', 'JetBrainsMono.woff2'), os.path.join(WWW, 'fonts', 'JetBrainsMono.woff2'))
+    shutil.copyfile(os.path.join(DESK, 'models', 'fonts', 'JetBrainsMono-OFL.txt'), os.path.join(WWW, 'fonts', 'JetBrainsMono-OFL.txt'))
     os.makedirs(os.path.join(WWW, 'models', 'globe'), exist_ok=True)
     for f in ('blue.jpg', 'countries.bin', 'states.bin', 'labels.json'):
         shutil.copyfile(os.path.join(DESK, 'models', 'globe', f), os.path.join(WWW, 'models', 'globe', f))
