@@ -68,7 +68,7 @@ jobs:
           mkdir -p "$W/three/build" "$W/three/examples" "$W/maplibre"
           cp node_modules/three/build/three.module.js node_modules/three/build/three.core.js "$W/three/build/" 2>/dev/null || cp node_modules/three/build/three.module.js "$W/three/build/"
           cp -r node_modules/three/examples/jsm "$W/three/examples/jsm"
-          find "$W/three/examples/jsm/libs" -type f ! -name 'meshopt_decoder.module.js' -delete
+          find "$W/three/examples/jsm/libs" -type f ! -name 'meshopt_decoder.module.js' ! -name 'ktx-parse.module.js' ! -name 'zstddec.module.js' -delete   # the face scan's texture loader needs these two
           cp node_modules/maplibre-gl/dist/maplibre-gl.js node_modules/maplibre-gl/dist/maplibre-gl.css "$W/maplibre/"
           du -sh "$W"/*
 

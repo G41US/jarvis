@@ -202,7 +202,6 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
 console.log('[JARVIS] v24 — speech-only, fast speech queue, quiet-voice friendly');
 
@@ -1002,7 +1001,10 @@ function updateScanFace(S, dt, t) {
 }
 function avatarAlphaForScan() { return window.__jvFaceOff ? 0 : 1; }
 window.__jvScanUpdate = null;
-(function loadScanFace() {
+(async function loadScanFace() {
+  let KTX2Loader;
+  try { ({ KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js')); }
+  catch (e) { console.warn('[FACE] texture loader unavailable; keeping the avatar', e); return; }
   const ktx = new KTX2Loader().setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/basis/').detectSupport(renderer);
   new GLTFLoader().setKTX2Loader(ktx).setMeshoptDecoder(MeshoptDecoder).load(SCAN_URL, gltf => {
     try {

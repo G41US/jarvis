@@ -311,6 +311,9 @@ def main():
     b = desk.index("loadAvatar((window.__jvFaceFor && window.__jvFaceFor(null)) || AVATAR_FEMALE);")
     scan = desk[a:b]
     # (the face scan and its texture decoder come from the same CDN as on the PC: no face scan offline, the old face stays)
+    scan = sub_once(scan, "(function loadScanFace() {\n  const ktx = new KTX2Loader()",
+                    "(async function loadScanFace() {\n  let KTX2Loader;\n  try { ({ KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js')); }\n"
+                    "  catch (e) { console.warn('[FACE] texture loader unavailable; keeping the avatar', e); return; }\n  const ktx = new KTX2Loader()", 'scan: loader on demand')
     scan = sub_once(scan, """      window.__jvScan = true; pendingSwapUrl = null;
       if (avatarModel) avatarModel.visible = false;
       particles.visible = false;                  // a clean face: no dust around it
@@ -324,8 +327,8 @@ def main():
     html = sub_once(html, "function loadAvatar(url) {\n", "function loadAvatar(url) {\n"
                     "  if (window.__jvScan) { const on = /kofi|adam/i.test(url); window.__jvScanOn(on);   // the male face is the face scan\n"
                     "    if (on) { currentAvatarUrl = url; try { window.dispatchEvent(new CustomEvent('jv-avatar-ready', { detail: 'scan' })); } catch (e) {} return; } }\n", 'scan face choice')
-    html = sub_once(html, "import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';\n",
-                    "import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';\nimport { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';\n", 'ktx2 loader')
+    # the texture loader is loaded only when it's needed: if it can't load, the page still runs and the old face stays
+    # (a fixed import that fails stops the whole page: a blank screen)
     html = sub_once(html, "  driveLipSync(t, speakingAmount);\n", "  driveLipSync(t, speakingAmount);\n  if (window.__jvScanUpdate) window.__jvScanUpdate(dt, t);\n", 'scan face each frame')
     # the head turns for a reason, never on a loop: no camera drift, no fixed tilt
     html = sub_once(html, "  camera.position.x = CAM_BASE.x + Math.sin(t*0.1)*0.08;", "  camera.position.x = CAM_BASE.x;", 'no camera drift x')
