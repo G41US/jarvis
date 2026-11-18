@@ -28,7 +28,7 @@ import { createRouter } from './router.js';
 import { matchIntent, normalise as normaliseCmd } from './intents.js';
 import { createInterpreter } from './interpreter.js';
 import { describeVoices, pickVoice, fallbackPitch } from './voices.js';
-import { createPersona } from './persona.js';
+import { createPersona, EXIT } from './persona.js';
 
 const W = window; W.JARVIS_NATIVE = true;
 const bridge = () => W.AndroidBridge || null;
@@ -239,7 +239,9 @@ if (has('ttsSpeak')) {
 const NAV_UA = 'JarvisNavigation/1.0 (personal use; jarvis-android)';
 const httpJson = makeHttp({ userAgent: NAV_UA, language: 'en', timeoutMs: 12000, log });
 const reg = new Registry();
-persona = createPersona({ reg, cfgStore, builtKey: BUILD.fishKey || '', onChange: () => { try { applyVoice(); if (brain) brain.refreshPrompt(); } catch {} } });
+persona = createPersona({ reg, cfgStore, builtKey: BUILD.fishKey || '', onChange: p => { try { applyVoice(); if (brain) brain.refreshPrompt(); } catch {}
+  try { W.dispatchEvent(new CustomEvent('jv-persona', { detail: p ? p.who : '' })); } catch {} } });   // the "Ultron ×" chip (console.js)
+W.__jvPersona = { who: () => (persona.get() || {}).who || '', stop: async () => { if (persona.get()) { await reg.run('stop_being', {}); broadcast('proactive:Back to my own voice.'); } } };
 /** What the voice is given for a line: readable out loud, and in the character's delivery when he's playing one. */
 function spoken(text) { return forSpeech(text); }
 const navigator_ = new Navigator({ language: cfgStore.get('nav_language', 'en-US'), units: cfgStore.get('units', 'auto') }, httpJson);
@@ -273,7 +275,7 @@ const SWITCHABLE = { flashlight: a => ({ state: a }), do_not_disturb: a => ({ on
 let lastSwitch = null;
 const PRONOUN = /^(?:(?:turn|switch|put|shut|flip)\s+(?:it|that|this|them)\s+(?:back\s+)?(on|off)|(?:turn|switch|shut)\s+(?:back\s+)?(on|off)(?:\s+(?:it|that|this))?|(?:back\s+)?(on|off)(?:\s+again)?|(?:kill|shut)\s+it(?:\s+off)?|turn\s+it\s+back)$/;
 // One-word commands the page would otherwise drop as too short to be meant ("delivered", "undo", "off")
-W.__jvShortOk = t => /^\s*(delivered|undo|picked|pickup|done|off|on|stop|pause|resume|next|skip|louder|quieter|mute|unmute|flashlight|torch|torchlight|yes|no|yeah|yep|nope|cancel|back|home)\W*$/i.test(String(t || ''));
+W.__jvShortOk = t => /^\s*(delivered|undo|picked|pickup|done|off|on|stop|enough|pause|resume|next|skip|louder|quieter|mute|unmute|flashlight|torch|torchlight|yes|no|yeah|yep|nope|cancel|back|home)\W*$/i.test(String(t || ''));
 const instant = async text => {                                   // instant commands: no trip to the AI
   if (W.__jvInstantOff) return null;
   let m = matchIntent(text, n => reg.has(n));
@@ -430,7 +432,8 @@ async function handle(method, path, query, body, signal) {
     case '/chat_stream': {
       const ctl = new AbortController(); if (signal) signal.addEventListener('abort', () => ctl.abort());
       const enc = new TextEncoder(), said = String((body && body.text) || '');
-      const keyNote = !interp.on && persona ? persona.takeKey(said) : null;   // "my fish key is ...": saved, never sent to the AI
+      let keyNote = !interp.on && persona ? persona.takeKey(said) : null;   // "my fish key is ...": saved, never sent to the AI
+      if (!keyNote && !interp.on && persona && persona.get() && EXIT.test(said.trim())) { await reg.run('stop_being', {}); keyNote = 'Back to my own voice.'; log('[PERSONA] back to Jarvis', said); }
       const it = (keyNote ? (async function* () { yield { type: 'sentence', text: keyNote }; yield { type: 'done' }; })()
         : interp.on ? interp.respond(said, lastHeardLang) : brain.chat(said, ctl.signal))[Symbol.asyncIterator]();
       const pre = !interp.on && has('ttsPrefetch'); let gone = false;

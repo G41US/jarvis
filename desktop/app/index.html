@@ -1517,7 +1517,7 @@ async function handleServerTranscript(raw) {
   } else if (now - lastCommandTime < COMMAND_COOLDOWN_MS) { showDebug(text + ' cooldown', 'rejected'); return; }
   const words = cleanPunct(text).split(' ').filter(Boolean);
   const answering = performance.now() - lastAskAt < 20000;      // he just asked something: "Lagos." is an answer
-  if (words.length < (answering ? 1 : MIN_WORDS)) { showDebug(`"${text}" too short`, 'rejected'); return; }
+  if (words.length < (answering || ONE_WORD.test(cleanPunct(text)) ? 1 : MIN_WORDS)) { showDebug(`"${text}" too short`, 'rejected'); return; }
   const ec = !speaking && !cutIn ? isEcho(text) : { echo: false };
   if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
   if (sessionActive) {
@@ -1715,7 +1715,7 @@ function connectWS() {
       else if (data.startsWith('callstart:')) { window.__jvInCall = true; addMsg('Answering a WhatsApp call for you.', 'sys'); }
       else if (data.startsWith('callsay:')) { Promise.resolve(muted ? null : speakUnprompted(data.slice(8))).finally(() => fetch('/call/said', { method: 'POST' }).catch(() => {})); }
       else if (data.startsWith('callend:')) { window.__jvInCall = false; }
-      else if (/^(globe|plan|recap|gesture|panels|holo|feeds|music|desk|xray):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
+      else if (/^(globe|plan|recap|gesture|panels|holo|feeds|music|desk|xray|persona):/.test(data)) { if (window.__jvExtra) window.__jvExtra(data); else (window.__jvExtraQ = window.__jvExtraQ || []).push(data); }
       else if (data.startsWith('nav:')) { try { navMessage(JSON.parse(data.slice(4))); } catch (e) { console.warn('[NAV]', e); } }
       else if (data.startsWith('look_request:')) { handleLookRequest(data.slice(13)); }
       else if (data.startsWith('identify_request:')) { handleIdentifyRequest(data.slice(17)); }
@@ -1744,6 +1744,7 @@ const LOOSE_WAKE = ['travis','jarvus','harvis','garvis','jarvice','jarves'];   /
 const HEY_WORDS = ['hey','hi','ok','okay','hay'];
 const END_PHRASES = ['thank you','thanks jarvis','thank you jarvis','goodbye jarvis','good bye jarvis','bye jarvis',"that's all","that's it",'we are done',"we're done",'stop listening'];
 const MIN_CONFIDENCE = 0.15, MIN_WORDS = 2;
+const ONE_WORD = /^(stop|enough|pause|resume|next|skip|previous|quiet|cancel)$/;   // one word, but a whole command ("stop" ends a character too)
 const COMMAND_COOLDOWN_MS = 900, SESSION_SILENCE_MS = 35000;
 const BARGE = /\b(next|stop|pause|skip|previous|close|cancel|enough|quiet)\b/;
 let lastAskAt = 0;

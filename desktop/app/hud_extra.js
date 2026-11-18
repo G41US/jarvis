@@ -1457,6 +1457,7 @@ const music = (() => {
     #pc-music.slim .vid { height: 0; }
     #pc-music .vid .yt, #pc-music .vid .yt > *, #pc-music .vid .sp { display: block; width: 356px; height: 200px; border: 0; }
     #pc-music .vid .sp { display: none; height: 152px; } #pc-music .vid .sp iframe { display: block; width: 100%; height: 152px; border: 0; }
+    #pc-music.spotify.sdk .vid { height: 0; }
     #pc-music.spotify .vid { height: 152px; } #pc-music.spotify .vid .yt { display: none; } #pc-music.spotify .vid .sp { display: block; }
     #pc-music.spotify.slim .vid { height: 0; }
     #pc-music .row { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 8px 0 14px; }
@@ -1481,7 +1482,10 @@ const music = (() => {
   let src = 'yt', sp = null, spWant = '', spLast = { pos: 0, dur: 0 };     // src: whose player this queue plays in (YouTube or Spotify)
   const post = body => fetch('/music/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
   const report = (error = '') => { const t = queue[at] || {}; post({ title: t.title || '', artist: t.artist || '', playing, error }); };
-  const level = () => player && player.setVolume && player.setVolume(ducked ? Math.round(vol * 0.15) : vol);
+  const level = () => {
+    if (player && player.setVolume) player.setVolume(ducked ? Math.round(vol * 0.15) : vol);
+    if (sdk) sdk.setVolume((ducked ? vol * 0.15 : vol) / 100).catch(() => {});      // Jarvis's Spotify player too: quieter while he talks
+  };
   duckers.add(level);
   const okId = id => /^[\w-]{11}$/.test(id || '');          // only a YouTube video id ever goes into the address
   const okSp = u => /^spotify:track:[A-Za-z0-9]{22}$/.test(u || '');
@@ -1502,7 +1506,60 @@ const music = (() => {
     at = (i + queue.length) % queue.length; k = 0; altAsked = false; load();
   }
 
-  // ---- Spotify's own player (Premium users signed in to Spotify in Jarvis's window hear whole songs; others get 30 s previews) ----
+  // ---- Jarvis as a Spotify speaker (Web Playback SDK): once signed in through Jarvis ("connect Spotify"), whole songs play right
+  //      here, no other window. Not signed in that way (or the player won't start): Spotify's small embedded player below. ----
+  let sdk = null, sdkDev = '', sdkWait = null, sdkUri = '', sdkLast = { pos: 0, dur: 0 };
+  const sdkToken = async () => { try { return (await (await fetch('/spotify/token')).json()).token || ''; } catch (e) { return ''; } };
+  function sdkStart() {
+    if (sdk && sdkDev) return Promise.resolve(true);
+    return sdkWait || (sdkWait = (async () => {
+      if (!(await sdkToken())) { sdkWait = null; return false; }            // not signed in through Jarvis: ask again next time
+      await new Promise(res => {
+        if (window.Spotify && window.Spotify.Player) return res();
+        window.onSpotifyWebPlaybackSDKReady = res;
+        document.head.appendChild(Object.assign(el('script'), { src: 'https://sdk.scdn.co/spotify-player.js', async: true }));
+      });
+      const pl = new window.Spotify.Player({ name: 'Jarvis', getOAuthToken: cb => { sdkToken().then(cb); }, volume: vol / 100 });
+      const ok = await new Promise(res => {
+        pl.addListener('ready', e => { sdkDev = e.device_id; res(true); });
+        pl.addListener('not_ready', () => { sdkDev = ''; });
+        for (const ev of ['initialization_error', 'authentication_error', 'account_error', 'playback_error'])
+          pl.addListener(ev, e => { console.warn('[SPOTIFY]', ev, e && e.message); post({ sdk_error: `${ev}: ${(e && e.message) || ''}` }); res(false); });
+        pl.connect().then(c => { if (!c) res(false); });
+        setTimeout(() => res(false), 15000);
+      });
+      if (!ok) { try { pl.disconnect(); } catch (e) {} return false; }                // stays off for this run: the embedded player it is
+      sdk = pl; level();
+      pl.addListener('player_state_changed', st => {
+        if (!st || src !== 'sp' || !sdkUri) return;
+        const cur = st.track_window && st.track_window.current_track, pos = st.position || 0, dur = st.duration || 0;
+        const nearEnd = sdkLast.dur > 0 && sdkLast.pos > sdkLast.dur - 3000;
+        if (nearEnd && ((st.paused && pos < 1500) || (cur && cur.uri !== sdkUri))) { sdkUri = ''; sdkLast = { pos: 0, dur: 0 }; go(at + 1); return; }   // the song ended
+        if (cur && cur.uri === sdkUri) sdkLast = { pos, dur };
+        const p = !st.paused && !st.loading; if (p) dead = 0;
+        if (p !== playing) { playing = p; paint(); report(); }
+      });
+      setInterval(() => {               // where the song is, so its end is noticed
+        if (sdk && playing && src === 'sp' && sdkUri) sdk.getCurrentState().then(st => {
+          const cur = st && st.track_window && st.track_window.current_track;
+          if (cur && cur.uri === sdkUri) sdkLast = { pos: st.position, dur: st.duration };
+        }).catch(() => {});
+      }, 1000);
+      return true;
+    })());
+  }
+  async function sdkPlay(uri) {
+    const put = async () => fetch(`https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(sdkDev)}`, { method: 'PUT',
+      headers: { Authorization: 'Bearer ' + (await sdkToken()), 'Content-Type': 'application/json' }, body: JSON.stringify({ uris: [uri] }) });
+    sdkUri = uri; sdkLast = { pos: 0, dur: 0 };
+    try { if (sdk.activateElement) await sdk.activateElement(); } catch (e) {}
+    let r = await put();
+    if (r.status === 404 || r.status === 502) { await new Promise(x => setTimeout(x, 1200)); r = await put(); }   // the speaker was only just announced
+    if (!r.ok) { console.warn('[SPOTIFY] play', r.status); post({ sdk_error: 'play ' + r.status }); sdkUri = ''; return false; }
+    return true;
+  }
+
+  // ---- Spotify's own small player (Premium users signed in to Spotify in Jarvis's window hear whole songs; others get 30 s previews) ----
   let spReady = null;
   const loadSpApi = () => spReady || (spReady = new Promise(res => {
     window.onSpotifyIframeApiReady = api => res(api);
@@ -1516,6 +1573,12 @@ const music = (() => {
       if (!okSp(t.sp)) { if (++dead < 4) go(at + 1); return; }
     }
     spWant = t.sp; spLast = { pos: 0, dur: 0 };
+    if (await sdkStart()) {               // Jarvis's own Spotify speaker
+      if (queue[at] !== t || spWant !== t.sp) return;
+      card.classList.add('sdk');
+      if (await sdkPlay(t.sp)) return;
+    }
+    card.classList.remove('sdk');
     if (sp) {
       sp.loadUri(t.sp);
       setTimeout(() => { if (spWant === t.sp && !playing) sp.play(); }, 1500);     // in case the new song's 'ready' doesn't come
@@ -1573,7 +1636,7 @@ const music = (() => {
   }
   async function play(list, from) {
     if (src === 'yt' && from === 'sp') { try { player && player.stopVideo(); } catch (e) {} }
-    if (src === 'sp' && from !== 'sp') { spWant = ''; try { sp && sp.pause(); } catch (e) {} }
+    if (src === 'sp' && from !== 'sp') { spWant = ''; sdkUri = ''; try { sp && sp.pause(); } catch (e) {} try { sdk && sdk.pause(); } catch (e) {} }
     src = from === 'sp' ? 'sp' : 'yt';
     queue = list.filter(usable); at = 0; k = 0; dead = 0; altAsked = false;
     if (!queue.length) return;
@@ -1602,11 +1665,17 @@ const music = (() => {
     playing = false; report(error); queue = []; card.classList.remove('show');
     try { player && player.stopVideo(); } catch (e) {}
     spWant = ''; try { sp && sp.pause(); } catch (e) {}
+    sdkUri = ''; try { sdk && sdk.pause(); } catch (e) {}
     setTimeout(() => { if (!card.classList.contains('show')) card.classList.remove('on'); }, 400);
   }
   function cmd(c) {
     if (!queue.length || (src === 'yt' && !player)) return;
     if (c === 'next') { go(at + 1); return; } if (c === 'previous') { go(at - 1); return; } if (c === 'stop') { stop(); return; }
+    if (src === 'sp' && sdk && card.classList.contains('sdk')) {      // Jarvis's own Spotify speaker
+      if (c === 'pause') sdk.pause(); else if (c === 'resume') sdk.resume(); else if (c === 'toggle') sdk.togglePlay();
+      else if (c === 'louder' || c === 'quieter') { vol = Math.max(10, Math.min(100, vol + (c === 'louder' ? 15 : -15))); level(); }
+      return;
+    }
     if (src === 'sp') {               // Spotify's player has no volume control: louder/quieter go to the PC's volume (the server does that)
       if (!sp) return;
       if (c === 'pause') sp.pause(); else if (c === 'resume') sp.resume(); else if (c === 'toggle') sp.togglePlay();
@@ -1954,6 +2023,30 @@ async function xrayMsg(msg) {
   else if (msg.cmd === 'set') x.set(msg.opt || {});
   else if (msg.cmd === 'watch') x.watch(!!msg.on);
 }
+// ============================================================
+// CHARACTER CHIP: "Ultron ×" at the top while he's playing someone ("be Ultron"); tap it to have Jarvis back in his own voice
+// ============================================================
+const personaChip = (() => {
+  document.head.appendChild(el('style', null, `
+    #pc-persona { position: fixed; top: 18px; left: 50%; transform: translate(-50%, -8px); z-index: 40; display: flex; align-items: center; gap: 8px;
+      padding: 7px 8px 7px 14px; border-radius: 999px; border: 0; background: rgba(12, 16, 22, .62); color: #f2f5f8; backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px); font: 600 13px/1 system-ui, -apple-system, 'Segoe UI', sans-serif; letter-spacing: .2px; text-transform: none; cursor: pointer; max-width: 40vw;
+      opacity: 0; pointer-events: none; transition: opacity .25s ease, transform .25s ease; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+    #pc-persona.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+    #pc-persona .dot { width: 7px; height: 7px; border-radius: 50%; background: #ff6b5f; box-shadow: 0 0 8px #ff6b5f; }
+    #pc-persona .who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    #pc-persona .x { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,.14); }
+    #pc-persona:hover .x, #pc-persona:focus-visible .x { background: rgba(255,255,255,.26); }
+    #pc-persona:focus-visible { outline: 2px solid #8ec5ff; outline-offset: 2px; }`));
+  const chip = el('button'); chip.id = 'pc-persona'; chip.type = 'button';
+  chip.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="who"></span><span class="x" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg></span>';
+  document.body.appendChild(chip);
+  const set = who => { chip.querySelector('.who').textContent = who || ''; chip.classList.toggle('on', !!who); chip.setAttribute('aria-label', who ? `Playing ${who}. Tap to switch back to Jarvis` : ''); chip.tabIndex = who ? 0 : -1; };
+  chip.addEventListener('click', () => { set(''); fetch('/persona/stop', { method: 'POST' }).catch(() => {}); });
+  fetch('/persona').then(r => r.json()).then(p => set(p.who)).catch(() => {});
+  return { set };
+})();
+
 window.__jvExtra = data => {
   const i = data.indexOf(':'), kind = data.slice(0, i); let msg = {};
   try { msg = JSON.parse(data.slice(i + 1)); } catch (e) { return; }
@@ -1968,6 +2061,7 @@ window.__jvExtra = data => {
   }
   else if (kind === 'feeds') msg.cmd === 'close' ? feeds.close() : feeds.show(msg);
   else if (kind === 'music') music.msg(msg);
+  else if (kind === 'persona') personaChip.set(msg.who);
   else if (kind === 'desk') { if (msg.cmd === 'close') desk.hide(); else if (msg.cmd === 'clear') desk.clearAll(); else desk.show(msg.panel); }
   else if (kind === 'xray') xrayMsg(msg);
   else if (kind === 'holo') {

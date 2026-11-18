@@ -142,3 +142,26 @@ function start(card) {
 }
 
 (function wait() { const card = document.getElementById('jv-card'); if (card) start(card); else setTimeout(wait, 300); })();
+
+// ---- the character chip: "Ultron ×" in the top row while he's playing someone ("be Ultron"); tap it for Jarvis's own voice back
+(function chip() {
+  const top = document.getElementById('jv-top'); if (!top) { setTimeout(chip, 300); return; }
+  const st = document.createElement('style');
+  st.textContent = `
+#jv-persona { pointer-events: auto; display: none; align-items: center; gap: 8px; height: 40px; padding: 0 6px 0 14px; border-radius: 999px; min-width: 0; flex: 0 1 auto;
+  max-width: 54vw; text-transform: none; letter-spacing: 0; background: var(--glass, rgba(24, 18, 10, .62)); border: 1px solid rgba(255, 107, 95, .45); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  font: 600 15px/1 'Saira', system-ui, sans-serif; font-stretch: 88%; color: var(--ice, #fff6e8); -webkit-tap-highlight-color: transparent; }
+#jv-persona.on { display: inline-flex; animation: jvIn .35s cubic-bezier(.2, .8, .2, 1); }
+#jv-persona .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #ff6b5f; box-shadow: 0 0 8px #ff6b5f; }
+#jv-persona .who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#jv-persona .x { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: rgba(255, 255, 255, .12); }
+#jv-persona:active .x { background: rgba(255, 255, 255, .28); }`;
+  document.head.append(st);
+  const b = document.createElement('button'); b.id = 'jv-persona'; b.type = 'button';
+  b.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="who"></span><span class="x" aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg></span>';
+  const sp = top.querySelector('.jv-sp'); top.insertBefore(b, sp || null);
+  const set = who => { b.querySelector('.who').textContent = who || ''; b.classList.toggle('on', !!who); b.setAttribute('aria-label', who ? `Playing ${who}. Tap to switch back to Jarvis` : ''); };
+  b.addEventListener('click', () => { set(''); if (window.__jvPersona) window.__jvPersona.stop(); });
+  window.addEventListener('jv-persona', e => set(e.detail));
+  if (window.__jvPersona) set(window.__jvPersona.who());
+})();
