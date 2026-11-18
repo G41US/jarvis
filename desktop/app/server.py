@@ -1161,6 +1161,9 @@ def build_system_prompt():
         "- Streaming: 'prepare my stream' / 'set up scenes' / 'we need designs for the stream'->stream_studio (it designs every overlay and builds the OBS scenes); "
         "switching scenes, going live, recording, adding the camera or game->obs; alerts, the wanted-stars goal, the radio, countdown, a new look->overlay. "
         "Telling Discord or Telegram->announce: write the message in his style, read it to him, send only after he says yes. Going live: ask first.\n"
+        "- Anything on his PC that no other tool does (an app's menus, a form, Settings, a website he's logged into)->use_computer with the task "
+        "in plain words; it works in the background and reports back. When it asks before a step that can't be undone and he says yes->use_computer "
+        "action continue, confirmed true; 'stop'->use_computer stop. 'start with Windows' / 'don't start when I log in'->start_with_computer.\n"
         "- You may call multiple tools in one turn when needed.\n"
         "- NEVER mention your voice or reference any voice by name.\n"
         "- Do NOT volunteer weather, time, or other ambient info unless the user asks.\n\n"
@@ -4370,6 +4373,9 @@ except Exception as e: print(f"[FEATURES] not loaded: {type(e).__name__}: {e}")
 try:                                             # his inner life: senses, thoughts, moods, curiosity, journal (mind.py)
     import mind; mind.install(globals())
 except Exception as e: print(f"[MIND] not loaded: {type(e).__name__}: {e}")
+try:                                             # driving the PC by looking at the screen, and what the floating head needs (pc_control.py)
+    import pc_control; pc_control.install(globals())
+except Exception as e: print(f"[PC] not loaded: {type(e).__name__}: {e}")
 try:                                             # streaming studio: OBS, overlays he designs, Discord and Telegram (studio.py)
     import studio; studio.install(globals())
 except Exception as e: print(f"[STUDIO] not loaded: {type(e).__name__}: {e}")

@@ -342,10 +342,10 @@ def install(ns):
           "Set up a whole live stream in one go: Jarvis designs the overlays (starting soon with countdown, gameplay frame with a "
           "wanted-stars goal, alerts and a radio, be right back, ending) and builds the scenes in OBS. Use for 'prepare my stream', "
           "'set up the stream', 'make scenes for the stream', 'we need designs for the stream'.",
-          {"title": {"type": "string", "description": "The big title, e.g. 'DEXTER x GTA 6'"},
+          {"title": {"type": "string", "description": "The big title, e.g. 'JARVIS x GTA 6'"},
            "subtitle": {"type": "string", "description": "e.g. 'MARATHON STREAM'"},
            "theme": {"type": "string", "description": "Look and colours in his words: vice city / neon / gold / red / ice"},
-           "socials": {"type": "string", "description": "Handles to show, comma separated, e.g. 'twitch.tv/dexter, @dexter on TikTok'"},
+           "socials": {"type": "string", "description": "Handles to show, comma separated, e.g. 'twitch.tv/yourname, @yourname on TikTok'"},
            "countdown_minutes": {"type": "integer", "description": "Starting-soon countdown length, default 5"},
            "goal_label": {"type": "string", "description": "e.g. 'SUB GOAL'"},
            "goal_target": {"type": "integer", "description": "How many stars/subs the goal needs, default 5"},

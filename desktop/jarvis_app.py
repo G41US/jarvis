@@ -1,6 +1,8 @@
 """Jarvis desktop app: what Jarvis.exe (Windows) and Jarvis.app (Mac) run.
 
-Starts the Jarvis server, the "Hey Jarvis" listener and a Jarvis window, then quits when that window is closed.
+Starts the Jarvis server, the "Hey Jarvis" listener, a Jarvis window and his floating head. Closing the window (Windows) doesn't stop
+him: he keeps listening in the background and the floating head stays on screen; "Quit Jarvis" on the head's right-click menu stops him.
+"--background" (how he starts with the computer) starts him straight into the floating head.
 Everything the user owns (memory, their key in .env, downloaded voices, settings) lives in a per-user folder:
   Windows  %APPDATA%\\Jarvis          Mac  ~/Library/Application Support/Jarvis
 Run from source for testing:  python desktop/jarvis_app.py
@@ -64,8 +66,36 @@ def find_browser():
     return next((p for p in paths if p and os.path.isfile(p)), None)
 
 
-def open_window(home):
-    """Returns the window's process when we own it (closing it quits Jarvis), else None (opened in the normal browser)."""
+WIN = sys.platform == "win32"
+
+def _find_hwnd():
+    """The Jarvis window (a Chrome/Edge app window titled after the page), or 0."""
+    if not WIN: return 0
+    import ctypes; u = ctypes.windll.user32
+    return u.FindWindowW("Chrome_WidgetWin_1", "JARVIS") or u.FindWindowW(None, "JARVIS")
+
+def _hide_when_up(timeout=25):
+    """A background start: the page runs (so he can hear and talk) but its window stays minimised; the floating head shows instead."""
+    import ctypes; u = ctypes.windll.user32
+    end = time.time() + timeout
+    while time.time() < end:
+        h = _find_hwnd()
+        if h: u.ShowWindow(h, 7); return          # SW_SHOWMINNOACTIVE: minimised, without taking the focus
+        time.sleep(0.2)
+
+def restore_window_win():
+    """Bring the (minimised or off-screen) Jarvis window back, maximised and in front. False when there's no window."""
+    h = _find_hwnd()
+    if not h: return False
+    import ctypes; u = ctypes.windll.user32
+    u.ShowWindow(h, 9)                                          # SW_RESTORE
+    u.SetWindowPos(h, 0, 80, 60, 1280, 800, 0x0040 | 0x0004)    # onto the screen (it may have been parked off it)
+    u.ShowWindow(h, 3)                                          # SW_MAXIMIZE
+    u.keybd_event(0x12, 0, 0, 0); u.SetForegroundWindow(h); u.keybd_event(0x12, 0, 2, 0)   # Windows only lets the active app take the front: a tap of Alt counts
+    return True
+
+def open_window(home, hidden=False):
+    """Returns the window's process when we own it, else None (opened in the normal browser)."""
     if os.environ.get("JARVIS_NO_WINDOW"): return None   # headless: the build check, or a home server
     splash = os.path.join(home, "starting.html")
     with open(splash, "w", encoding="utf-8") as f: f.write(SPLASH)
@@ -75,8 +105,84 @@ def open_window(home):
         webbrowser.open(start); return None
     # the music player's plan B opens YouTube Music in a window of this same browser (and profile, so sound is allowed there too)
     os.environ["JARVIS_BROWSER"], os.environ["JARVIS_BROWSER_PROFILE"] = exe, os.path.join(home, "browser")
-    return subprocess.Popen([exe, f"--app={start}", f"--user-data-dir={os.path.join(home, 'browser')}", "--autoplay-policy=no-user-gesture-required",
-                             "--start-maximized", "--no-first-run", "--no-default-browser-check"])
+    # he must keep hearing and talking while minimised: no throttling of a page that's in the background or covered up
+    args = [exe, f"--app={start}", f"--user-data-dir={os.path.join(home, 'browser')}", "--autoplay-policy=no-user-gesture-required",
+            "--no-first-run", "--no-default-browser-check", "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows"]
+    args += ["--window-position=-32000,-32000", "--window-size=1280,800"] if hidden and WIN else ["--start-maximized"]
+    proc = subprocess.Popen(args)
+    if hidden and WIN: threading.Thread(target=_hide_when_up, daemon=True).start()
+    return proc
+
+
+def start_head(home):
+    """The floating head: its own little process, so a hiccup in it never touches Jarvis."""
+    cmd = [sys.executable, "--head"] if FROZEN else [sys.executable, os.path.abspath(__file__), "--head"]
+    try:
+        log = open(os.path.join(home, "head.log"), "a", encoding="utf-8")
+        return subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception as e:
+        print(f"[APP] floating head failed: {e}"); return None
+
+
+# ---------------- starting with the computer ----------------
+RUN_KEY, RUN_NAME = r"Software\Microsoft\Windows\CurrentVersion\Run", "Jarvis"
+MAC_AGENT = os.path.expanduser("~/Library/LaunchAgents/com.ghost.jarvis.plist")
+LINUX_AUTOSTART = os.path.expanduser("~/.config/autostart/jarvis.desktop")
+
+def launch_cmd():
+    if FROZEN: return [sys.executable, "--background"]
+    py = sys.executable
+    if WIN and os.path.exists(py.replace("python.exe", "pythonw.exe")): py = py.replace("python.exe", "pythonw.exe")   # no console window
+    return [py, os.path.abspath(__file__), "--background"]
+
+def startup_on():
+    try:
+        if WIN:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k: winreg.QueryValueEx(k, RUN_NAME); return True
+        return os.path.exists(MAC_AGENT if sys.platform == "darwin" else LINUX_AUTOSTART)
+    except OSError: return False
+
+def set_startup(on):
+    cmd = launch_cmd()
+    try:
+        if WIN:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+                if on: winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ, subprocess.list2cmdline(cmd))
+                else:
+                    try: winreg.DeleteValue(k, RUN_NAME)
+                    except FileNotFoundError: pass
+        elif sys.platform == "darwin":
+            if on:
+                os.makedirs(os.path.dirname(MAC_AGENT), exist_ok=True)
+                items = "".join(f"<string>{a}</string>" for a in cmd)
+                with open(MAC_AGENT, "w", encoding="utf-8") as f:
+                    f.write('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>com.ghost.jarvis</string>'
+                            f'<key>ProgramArguments</key><array>{items}</array><key>RunAtLoad</key><true/></dict></plist>\n')
+            elif os.path.exists(MAC_AGENT): os.remove(MAC_AGENT)
+        else:
+            if on:
+                os.makedirs(os.path.dirname(LINUX_AUTOSTART), exist_ok=True)
+                with open(LINUX_AUTOSTART, "w", encoding="utf-8") as f:
+                    f.write(f"[Desktop Entry]\nType=Application\nName=Jarvis\nExec={subprocess.list2cmdline(cmd)}\nX-GNOME-Autostart-enabled=true\n")
+            elif os.path.exists(LINUX_AUTOSTART): os.remove(LINUX_AUTOSTART)
+        print(f"[APP] start with the computer: {'on' if on else 'off'}")
+    except Exception as e: print(f"[APP] couldn't change starting with the computer: {e}")
+
+def first_run_startup(home):
+    """The installed app starts with the computer unless he's turned that off (remembered in config.json)."""
+    import json
+    p = os.path.join(home, "config.json")
+    try: cfg = json.load(open(p, encoding="utf-8"))
+    except Exception: cfg = {}
+    if "start_with_pc" in cfg or not FROZEN: return
+    set_startup(True); cfg["start_with_pc"] = True
+    try:
+        with open(p, "w", encoding="utf-8") as f: json.dump(cfg, f, indent=2)
+    except OSError: pass
 
 
 def start_wake(home):
@@ -182,6 +288,23 @@ open "{app_path}"
         return {"ok": True}
 
 
+def add_app_routes(app, restore, quit_all):
+    """For the floating head: bring the window back, quit, and the start-with-the-computer switch."""
+    @app.post("/app/open_window")
+    def app_open_window(): restore(); return {"ok": True}
+
+    @app.post("/app/quit")
+    def app_quit():
+        threading.Timer(0.3, quit_all).start(); return {"ok": True}
+
+    @app.get("/app/startup")
+    def app_startup_get(): return {"on": startup_on()}
+
+    @app.post("/app/startup")
+    def app_startup_set(payload: dict):
+        set_startup(bool(payload.get("on"))); return {"on": startup_on()}
+
+
 def main():
     import multiprocessing; multiprocessing.freeze_support()   # libraries that spawn workers need this inside an exe
     home = data_dir(); os.makedirs(home, exist_ok=True)
@@ -193,32 +316,58 @@ def main():
 
     if "--wake" in sys.argv:
         import wake; wake.main(); return
+    if "--head" in sys.argv:
+        import mini_head; mini_head.main(); return
 
     lock = socket.socket()
-    try: lock.bind(("127.0.0.1", PORT + 1))   # held while this copy runs: opening Jarvis again only brings up a window
+    try: lock.bind(("127.0.0.1", PORT + 1))   # held while this copy runs: opening Jarvis again brings his window back
     except OSError:
-        open_window(home); return
+        try:
+            import urllib.request
+            urllib.request.build_opener(urllib.request.ProxyHandler({})).open(
+                urllib.request.Request(URL + "/app/open_window", data=b"{}", headers={"Content-Type": "application/json"}), timeout=3)
+        except Exception: open_window(home)
+        return
     print(f"[APP] Jarvis starting, data in {home}")
     sync_app_files(home)
+    first_run_startup(home)
     wake_proc = start_wake(home)
+    head_proc = start_head(home)
+    S = {"win": None, "quitting": False, "loop": False}
 
-    win = None
-    def window():
-        nonlocal win
-        win = open_window(home)
-        if win is not None:
-            win.wait()
-            print("[APP] window closed, stopping"); quit_all()
+    def window_loop(hidden):
+        """Owns the window. Closing it (Windows) brings the page back minimised, so he keeps listening; the floating head shows."""
+        S["loop"] = True; quick = 0
+        try:
+            while not S["quitting"]:
+                t = time.time()
+                S["win"] = open_window(home, hidden=hidden)
+                if S["win"] is None: return                      # opened in the normal browser: nothing of ours to watch
+                S["win"].wait()
+                if S["quitting"]: return
+                if not WIN: print("[APP] window closed, stopping"); quit_all(); return
+                quick = quick + 1 if time.time() - t < 4 else 0   # the browser handed off or crashed: don't spin
+                if quick >= 3: print("[APP] the window keeps closing straight away; not reopening it"); return
+                print("[APP] window closed: still running, as the floating head"); hidden = True
+        finally: S["loop"] = False
+
+    def restore():
+        if WIN and restore_window_win(): return
+        if S["loop"] and S["win"] is not None and S["win"].poll() is None: return    # Mac/Linux: it's open already
+        threading.Thread(target=window_loop, args=(False,), daemon=True).start()
 
     def quit_all():
-        for p in (wake_proc, win):
+        S["quitting"] = True
+        for p in (wake_proc, head_proc, S["win"]):
             if p and p.poll() is None: p.terminate()
         os._exit(0)
 
-    threading.Thread(target=window, daemon=True).start()
+    threading.Thread(target=window_loop, args=("--background" in sys.argv,), daemon=True).start()
     try:
         import uvicorn, server
         if FROZEN: add_update_routes(server.app, home, quit_all)
+        add_app_routes(server.app, restore, quit_all)
+        server.APP_HOOKS = {"set_startup": set_startup, "restore": restore}
         uvicorn.run(server.app, host="127.0.0.1", port=PORT)
     finally:
         quit_all()
