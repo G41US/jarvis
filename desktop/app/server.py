@@ -767,7 +767,7 @@ def _groq_create(**kw):
     while model in _MODEL_NEXT and time.time() < _MODEL_REST.get(model, 0): model = _MODEL_NEXT[model]
     kw["model"] = model
     extra = {}
-    effort = _TURN["effort"] if GROQ_EFFORT == "auto" else GROQ_EFFORT
+    effort = _TURN.get("effort", "low") if GROQ_EFFORT == "auto" else GROQ_EFFORT
     if effort and str(model).startswith("openai/gpt-oss") and not GROQ_STATE["no_effort"]:
         extra["reasoning_effort"] = effort
     elif str(model).startswith("qwen/") and not GROQ_STATE["no_effort"]:
@@ -2506,7 +2506,7 @@ def _become(who="", style=""):
         return (f"{who}'s voice is there, but speaking in it needs the user's free Fish Audio key (make an account at fish dot audio, then API keys). "
                 "They can just type it to you in a message. Tell them that briefly, as yourself, and stay Jarvis for now.")
     CONFIG["persona"] = {"who": who, "voice_id": v["id"], "voice_title": v["title"], "tried": [v["id"]], "style": str(style or "")[:300]}
-    _keep_voice(who, v["id"]); save_config(CONFIG); _TTS_CACHE.clear(); _FISH["paused_until"] = 0
+    _keep_voice(who, v["id"]); save_config(CONFIG); _TTS_CACHE.clear(); _FISH["paused_until"] = 0; _persona_push()
     print(f"[PERSONA] {who}: Fish voice {v['title']!r} ({v['id']})")
     return f"You are now {who}, in their voice. Answer as them from now on. Say something short in character now."
 
@@ -2523,9 +2523,31 @@ def _try_another_voice():
     save_config(CONFIG); _TTS_CACHE.clear(); print(f"[PERSONA] {p['who']}: now Fish voice {nxt['title']!r} ({nxt['id']})")
     return f"Switched to another voice for {p['who']} ({len(tried) + 1} of {len(vs)}). Say one short line in character so the user can hear it."
 
+# "stop", "be yourself", "normal voice": back to Jarvis at once, without the AI (in character it sometimes stays in the role)
+_PERSONA_EXIT = re.compile(r"^(?:(?:hey )?jarvis[,.! ]+)?(?:(?:ok(?:ay)?|alright|all right|please|now|ok then)[,.! ]+)*(?:"
+    r"stop(?: it| now| that| please| the act| being [\w' -]+| talking like (?:that|him|her|them))?|that'?s enough|enough(?: now)?|"
+    r"be yourself(?: again)?|be jarvis(?: again)?|you can stop(?: now)?|drop the act|"
+    r"(?:go |switch |change |come |get )?back to (?:jarvis|normal|yourself|being (?:jarvis|yourself)|your (?:own |normal |default |regular |old )?voice)|"
+    r"(?:go |switch |change |come )back|(?:use |switch to |change to )?(?:your )?(?:normal|default|own|regular|old) voice)"
+    r"(?:[,.! ]+(?:please|jarvis|now|thanks|thank you))*[.!? ]*$", re.I)
+def _persona_push():
+    p = _persona()
+    try: _broadcast_ws("persona:" + json.dumps({"who": p["who"]} if p else {}))
+    except Exception: pass
+
+@app.get("/persona")
+async def persona_state():
+    p = _persona(); return {"who": p["who"]} if p else {}
+
+@app.post("/persona/stop")
+async def persona_stop():                                  # the "Ultron ×" chip
+    was = _persona(); _stop_being()
+    if was: _broadcast_ws("proactive:Back to my own voice, sir.")
+    return {"ok": True}
+
 @tool("stop_being", "Stop playing a character and be Jarvis again ('stop', 'be yourself', 'back to Jarvis', 'drop the act').")
 def _stop_being():
-    p = _persona(); CONFIG.pop("persona", None); save_config(CONFIG); _TTS_CACHE.clear()
+    p = _persona(); CONFIG.pop("persona", None); save_config(CONFIG); _TTS_CACHE.clear(); _persona_push()
     return f"Back to being Jarvis (no longer {p['who']}). Say so briefly, as yourself." if p else "You're already yourself."
 
 @tool("set_voice", "Change the speaking voice.", {"voice_name": {"type": "string"}}, ["voice_name"])
@@ -3693,7 +3715,7 @@ def _auto_remember(user_text):
                 print(f"[MEM] learned: {' | '.join(new)}")
         except Exception as e: print(f"[MEM] auto-memory skipped: {type(e).__name__}: {str(e)[:120]}")
     threading.Thread(target=go, daemon=True).start()
-_TURN = {"id": 0, "panels": 0}
+_TURN.update(id=0, panels=0)                    # (the same dict as above: it also carries the turn's thinking effort)
 def _after_tool(name, args, result):
     h = _PANEL_HOOKS.get("tool")
     if h:
@@ -4109,6 +4131,9 @@ async def chat_stream(payload: dict):
         return StreamingResponse(_empty(), media_type="text/event-stream")
     hdrs = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
     note = _take_fish_key(user_text)
+    if not note and _persona() and _PERSONA_EXIT.match(user_text.strip()):
+        _stop_being(); note = "Back to my own voice, sir."
+        print(f"[PERSONA] back to Jarvis ({user_text!r})")
     if note:
         async def _saved(): yield _sse({"type": "sentence", "text": note}); yield _sse({"type": "done"})
         return StreamingResponse(_saved(), media_type="text/event-stream", headers=hdrs)

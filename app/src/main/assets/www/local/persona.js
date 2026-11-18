@@ -4,6 +4,13 @@
 // himself (no lookalike voices). Stays on, even after a restart, until "stop", "be yourself" or "back to Jarvis".
 
 const LIBRARY = 'https://api.fish.audio/model';
+// "stop", "be yourself", "normal voice": back to Jarvis at once, without the AI (in character it sometimes stays in the role)
+export const EXIT = new RegExp("^(?:(?:hey )?jarvis[,.! ]+)?(?:(?:ok(?:ay)?|alright|all right|please|now|ok then)[,.! ]+)*(?:" +
+  "stop(?: it| now| that| please| the act| being [\\w' -]+| talking like (?:that|him|her|them))?|that'?s enough|enough(?: now)?|" +
+  "be yourself(?: again)?|be jarvis(?: again)?|you can stop(?: now)?|drop the act|" +
+  "(?:go |switch |change |come |get )?back to (?:jarvis|normal|yourself|being (?:jarvis|yourself)|your (?:own |normal |default |regular |old )?voice)|" +
+  "(?:go |switch |change |come )back|(?:use |switch to |change to )?(?:your )?(?:normal|default|own|regular|old) voice)" +
+  "(?:[,.! ]+(?:please|jarvis|now|thanks|thank you))*[.!? ]*$", 'i');
 const words = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(w => w.length > 1);
 const KEYISH = /\b([A-Za-z0-9_-]{24,80})\b/;
 

@@ -2,6 +2,7 @@
 server.py calls install(globals()) once; everything here reaches the server only through what it hands over."""
 import datetime, json, math, os, re, sqlite3, threading, time
 from contextlib import closing
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 import psutil
 
@@ -840,6 +841,63 @@ def install(ns):
                 return j.get("id", ""), j.get("secret", "")
         return "", ""
 
+    # ---- Spotify's player built into Jarvis (Web Playback SDK): signed in once through Jarvis, the page is a Spotify speaker called
+    # "Jarvis" that plays whole songs (Premium) with no other window. The sign-in comes back to this address, which has to be listed
+    # under Redirect URIs in the Spotify app's settings (developer.spotify.com).
+    SPU = {"token": "", "until": 0.0}
+    SP_SCOPES = "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state"
+    def sp_redirect(): return (os.environ.get("JARVIS_SERVER") or "http://127.0.0.1:8000").rstrip("/") + "/spotify/callback"
+    def sp_basic():
+        import base64
+        cid, sec = spotify_keys(); return "Basic " + base64.b64encode(f"{cid}:{sec}".encode()).decode()
+
+    def spotify_user_token():
+        """A fresh token for Jarvis's own Spotify player, or "" when he hasn't been signed in through Jarvis."""
+        import requests
+        if SPU["token"] and time.time() < SPU["until"]: return SPU["token"]
+        rt = CONFIG.get("spotify_refresh", "")
+        if not rt or not spotify_keys()[0]: return ""
+        r = requests.post("https://accounts.spotify.com/api/token", timeout=10, headers={"Authorization": sp_basic()},
+                          data={"grant_type": "refresh_token", "refresh_token": rt})
+        if r.status_code != 200:
+            print(f"[SPOTIFY] refresh {r.status_code}: {r.text[:160]}")
+            if r.status_code == 400 and "invalid_grant" in r.text: CONFIG.pop("spotify_refresh", None); save_config(CONFIG)   # signed out or revoked
+            return ""
+        j = r.json(); SPU.update(token=j["access_token"], until=time.time() + int(j.get("expires_in", 3600)) - 120)
+        if j.get("refresh_token") and j["refresh_token"] != rt: CONFIG["spotify_refresh"] = j["refresh_token"]; save_config(CONFIG)
+        return SPU["token"]
+
+    @app.get("/spotify/login")
+    async def spotify_login():
+        from urllib.parse import urlencode
+        cid = spotify_keys()[0]
+        if not cid: return HTMLResponse("Spotify isn't set up in this copy of Jarvis.")
+        SPU["state"] = os.urandom(12).hex()
+        return RedirectResponse("https://accounts.spotify.com/authorize?" + urlencode({"client_id": cid, "response_type": "code",
+                                "redirect_uri": sp_redirect(), "scope": SP_SCOPES, "state": SPU["state"], "show_dialog": "false"}))
+
+    @app.get("/spotify/callback")
+    async def spotify_callback(code: str = "", state: str = "", error: str = ""):
+        import requests
+        page = lambda msg: HTMLResponse('<!doctype html><meta charset="utf-8"><title>Spotify</title><body style="margin:0;height:100vh;display:grid;'
+                                        'place-items:center;background:#000;color:#f2f5f8;font:500 17px system-ui,sans-serif;text-align:center">'
+                                        f'<div>{msg}</div><script>setTimeout(()=>window.close(),2500)</script>')
+        if error or not code or state != SPU.get("state"): return page("Spotify sign-in didn't finish. Ask Jarvis to connect Spotify again.")
+        r = await asyncio.to_thread(requests.post, "https://accounts.spotify.com/api/token", timeout=10, headers={"Authorization": sp_basic()},
+                                    data={"grant_type": "authorization_code", "code": code, "redirect_uri": sp_redirect()})
+        if r.status_code != 200:
+            print(f"[SPOTIFY] sign-in {r.status_code}: {r.text[:200]}"); return page("Spotify didn't accept the sign-in. Try connecting again.")
+        j = r.json(); CONFIG["spotify_refresh"] = j.get("refresh_token", ""); CONFIG["music_source"] = "spotify"; save_config(CONFIG)
+        SPU.update(token=j["access_token"], until=time.time() + int(j.get("expires_in", 3600)) - 120); music_now.update(sp_off=False)
+        print("[SPOTIFY] signed in through Jarvis: songs play in Jarvis's own Spotify player")
+        broadcast("proactive:Spotify's connected, sir. Songs play right here in Jarvis now.")
+        return page("Spotify is connected. You can close this window.")
+
+    @app.get("/spotify/token")
+    async def spotify_token():
+        try: return {"token": await asyncio.to_thread(spotify_user_token)}
+        except Exception as e: print(f"[SPOTIFY] token: {type(e).__name__}: {e}"); return {"token": ""}
+
     def spotify_get(path, params):
         import requests, base64
         if time.time() > SP["until"]:
@@ -880,11 +938,11 @@ def install(ns):
         if a == "status":
             return "Music plays from Spotify." if CONFIG.get("music_source") == "spotify" else "Music plays from YouTube Music. Say connect Spotify to switch."
         if a == "disconnect":
-            CONFIG["music_source"] = "youtube"; save_config(CONFIG); return "Back to YouTube Music for songs."
-        open_app_window("https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F", "520,720")
+            CONFIG["music_source"] = "youtube"; CONFIG.pop("spotify_refresh", None); SPU.update(token="", until=0); save_config(CONFIG); return "Back to YouTube Music for songs."
+        open_app_window(sp_redirect().replace("/spotify/callback", "/spotify/login"), "520,720")
         CONFIG["music_source"] = "spotify"; save_config(CONFIG); music_now.update(sp_off=False)
-        return ("Spotify's sign-in is open. Sign in with your Premium account, then close that window. "
-                "After that, songs play from Spotify.")
+        return ("Spotify's sign-in is open. Sign in with your Premium account and agree; the window closes by itself. "
+                "After that, songs play right here in Jarvis.")
 
     @tool("play_music", "The music player (YouTube Music, plays inside Jarvis). action play with a query (a song, an artist, a mood, a genre: "
           "'play Adele', 'play some jazz'); with no query it plays popular songs. Also pause, resume, next, previous, stop "
@@ -899,7 +957,7 @@ def install(ns):
             if not music_now["title"]: return "Nothing's playing."
             return f"{'Playing' if music_now['playing'] else 'Paused on'} {music_now['title']}" + (f" by {music_now['artist']}." if music_now["artist"] else ".")
         if a != "play" and music_now.get("mode") == "window": return window_cmd(a)
-        if a in ("louder", "quieter") and music_now.get("src") == "spotify" and sys_win():     # Spotify's player has no volume of its own
+        if a in ("louder", "quieter") and music_now.get("src") == "spotify" and not CONFIG.get("spotify_refresh") and sys_win():     # Spotify's player has no volume of its own
             ns["_press"](ns["_VK"]["volume_up" if a == "louder" else "volume_down"], 4); return "Louder." if a == "louder" else "Quieter."
         if a != "play":
             send("music", {"cmd": a})
@@ -910,7 +968,7 @@ def install(ns):
         q = q or "popular songs this week"
         on_sp = re.search(r"\bon spotify\b|\bspotify\b", q, re.I)
         q = re.sub(r"\s*\b(on|from|in)?\s*spotify\b", "", q, flags=re.I).strip() or "popular songs this week"
-        if spotify_keys()[0] and not music_now.get("sp_off") and (on_sp or CONFIG.get("music_source") == "spotify"):
+        if spotify_keys()[0] and (CONFIG.get("spotify_refresh") or not music_now.get("sp_off")) and (on_sp or CONFIG.get("music_source") == "spotify"):
             try: first = spotify_track(q)
             except Exception as e: print(f"[SPOTIFY] {type(e).__name__}: {e}"); first = None
             if first:
@@ -948,6 +1006,7 @@ def install(ns):
 
     @app.post("/music/state")
     async def music_state(payload: dict):
+        if payload.get("sdk_error"): print(f"[SPOTIFY] Jarvis's player: {str(payload['sdk_error'])[:160]}"); return {"ok": True}
         if payload.get("preview"):        # Spotify only played a 30 s preview: not signed in (or not Premium) in Jarvis's window
             print("[SPOTIFY] previews only (not signed in to Premium here): YouTube Music for the rest of this run")
             music_now.update(sp_off=True)

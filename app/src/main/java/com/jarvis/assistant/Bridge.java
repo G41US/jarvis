@@ -482,6 +482,11 @@ public class Bridge {
                     if (pkgInstalled) i.setPackage(pkg);
                 }
                 String r = launch(i, "your music");
+                // the music app comes to the front to start the song; Jarvis comes back a moment later (it keeps playing behind him)
+                if ("ok".equals(r) && phone != null)       // only when Android lets him (overlay or phone control on); never a "tap to open" note
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() { @Override public void run() {
+                        try { if (phone.canOpenNow()) phone.bringToFront(); } catch (Exception e) { Log.w(TAG, "back to Jarvis", e); }
+                    } }, 3000);
                 return "notified".equals(r) ? "notified" : "ok";
             }
             return "I can't do that with music here.";
