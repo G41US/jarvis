@@ -1400,9 +1400,10 @@ async function setupAudioCapture(stream) {
       if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
 
-      // While he talks the laptop mic hears his own voice from the speakers: a loudness check cut him off mid-sentence.
-      // "Hey Jarvis" (wake.py, on the PC) still interrupts him.
-      if (speaking) return;
+      // While he talks in a conversation the mic stays open so you can cut in, like with a person. The mic's echo
+      // cancellation takes his own voice out, and anything that still sounds like what he's saying is dropped as echo.
+      // Outside a conversation (he spoke up on his own) only "Hey Jarvis" (wake.py) interrupts him.
+      if (speaking && !sessionActive) return;
 
       const pcm = new Int16Array(input.length);
       for (let i = 0; i < input.length; i++) {
@@ -1430,17 +1431,19 @@ async function handleServerTranscript(raw) {
   // the browser hears the same "Hey Jarvis" that woke him, often misheard ("Hey, Jogies"): a bare "hey something" just after waking isn't a question
   else if (/^(hey|hi|okay|ok) \S+$/.test(clean) && performance.now() - sessionStartedAt < 6000) { showDebug(`"${text}" wake echo`, 'rejected'); return; }
   const now = performance.now();
+  let cutIn = false;
   if (speaking) {
-    const ec = isEcho(text);
+    // talking over him: he stops and listens, like a person would. His own voice leaking back in is dropped as echo.
+    const ec = isEcho(text, BARGE_ECHO_SIMILARITY);
     if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
-    // a short command ("next", "stop", "go to the next camera") interrupts him too, not only "Hey Jarvis"
-    if (!containsWakeWord(text) && !(BARGE.test(cleanPunct(text)) && cleanPunct(text).split(' ').length <= 6)) { showDebug(`"${text}" ignored`, 'rejected'); return; }
-    beep(1200, 0.08); cancelAllSpeech();
+    const n = cleanPunct(text).split(' ').filter(Boolean).length;
+    if (!containsWakeWord(text) && !BARGE.test(cleanPunct(text)) && n < BARGE_MIN_WORDS) { showDebug(`"${text}" too short to cut in`, 'rejected'); return; }
+    cancelAllSpeech(); cutIn = true; showDebug(`"${text}" cut in`, 'heard');
   } else if (now - lastCommandTime < COMMAND_COOLDOWN_MS) { showDebug(text + ' cooldown', 'rejected'); return; }
   const words = cleanPunct(text).split(' ').filter(Boolean);
   const answering = performance.now() - lastAskAt < 20000;      // he just asked something: "Lagos." is an answer
   if (words.length < (answering ? 1 : MIN_WORDS)) { showDebug(`"${text}" too short`, 'rejected'); return; }
-  const ec = !speaking ? isEcho(text) : { echo: false };
+  const ec = !speaking && !cutIn ? isEcho(text) : { echo: false };
   if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
   if (sessionActive) {
     showDebug(text, 'heard');
@@ -1448,7 +1451,7 @@ async function handleServerTranscript(raw) {
     if (hasEndPhrase(text)) { await handleCommand(text); endSession(); return; }
     // said without "Hey Jarvis", a while into the session, not answering him: the server checks it was meant for him (not lyrics or the TV)
     const followup = performance.now() - sessionStartedAt > 8000 && !containsWakeWord(text) && !answering;
-    await handleCommand(text, { followup });
+    await handleCommand(text, { followup: followup && !cutIn, interrupted: cutIn });
     // with music or a station playing the open mic hears songs and presenters: "Hey Jarvis" again for the next thing
     // (this also lets the music back up to full volume: it's turned down for the whole session, and a song started by this very command
     // used to stay at 15% for the 35 s the session waits, which sounded like nothing was playing)
@@ -1577,6 +1580,10 @@ function startMicLevelLoop() {
     const avg = sum / micDataArray.length;
     micLevelFill.style.width = Math.min(100, avg) + '%';
     if (avg > BARGE_IN_VOLUME_THRESHOLD) micLevelEl.classList.add('hot'); else micLevelEl.classList.remove('hot');
+    // you start talking over him: he drops his voice at once while the words are made out (then stops, or carries on if it was nothing)
+    const now = performance.now();
+    if (speaking && sessionActive && currentAudio && avg > BARGE_IN_VOLUME_THRESHOLD) bargeDuckUntil = now + BARGE_DUCK_MS;
+    if (currentAudio) { const want = now < bargeDuckUntil ? 0.3 : 1; if (Math.abs(currentAudio.volume - want) > 0.01) currentAudio.volume += (want - currentAudio.volume) * 0.5; }
   }, 60);
 }
 
@@ -1665,6 +1672,7 @@ const MIN_CONFIDENCE = 0.15, MIN_WORDS = 2;
 const COMMAND_COOLDOWN_MS = 900, SESSION_SILENCE_MS = 35000;
 const BARGE = /\b(next|stop|pause|skip|previous|close|cancel|enough|quiet)\b/;
 let lastAskAt = 0;
+const BARGE_ECHO_SIMILARITY = 0.45, BARGE_MIN_WORDS = 2;   // cutting in: 2+ words that aren't his own words coming back
 const ECHO_SIMILARITY_THRESHOLD = 0.40, POST_TTS_DELAY_MS = 50, ECHO_MEMORY_MS = 15000;
 // Talking over Jarvis. Was 3500 for 4 frames (you had to shout); saying "Hey Jarvis" also interrupts him.
 // Greet out loud only after you've been away a while; otherwise just chime and listen (no waiting through a greeting).
@@ -1691,10 +1699,10 @@ function similarity(a, b) {
   let o = 0; for (const w of wa) if (wb.has(w)) o++;
   return o / Math.min(wa.size, wb.size);
 }
-function isEcho(transcript) {
+function isEcho(transcript, threshold = ECHO_SIMILARITY_THRESHOLD) {
   const now = performance.now();
   recentJarvisReplies = recentJarvisReplies.filter(r => now - r.time < ECHO_MEMORY_MS);
-  for (const r of recentJarvisReplies) { const sim = similarity(transcript, r.text); if (sim >= ECHO_SIMILARITY_THRESHOLD) return { echo: true, sim }; }
+  for (const r of recentJarvisReplies) { const sim = similarity(transcript, r.text); if (sim >= threshold) return { echo: true, sim }; }
   return { echo: false };
 }
 function rememberJarvisReply(text) {
@@ -1817,7 +1825,7 @@ async function handleCommand(text, opts = {}) {
   try {
     const response = await fetch('/chat_stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: cleaned, followup: !!opts.followup }), signal: bargeAbort.signal,
+      body: JSON.stringify({ text: cleaned, followup: !!opts.followup, interrupted: !!opts.interrupted }), signal: bargeAbort.signal,
     });
     if (!response.ok || !response.body) throw new Error('stream failed');
     const reader = response.body.getReader();

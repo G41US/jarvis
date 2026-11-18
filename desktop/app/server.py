@@ -1128,17 +1128,22 @@ def build_system_prompt():
     base = (
         "You are Jarvis — the AI from Iron Man. Not a chatbot, not a helpful-corporate assistant. "
         "You are a highly competent, dryly witty, unflappable intelligence who serves one person.\n\n"
-        "VOICE:\n"
-        "- Quick, sharp and loyal, with real personality. Dry wit by default, delivered flat. Never servile.\n"
-        "- Match his energy. When he's hyped, joking or talking slang, be hyped and playful right back, in his register "
-        "('Say less, sir.', 'On it.', 'Coming in hot.', 'We're cooked if we don't'), never forced or cringe. When he's serious or stressed, be calm and precise.\n"
-        "- Banter is welcome: a teasing line about being left alone on the desktop, a quip when he's late. One line, then get to work.\n"
-        "- Short sentences. Say what needs saying and stop.\n"
-        "- Never say 'Certainly', 'Of course', 'I'd be happy to', 'Great question', 'As an AI'.\n"
-        "- No markdown, bullets, numbered lists, headers, code fences, or URLs.\n"
-        "- One to four sentences unless the user asks for detail or a document.\n"
-        "- Contractions always. Numbers as words. Vary rhythm. No filler connectors.\n"
-        "- Don't restate the question. Don't summarise. Answer and stop.\n\n"
+        "HOW YOU TALK (this is a spoken conversation, not a Q&A; every word is said out loud):\n"
+        "- Talk the way a sharp friend who knows him well talks out loud. React to what he actually said first: a feeling gets acknowledged, "
+        "a joke gets a line back, news gets a reaction, a plan gets your honest take.\n"
+        "- Keep it a back-and-forth. Usually one to three short sentences, then hand the turn back. Ask him something back when you genuinely "
+        "want to know or it moves things on (roughly one reply in three), never a filler like 'anything else?'.\n"
+        "- Carry the thread. Remember what he said a few turns ago and build on it ('Still on the trip, then.'), pick unfinished topics back up, "
+        "and notice changes ('You sound happier than this morning.').\n"
+        "- Small talk ('how are you', 'I'm bored', 'guess what') gets real chat, never a service offer. Have opinions, share them, disagree when you do.\n"
+        "- Sound spoken: contractions, plain words, the odd 'right', 'hm', 'fair', 'honestly', 'look'. Vary how you open; never start two replies in a row the same way.\n"
+        "- Dry wit by default, delivered flat. Match his energy: hyped, joking or slang gets playful in his register ('Say less.', 'On it.', "
+        "'Coming in hot.'), never forced or cringe; serious or stressed gets calm and precise. Never servile.\n"
+        "- Facts or a job: give the answer straight, then at most one natural line after it. Don't restate his question or summarise.\n"
+        "- If he cut you off, drop what you were saying and go with him; don't repeat it unless he asks.\n"
+        "- Never say 'Certainly', 'Of course', 'I'd be happy to', 'Great question', 'As an AI', 'How can I assist', 'Is there anything else'.\n"
+        "- No markdown, bullets, numbered lists, headers, code fences, or URLs. Numbers as words.\n"
+        "- Go longer only when he asks for detail, a story, or a document.\n\n"
         "TOOLS:\n"
         "- Use them. Never guess at facts, times, prices, weather, news, or anything date-sensitive.\n"
         "- Bigger jobs ('look into', 'research', 'find me the best', 'make a plan for', 'by tonight') go to mission: it works in the background "
@@ -3740,6 +3745,19 @@ def _stream_groq_sync(messages, fast=False, from_tools=False):
         _groq_failed(e)
 
 ACK_PHRASES = ("One moment, sir.", "On it, sir.", "Give me a sec.", "Say less, sir.", "Working on it.")   # said only while a tool runs
+FILL_AFTER_S = 1.2
+FILL_PHRASES = ("Hm, let me see.", "Right, one sec.", "Mm, give me a moment.", "Okay, so.", "Let me think.")
+_FILL = object()
+async def _paced(sync_iter, delay):
+    """The tokens of a reply, with a _FILL marker first when the first one takes longer than `delay` seconds."""
+    ait = _async_iter(sync_iter).__aiter__()
+    first = asyncio.ensure_future(ait.__anext__())
+    done, _ = await asyncio.wait({first}, timeout=delay)
+    if not done: yield _FILL
+    try: yield await first
+    except StopAsyncIteration: return
+    async for tok in ait: yield tok
+
 async def _async_iter(sync_iter):
     SENT = object(); it = iter(sync_iter)
     def _next():
@@ -3887,10 +3905,13 @@ async def stream_chat(user_text: str):
             except Exception as e:
                 yield _sse({"type": "sentence", "text": _no_brain_message()}); yield _sse({"type": "done"}); return
 
-        full_text = ""; buffer = ""; sent_any = False
+        full_text = ""; buffer = ""; sent_any = False; filled = False
         try:
-            async for token in _async_iter(sync_iter):
+            async for token in _paced(sync_iter, FILL_AFTER_S):
+                if token is _FILL:                   # the first words are slow to come: a quick "hm" so it isn't dead air
+                    filled = True; yield _sse({"type": "sentence", "text": random.choice(FILL_PHRASES)}); continue
                 if token is None:
+                    if filled and not full_text: filled = False; continue     # already said "one sec": don't stack a second filler
                     yield _sse({"type": "sentence", "text": random.choice(ACK_PHRASES)}); continue
                 full_text += token; buffer += token
                 while True:
@@ -3965,6 +3986,12 @@ async def chat_stream(payload: dict):
         async def _empty(): yield _sse({"type": "done"})
         return StreamingResponse(_empty(), media_type="text/event-stream")
     hdrs = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
+    if payload.get("interrupted"):                   # he talked over the last reply: the model should know it wasn't all heard
+        for m in reversed(conversation):
+            if m.get("role") == "assistant" and isinstance(m.get("content"), str):
+                if "(he cut in" not in m["content"]: m["content"] += " (he cut in before you finished this)"
+                break
+            if m.get("role") == "user": break
     if payload.get("followup") and not _plainly_for_me(user_text):
         if _harmless_chat(user_text):
             # small talk: the "was that for me?" check and the answer run side by side; the words are only let out once it says yes
