@@ -80,6 +80,24 @@ def main():
         time.sleep(0.2)
     check(not pc_control.RUN["busy"] and said[-1] == "proactive:Stopped.", "stops and says so")
     check(ns["_needs_tool"]("fill in this form for me in chrome") and ns["_TOOL_GROUPS"][0][1][0] == "use_computer", "routing")
+
+    print("Browser:")
+    import subprocess as sp, webbrowser
+    ran = []; real = sp.Popen
+    sp.Popen = lambda args, **k: ran.append(args)
+    pc_control._browser_exe = lambda b: {"chrome": "/opt/chrome/chrome", "firefox": "/opt/ff/firefox"}.get(b)
+    webbrowser.open_new_tab = lambda u: ran.append(["default", u]) or True
+    try:
+        r = reg["browse"](query="lagos traffic today", browser="Google Chrome")
+        check(ran[-1] == ["/opt/chrome/chrome", "https://www.google.com/search?q=lagos+traffic+today"] and "Searching Google" in r, f"new Chrome tab with the search: {ran[-1]}")
+        reg["browse"](query="afrobeats mix", site="youtube", browser="chrome")
+        check(ran[-1][1] == "https://www.youtube.com/results?search_query=afrobeats+mix", "YouTube search")
+        reg["browse"](url="jumia.com.ng", browser="firefox")
+        check(ran[-1] == ["/opt/ff/firefox", "-new-tab", "https://jumia.com.ng"], "Firefox opens a site in a new tab")
+        reg["browse"](browser="chrome"); check(ran[-1][1] == "chrome://newtab", "just a new tab")
+        reg["browse"](query="weather"); check(ran[-1] == ["default", "https://www.google.com/search?q=weather"], "default browser when none named")
+        check("browse" in [n for g in ns["_TOOL_GROUPS"] for n in g[1]] and ns["_needs_tool"]("open a new tab in chrome and search for shoes"), "browser talk routes to browse")
+    finally: sp.Popen = real
     target.terminate()
     print("\n" + ("ALL PASSED" if not fails else f"{len(fails)} FAILED")); sys.exit(1 if fails else 0)
 

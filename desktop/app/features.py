@@ -202,7 +202,7 @@ def install(ns):
             if a == "zoom" and w[2] == globe_at["label"]:      # "zoom in more on Abuja" while already over Abuja: closer still, not the same view again
                 send("globe", {"cmd": "show", "fly": {"lat": w[0], "lon": w[1], "scale": 0.4, "label": w[2]}}); return f"Closer on {w[2]}."
             dist = ZOOM[w[3]] if a == "zoom" else max(ZOOM[w[3]], 2.4 if w[3] == "country" else 1.9)
-            send("globe", {"cmd": "show", "fly": {"lat": w[0], "lon": w[1], "dist": dist, "label": w[2]}})
+            send("globe", {"cmd": "show", "fly": {"lat": w[0], "lon": w[1], "dist": dist, "label": w[2], "kind": w[3], "zoom": a == "zoom"}})
             globe_at["label"] = w[2]
             return f"{w[2]}, sir."
         if a == "earthquakes":

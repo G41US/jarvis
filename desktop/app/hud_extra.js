@@ -39,7 +39,7 @@ document.head.appendChild(el('style', null, `
     font: 600 12px/1 'Saira', system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #1a1006;
     background: rgba(245,201,122,.92); padding: 6px 10px; border-radius: 999px; box-shadow: 0 0 18px rgba(245,201,122,.6); }
   #pc-gtoast.on { opacity: 1; }
-  body.pc-holo-on #three { opacity: 0 !important; }
+  body.pc-holo-cover #three { opacity: 0 !important; }     /* only a card opened full size or the wall hides the face */
   #hud::before { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .9s var(--ease);
     background: linear-gradient(180deg, rgba(0, 0, 0, .62) 0, rgba(0, 0, 0, 0) 190px), linear-gradient(0deg, rgba(0, 0, 0, .6) 0, rgba(0, 0, 0, 0) 170px); }
   body.pc-globe-on #hud::before { opacity: 1; }
@@ -105,6 +105,11 @@ document.head.appendChild(el('style', null, `
   #pc-cam video { opacity: .55; filter: sepia(.5) saturate(.8); }
   #pc-cam span { position: absolute; left: 10px; top: 9px; font: 600 11px/1 'Saira', system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--live);
     text-shadow: 0 1px 6px #000; }
+  #pc-map { position: fixed; inset: 0; z-index: 3; opacity: 0; pointer-events: none; transition: opacity .9s ease; background: #0a0907; }
+  #pc-map.on { opacity: 1; pointer-events: auto; }
+  #pc-globe.under { opacity: 0 !important; pointer-events: none; transition: opacity .9s ease; }
+  #pc-map .maplibregl-ctrl-attrib { background: rgba(10,9,7,.6); color: #8c7a62; font-size: 10px; }
+  #pc-map .maplibregl-ctrl-attrib a { color: #bfa985; }
   /* the pointer: a small gold ring with a dot; brighter over a panel, shrinks and fills while pinching */
   #pc-ring { position: fixed; left: 0; top: 0; z-index: 20; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; pointer-events: none;
     border: 1.5px solid rgba(245,201,122,.75); box-shadow: 0 0 12px rgba(245,201,122,.35);
@@ -455,7 +460,9 @@ const globe = (() => {
     lineCol.copy(GOLD).lerp(WHITE, mode);
     if (countries) { countries.material.color.copy(lineCol); countries.material.opacity = 0.35 + 0.35 * clamp((HOME - dist) / 2.5, 0, 1); }
     if (states) { states.material.color.copy(lineCol); states.material.opacity = 0.42 * clamp((3.4 - dist) / 1.4, 0, 1); states.visible = dist < 3.4; }
-    if (now - lastCheck > 500) { lastCheck = now; if (dist > 2.6) dropPatch(); else wantPatch(); }
+    if (now - lastCheck > 500) { lastCheck = now; if (dist > 2.6) dropPatch(); else if (!detail.on) wantPatch();
+      if (!detail.on && !fly && dist <= ENTER_DIST && now - lastDrag > 600 && canvas.classList.contains('on')) { const c = center(); enterMap(c.lat, c.lon, dist, detail.next); detail.next = null; } }
+    if (detail.on) { labels.forEach(l => l.el.style.opacity = 0); for (const e of pool) e.style.opacity = 0; requestAnimationFrame(frame); return; }
     // event labels first (they matter more), then place names in the room that's left
     if (now - boxesAt > 700) { boxesAt = now; measureHud(); }
     const placed = [], showing = canvas.classList.contains('on');
@@ -487,8 +494,88 @@ const globe = (() => {
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
+
+  // ---- close up, a real map: every town, village, road, river and border with its name, down to the street (MapLibre's globe view
+  // with OpenFreeMap's tiles: free, no key). Past country level the 3D globe hands over to it at the same spot; zoom back out and the
+  // globe takes over again. Satellite mode shows Esri's world imagery under the same names and borders.
+  const MAPLIBRE = 'https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl';
+  const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
+  const ENTER_DIST = 1.8, EXIT_ZOOM = 2.6, EARTH_M = 6371000, CIRC = 40075016.686;
+  const detail = { on: false, map: null, div: null, ready: null, sat: false, leaving: false };
+  const zoomOf = (d, lat) => { const mpp = 2 * (d - 1) * EARTH_M * Math.tan(15 * DEG) / innerHeight; return clamp(Math.log2(CIRC * Math.max(0.05, Math.cos(lat * DEG)) / (512 * mpp)), 1, 19); };
+  const distOf = (z, lat) => { const mpp = CIRC * Math.max(0.05, Math.cos(lat * DEG)) / (512 * Math.pow(2, z)); return 1 + mpp * innerHeight / (2 * Math.tan(15 * DEG)) / EARTH_M; };
+  const KIND_ZOOM = { country: 5.2, state: 7.4, city: 12.5 };
+  function mapLib() {
+    if (window.maplibregl) return Promise.resolve(window.maplibregl);
+    return detail.lib || (detail.lib = new Promise((ok, no) => {
+      const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = MAPLIBRE + '.css'; document.head.appendChild(css);
+      const js = document.createElement('script'); js.src = MAPLIBRE + '.js'; js.onload = () => ok(window.maplibregl); js.onerror = no; document.head.appendChild(js);
+    }));
+  }
+  function goldStyle(map) {            // Jarvis's look: dark land, gold borders, warm white names
+    for (const l of map.getStyle().layers) {
+      try {
+        if (l.type === 'line' && /boundary|admin/.test(l.id)) { map.setPaintProperty(l.id, 'line-color', '#f5c97a'); map.setPaintProperty(l.id, 'line-opacity', 0.85); }
+        else if (l.type === 'line' && /road|highway|street|path|rail|bridge|tunnel/.test(l.id)) { map.setPaintProperty(l.id, 'line-color', '#5c4b2e'); map.setPaintProperty(l.id, 'line-opacity', 0.85); }
+        else if (l.type === 'symbol') {
+          const place = /place|country|state|city|town|village|suburb|hamlet/.test(l.id), size = map.getLayoutProperty(l.id, 'text-size');
+          if (size != null) map.setLayoutProperty(l.id, 'text-size', ['*', place ? 1.35 : 1.15, typeof size === 'object' && !Array.isArray(size) ? 14 : size]);
+          map.setPaintProperty(l.id, 'text-color', place ? '#fff1d2' : '#e2cc9f');
+          map.setPaintProperty(l.id, 'text-halo-color', 'rgba(8,6,3,0.92)'); map.setPaintProperty(l.id, 'text-halo-width', 1.6); }
+        else if (l.type === 'fill' && /water/.test(l.id)) map.setPaintProperty(l.id, 'fill-color', '#0b1220');
+        else if (l.type === 'background') map.setPaintProperty(l.id, 'background-color', '#0a0907');
+      } catch (e) {}
+    }
+  }
+  function setSat(on) {
+    detail.sat = on; const map = detail.map; if (!map || !map.isStyleLoaded()) return;
+    if (!map.getSource('esri')) {
+      map.addSource('esri', { type: 'raster', tileSize: 256, maxzoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] });
+      const first = map.getStyle().layers.find(l => l.type !== 'background');
+      map.addLayer({ id: 'esri', type: 'raster', source: 'esri', layout: { visibility: 'none' } }, first && first.id);
+    }
+    map.setLayoutProperty('esri', 'visibility', on ? 'visible' : 'none');
+    for (const l of map.getStyle().layers) if ((l.type === 'fill' || l.type === 'fill-extrusion') && l.id !== 'esri') { try { map.setLayoutProperty(l.id, 'visibility', on ? 'none' : 'visible'); } catch (e) {} }
+  }
+  function ensureMap() {
+    if (detail.ready) return detail.ready;
+    return detail.ready = mapLib().then(ml => new Promise(ok => {
+      const div = detail.div = el('div'); div.id = 'pc-map'; canvas.after(div);
+      const map = detail.map = new ml.Map({ container: div, style: MAP_STYLE, center: [0, 0], zoom: 3, attributionControl: { compact: true },
+        maxPitch: 70, fadeDuration: 150 });
+      map.on('style.load', () => { try { map.setProjection({ type: 'globe' }); } catch (e) {} goldStyle(map); if (detail.sat) setSat(true); });
+      map.on('load', () => ok(map));
+      map.on('zoomend', () => { if (detail.on && !detail.leaving && map.getZoom() < EXIT_ZOOM) leaveMap(true); });
+    })).catch(e => { console.warn('[GLOBE] detail map unavailable (offline?)', e); detail.ready = null; return null; });
+  }
+  async function enterMap(lat, lon, d, then) {
+    if (detail.on || detail.entering) return; detail.entering = true;
+    const map = await ensureMap(); detail.entering = false;
+    if (!map || !running || dist > ENTER_DIST + 0.4) return;
+    map.jumpTo({ center: [lon, lat], zoom: zoomOf(d, lat), bearing: 0, pitch: 0 }); map.resize();
+    detail.on = true; detail.leaving = false; detail.div.classList.add('on'); canvas.classList.add('under');
+    labels.forEach(l => l.el.style.opacity = 0); pool.forEach(e => e.style.opacity = 0);
+    if (then) setTimeout(() => map.flyTo({ center: [then.lon, then.lat], zoom: then.zoom, speed: 0.9, curve: 1.3, essential: true }), 350);
+  }
+  function leaveMap(sync) {           // back to the 3D globe, from where the map was looking
+    if (!detail.on) return; const map = detail.map; detail.leaving = true;
+    if (sync && map) { const c = map.getCenter(); rotX = clamp(c.lat * DEG, -1.45, 1.45); rotY = -(c.lng + 90) * DEG; dist = clamp(distOf(map.getZoom(), c.lat), ENTER_DIST + 0.15, FAR); }
+    detail.on = false; detail.div.classList.remove('on'); canvas.classList.remove('under');
+    setTimeout(() => { detail.leaving = false; }, 600);
+  }
+  function mapCommand(target) {        // a voice command while the map is up: fly the map, or hand back to the globe
+    const map = detail.map; if (!map) return false;
+    if (target.dist != null && target.dist >= 2.4 && target.lat == null) { leaveMap(true); return false; }   // "zoom out": the globe flies out
+    if (target.scale && target.lat == null) { map.easeTo({ zoom: Math.min(19, map.getZoom() + 2), duration: 1200 }); return true; }
+    if (target.lat != null) {
+      const z = target.scale ? Math.min(19, map.getZoom() + 2) : (KIND_ZOOM[target.kind] || zoomOf(target.dist || 1.3, target.lat) + 3);
+      map.flyTo({ center: [target.lon, target.lat], zoom: z, speed: 0.9, curve: 1.4, essential: true }); return true;
+    }
+    return false;
+  }
   const api = {
-    get on() { return running; }, get dist() { return dist; },
+    get on() { return running; }, get dist() { return dist; }, get detail() { return detail.on; },
     show(msg = {}) {
       const first = !renderer; if (first) init();
       if (msg.mode === 'sat') { modeWant = 1; patchKey = ''; if (!satTex) satTex = new THREE.TextureLoader().load(GURL('/globe/tex/sat'), t => { mat.uniforms.tSat.value = t; }); }
@@ -505,7 +592,12 @@ const globe = (() => {
         sunNow(); const s0 = latLon(shared.uSun.value); msg.fly = { lat: clamp(-s0.lat, -35, 35) + 20, lon: s0.lon > 0 ? s0.lon - 180 : s0.lon + 180, dist: 3.4 };
       }
       if (msg.measure) measure(msg.measure.a, msg.measure.b, msg.measure.km);
-      const target = msg.measure ? null : msg.fly || (msg.focus && { lat: msg.focus.lat, lon: msg.focus.lon, dist: msg.layer === 'aurora' ? 3.4 : 3.0, label: msg.focus.label });
+      let target = msg.measure ? null : msg.fly || (msg.focus && { lat: msg.focus.lat, lon: msg.focus.lon, dist: msg.layer === 'aurora' ? 3.4 : 3.0, label: msg.focus.label });
+      if (msg.mode === 'sat' || msg.night) detail.sat = true; else if (msg.mode === 'holo') detail.sat = false;
+      if (detail.map) setSat(detail.sat);
+      if (target && detail.on && mapCommand(target)) target = null;
+      else if (target && target.lat != null && (target.kind === 'city' || (target.zoom && target.kind === 'state')))
+        detail.next = { lat: target.lat, lon: target.lon, zoom: KIND_ZOOM[target.kind] };     // land on the globe, then the map takes it down to the streets
       if (target) {
         if (target.label && !msg.layer) { clearLayer(); label(target.lat, target.lon, target.label, true); }
         if (!running && target.lat != null) { rotX = clamp(target.lat * DEG, -1.45, 1.45) - 0.5; rotY = -(target.lon + 90) * DEG + 1.2; dist = HOME; }   // arriving: start off to one side, then sweep in
@@ -518,7 +610,8 @@ const globe = (() => {
     },
     hide() {
       if (!running) return;
-      canvas.classList.remove('on'); document.body.classList.remove('pc-globe-on'); window.__jvFaceOff = !!(window.__jvHolo && window.__jvHolo.has());
+      if (detail.on) leaveMap(false);
+      canvas.classList.remove('on'); document.body.classList.remove('pc-globe-on'); window.__jvFaceOff = !!(window.__jvHolo && window.__jvHolo.hidesFace);
       if (cardKind === 'globe') hideCard();
       labels.forEach(l => l.el.style.opacity = 0); pool.forEach(e => e.style.opacity = 0);
       setTimeout(() => { if (!canvas.classList.contains('on')) { running = false; clearLayer(); dropPatch(); spin = true; fly = null; dist = HOME; } }, 900);
@@ -650,16 +743,30 @@ const holo = (() => {
     return lines;
   }
   const kindOf = d => d.kind || (d.image ? 'image' : 'text');
+  function drawSky(x, kind, cx, cy, r) {         // simple line icons in the card's gold
+    x.save(); x.strokeStyle = '#f5c97a'; x.fillStyle = '#f5c97a'; x.lineWidth = 3; x.lineCap = 'round';
+    const cloud = (ox, oy, s) => { x.beginPath(); x.arc(ox - s * 0.35, oy, s * 0.32, Math.PI * 0.5, Math.PI * 1.5); x.arc(ox, oy - s * 0.22, s * 0.42, Math.PI, 0);
+      x.arc(ox + s * 0.42, oy, s * 0.3, Math.PI * 1.5, Math.PI * 0.5); x.closePath(); x.stroke(); };
+    if (kind === 'sun') { x.beginPath(); x.arc(cx, cy, r * 0.42, 0, 7); x.stroke();
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; x.beginPath(); x.moveTo(cx + Math.cos(a) * r * 0.62, cy + Math.sin(a) * r * 0.62); x.lineTo(cx + Math.cos(a) * r * 0.85, cy + Math.sin(a) * r * 0.85); x.stroke(); } }
+    else { cloud(cx, cy, r);
+      if (kind === 'rain') for (let i = -1; i <= 1; i++) { x.beginPath(); x.moveTo(cx + i * r * 0.35, cy + r * 0.45); x.lineTo(cx + i * r * 0.35 - 6, cy + r * 0.75); x.stroke(); }
+      if (kind === 'snow') for (let i = -1; i <= 1; i++) { x.beginPath(); x.arc(cx + i * r * 0.35, cy + r * 0.6, 3, 0, 7); x.fill(); }
+      if (kind === 'storm') { x.beginPath(); x.moveTo(cx + 4, cy + r * 0.35); x.lineTo(cx - 8, cy + r * 0.7); x.lineTo(cx + 4, cy + r * 0.7); x.lineTo(cx - 6, cy + r * 1.0); x.stroke(); } }
+    x.restore();
+  }
   const SIZE = { image: [480, 600, 0.4], text: [640, 400, 0.52], stat: [480, 400, 0.38], list: [560, 680, 0.42], note: [620, 640, 0.48], video: [640, 452, 0.62] };
   const VID = (() => { const W = 640, pad = 14, iw = W - pad * 2 - 24; return { x: pad + 12, y: pad + 12, w: iw, h: Math.round(iw * 9 / 16) }; })();   // the picture area a live station plays in
   function paint(it) {
     const k = kindOf(it.data), [W, H] = SIZE[k], c = it.cv || (it.cv = document.createElement('canvas'));
-    c.width = W; c.height = H; const x = c.getContext('2d'), pad = 14, L = pad + 30;
-    x.clearRect(0, 0, W, H);
+    const RES = 1.6;          // drawn at 1.6x: crisp text even when a card is pulled up close
+    c.width = Math.round(W * RES); c.height = Math.round(H * RES); const x = c.getContext('2d'), pad = 14, L = pad + 30;
+    x.setTransform(RES, 0, 0, RES, 0, 0); x.clearRect(0, 0, W, H);
+    const fit = (t, w) => { t = String(t || ''); if (x.measureText(t).width <= w) return t; while (t.length > 1 && x.measureText(t + '…').width > w) t = t.slice(0, -1); return t.trimEnd() + '…'; };
     const grd = x.createLinearGradient(0, 0, 0, H); grd.addColorStop(0, 'rgba(46,30,14,.9)'); grd.addColorStop(1, 'rgba(14,9,4,.94)');
     x.beginPath(); x.roundRect(pad, pad, W - pad * 2, H - pad * 2, 26); x.fillStyle = grd; x.fill();
     x.lineWidth = 3; x.strokeStyle = it.data.tone === 'warn' ? 'rgba(255,154,61,.85)' : 'rgba(245,201,122,.75)'; x.stroke();
-    const small = (t, y, col = '#d9b46e') => { x.font = "600 17px Saira, system-ui, sans-serif"; x.fillStyle = col; x.fillText(String(t || '').toUpperCase().slice(0, 40), L, y); };
+    const small = (t, y, col = '#d9b46e') => { x.font = "600 17px Saira, system-ui, sans-serif"; x.fillStyle = col; x.fillText(fit(String(t || '').toUpperCase(), W - L - 90), L, y); };
     if (k === 'video') {        // a live station: its picture (the player sits over it when it's in front), the name, LIVE
       x.save(); x.beginPath(); x.roundRect(VID.x, VID.y, VID.w, VID.h, 16); x.clip(); x.fillStyle = '#000'; x.fillRect(VID.x, VID.y, VID.w, VID.h);
       if (it.pic && it.pic.complete && it.pic.naturalWidth) {
@@ -672,7 +779,7 @@ const holo = (() => {
       x.beginPath(); x.roundRect(pad + 26, ty - 22, pw, 28, 14); x.fillStyle = tl ? '#f5c97a' : '#e8483c'; x.fill();
       x.font = "700 15px Saira, system-ui, sans-serif"; x.fillStyle = tl ? '#1a1006' : '#fff'; x.fillText(tl ? 'TIMELAPSE' : 'LIVE', pad + 38, ty - 2);
       x.font = "600 28px Saira, system-ui, sans-serif"; x.fillStyle = '#fff6e8'; x.fillText(wrap(x, it.data.title, W - 160 - pw, 1)[0] || '', pad + 40 + pw, ty);
-      x.font = "500 17px Saira, system-ui, sans-serif"; x.fillStyle = '#c9a76a'; x.fillText(String(it.data.source || '').toUpperCase().slice(0, 40), pad + 26, ty + 32);
+      x.font = "500 17px Saira, system-ui, sans-serif"; x.fillStyle = '#c9a76a'; x.fillText(fit(String(it.data.source || '').toUpperCase(), W - pad * 2 - 110), pad + 26, ty + 32);
     } else if (k === 'image') {
       const ih = H - 150;
       x.save(); x.beginPath(); x.roundRect(pad + 12, pad + 12, W - pad * 2 - 24, ih, 18); x.clip();
@@ -683,7 +790,7 @@ const holo = (() => {
       x.restore();
       x.font = "600 26px Saira, system-ui, sans-serif"; x.fillStyle = '#fff6e8';
       wrap(x, it.data.title, W - 90, 2).forEach((l, i) => x.fillText(l, pad + 26, pad + 12 + ih + 40 + i * 32));
-      x.font = "500 18px Saira, system-ui, sans-serif"; x.fillStyle = '#c9a76a'; x.fillText((it.data.source || '').toUpperCase().slice(0, 34), pad + 26, H - pad - 22);
+      x.font = "500 18px Saira, system-ui, sans-serif"; x.fillStyle = '#c9a76a'; x.fillText(fit((it.data.source || '').toUpperCase(), W - pad * 2 - 60), pad + 26, H - pad - 22);
     } else if (k === 'stat') {
       small(it.data.label, pad + 52);
       x.font = "300 96px Saira, system-ui, sans-serif"; x.fillStyle = '#fff6e8';
@@ -691,18 +798,29 @@ const holo = (() => {
       x.fillText(String(it.data.value), L - 4, pad + 70 + fs);
       x.font = "400 23px Saira, system-ui, sans-serif"; x.fillStyle = it.data.tone === 'up' ? '#9fdc9a' : it.data.tone === 'down' ? '#ff9a7a' : '#d6c4a6';
       wrap(x, it.data.sub, W - 80, 3).forEach((l, i) => x.fillText(l, L, pad + 120 + fs + i * 30));
+      const wx = `${it.data.label || ''} ${it.data.sub || ''} ${it.data.value || ''}`.toLowerCase();
+      const sky = /thunder|storm/.test(wx) ? 'storm' : /rain|shower|drizzle/.test(wx) ? 'rain' : /snow|sleet/.test(wx) ? 'snow' : /cloud|overcast|fog|mist|haze/.test(wx) ? 'cloud'
+        : /sun|clear|fair/.test(wx) ? 'sun' : (/weather|°/.test(wx) ? 'cloud' : '');
+      if (sky) drawSky(x, sky, W - pad - 92, pad + 118, 46);
+      const ser = Array.isArray(it.data.series) ? it.data.series.map(Number).filter(v => isFinite(v)) : [];
+      if (ser.length > 1) {
+        const lo = Math.min(...ser), hi = Math.max(...ser), gx = L, gw = W - L * 2, gy = H - pad - 40, gh = 48;
+        x.beginPath(); ser.forEach((v, i) => { const px = gx + gw * i / (ser.length - 1), py = gy - (hi > lo ? (v - lo) / (hi - lo) : 0.5) * gh; i ? x.lineTo(px, py) : x.moveTo(px, py); });
+        x.strokeStyle = it.data.tone === 'down' ? '#ff9a7a' : it.data.tone === 'up' ? '#9fdc9a' : '#f5c97a'; x.lineWidth = 3; x.lineJoin = 'round'; x.stroke();
+      }
     } else if (k === 'list') {
-      x.font = "600 32px Saira, system-ui, sans-serif"; x.fillStyle = it.data.tone === 'warn' ? '#ffb070' : '#fff6e8'; x.fillText(String(it.data.title || '').slice(0, 26), L, pad + 62);
-      const rows = it.data.rows || [];
-      if (!rows.length) { x.font = "400 24px Saira, system-ui, sans-serif"; x.fillStyle = '#d6c4a6'; x.fillText(it.data.empty || 'Nothing here.', L, pad + 120); }
-      rows.slice(0, 7).forEach((r, i) => {
-        const y = pad + 120 + i * 74;
+      x.font = "600 32px Saira, system-ui, sans-serif"; x.fillStyle = it.data.tone === 'warn' ? '#ffb070' : '#fff6e8';
+      const tls = wrap(x, it.data.title, W - L - 90, 2); tls.forEach((l, i) => x.fillText(l, L, pad + 62 + i * 38));
+      const top = pad + 120 + (tls.length - 1) * 38, rows = it.data.rows || [];
+      if (!rows.length) { x.font = "400 24px Saira, system-ui, sans-serif"; x.fillStyle = '#d6c4a6'; x.fillText(it.data.empty || 'Nothing here.', L, top); }
+      rows.slice(0, tls.length > 1 ? 6 : 7).forEach((r, i) => {
+        const y = top + i * 74;
         if (r.tone === 'suggest') { x.setLineDash([6, 6]); x.strokeStyle = 'rgba(245,201,122,.5)'; x.lineWidth = 2; x.beginPath(); x.roundRect(L - 12, y - 32, W - L * 2 + 24, 64, 12); x.stroke(); x.setLineDash([]); }
         x.globalAlpha = r.tone === 'past' ? 0.45 : 1;
         x.font = "600 22px Saira, system-ui, sans-serif"; x.fillStyle = '#f5c97a'; if (r.t) x.fillText(r.t, L, y);
         const tx = r.t ? L + 130 : L;
         x.font = "500 24px Saira, system-ui, sans-serif"; x.fillStyle = '#fff6e8'; x.fillText(wrap(x, r.title, W - tx - 40, 1)[0] || '', tx, y);
-        x.font = "400 18px Saira, system-ui, sans-serif"; x.fillStyle = r.tone === 'suggest' ? '#f5c97a' : '#bfa985'; x.fillText(String(r.sub || '').slice(0, 40), tx, y + 24);
+        x.font = "400 18px Saira, system-ui, sans-serif"; x.fillStyle = r.tone === 'suggest' ? '#f5c97a' : '#bfa985'; x.fillText(fit(r.sub, W - tx - 40), tx, y + 24);
         x.globalAlpha = 1;
       });
     } else if (k === 'note') {
@@ -737,7 +855,14 @@ const holo = (() => {
     const inRow = r === rows - 1 ? n - r * cols : cols, sx = 0.6, sy = 0.62;
     out.set((c - (inRow - 1) / 2) * sx, 0.12 - (r - (rows - 1) / 2) * sy, 0.25);
   }
-  function frontIndex() { const n = items.length; return n ? ((Math.round(ring / step()) % n) + n) % n : -1; }
+  const SHOWN = 3; let arcStart = 0;
+  function arcPos(i, out) {      // right of the face, left of it, then lower right: never over the face, the clock or the bottom buttons
+    const n = items.length, slot = ((i - arcStart) % n + n) % n, A = camera ? camera.aspect : 1.6;
+    if (slot >= SHOWN) { out.set(A * 1.25, 0.1, -0.2); return -1; }
+    const P = [[A * 0.62, 0.2, 0.22], [-A * 0.62, 0.2, 0.22], [-A * 0.78, -0.5, 0.16]][slot];
+    out.set(P[0], P[1], P[2]); return slot;
+  }
+  function frontIndex() { const n = items.length; if (layout === 'arc') return n ? arcStart % n : -1; return n ? ((Math.round(ring / step()) % n) + n) % n : -1; }
   function nearestTurn(i) { const want = i * step(); return ring + Math.atan2(Math.sin(want - ring), Math.cos(want - ring)); }
 
   function makeItem(data, i, born) {
@@ -765,7 +890,7 @@ const holo = (() => {
       room.forEach((d, k) => items.push(makeItem(d, items.length, now + 120 + k * 95)));
       wave.userData.t0 = now + 100; lastTouch = now; return;
     }
-    clear(true); focused = -1; hovered = -1; ring = ringT = 0; spinV = 0; coasting = false; closingAt = 0; layout = 'ring'; focusScale = 1.5; turnId = msg.turn;
+    clear(true); focused = -1; hovered = -1; ring = ringT = 0; spinV = 0; coasting = false; closingAt = 0; layout = 'arc'; arcStart = 0; focusScale = 1.5; turnId = msg.turn;
     launchAt = now + 450; wave.userData.fired = false;
     items = list.map((d, i) => makeItem(d, i, launchAt + i * 95));
     setTimeout(() => window.__jvSfx && window.__jvSfx.burst(), 380);
@@ -792,7 +917,8 @@ const holo = (() => {
     window.__jvHoloActive = on || head.on;
     document.body.classList.toggle('pc-holo-on', on);
     canvas.classList.toggle('live', on);
-    window.__jvFaceOff = !!(on && items.length) || (window.__jvGlobe && window.__jvGlobe.on);
+    window.__jvFaceOff = !!(on && hidesFace()) || (window.__jvGlobe && window.__jvGlobe.on);
+    document.body.classList.toggle('pc-holo-cover', !!(on && hidesFace()));
     if ((on || head.on || wave.userData.t0) && !running) { running = true; clock.getDelta(); requestAnimationFrame(frame); }
   }
   function hit(x, y) {
@@ -802,11 +928,16 @@ const holo = (() => {
     return hs.length ? items.findIndex(it => it.mesh === hs[0].object) : -1;
   }
   const touch = () => { lastTouch = performance.now(); };
+  // the face stays between the cards; it only steps aside for a card opened full size or the wall of cards
+  const hidesFace = () => items.length > 0 && !closingAt && (layout !== 'arc' || focused >= 0);
   function hover(x, y) { const i = hit(x, y); hovered = i; if (i >= 0) touch(); return i; }
   function pick(x, y) { const i = hit(x, y); if (i < 0 || i === focused) back(); else select(i); return i; }
-  function select(i) { if (i < 0 || i >= items.length) return; if (layout === 'ring') ringT = nearestTurn(i); spinV = 0; coasting = false; focused = i; focusScale = 1.5; touch(); }
+  function select(i) { if (i < 0 || i >= items.length) return; if (layout === 'ring') ringT = nearestTurn(i);
+    if (layout === 'arc') { const n = items.length, slot = ((i - arcStart) % n + n) % n; if (slot >= SHOWN) arcStart = i; } spinV = 0; coasting = false; focused = i; focusScale = 1.5; touch(); }
   function back() { focused = -1; touch(); }
-  function rotate(dir) { if (items.length > 1 && layout === 'ring') { focused = -1; ringT = Math.round(ringT / step()) * step() + dir * step(); spinV = 0; coasting = false; touch(); } }
+  function rotate(dir) {
+    if (items.length > 1 && layout === 'arc') { focused = -1; arcStart = ((arcStart + dir) % items.length + items.length) % items.length; touch(); return; }
+    if (items.length > 1 && layout === 'ring') { focused = -1; ringT = Math.round(ringT / step()) * step() + dir * step(); spinV = 0; coasting = false; touch(); } }
   function drag(dx) {              // spin with the hand or mouse; speed measured over time so a flick can coast
     if (items.length < 2 || layout !== 'ring') return;
     focused = -1; coasting = false;
@@ -814,7 +945,8 @@ const holo = (() => {
     ringT += d; spinV = spinV * 0.5 + (d / el) * 0.5; lastDrag = now; touch();
   }
   function release() { lastDrag = 0; if (Math.abs(spinV) > 0.8) coasting = true; else { ringT = Math.round(ringT / step()) * step(); spinV = 0; } }
-  function fling(v) { if (layout === 'ring' && items.length > 1) { spinV = v; coasting = true; focused = -1; touch(); } }
+  function fling(v) { if (layout === 'arc' && items.length > SHOWN) { rotate(v > 0 ? -1 : 1); return; }
+    if (layout === 'ring' && items.length > 1) { spinV = v; coasting = true; focused = -1; touch(); } }
   function twist(da) { if (layout === 'ring' && items.length > 1) { ringT += da; spinV = 0; coasting = false; touch(); } }
   function snapRing() { ringT = Math.round(ringT / step()) * step(); }
   function screenToWorld(x, y, z = 0.9) {
@@ -832,7 +964,7 @@ const holo = (() => {
     focused = -1; touch();
   }
   function explode() { if (items.length) { layout = 'wall'; focused = -1; coasting = false; touch(); } }
-  function collapse() { if (layout === 'wall') { layout = 'ring'; touch(); } else clear(); }
+  function collapse() { if (layout === 'wall') { layout = 'arc'; touch(); } else clear(); }
   function enlarge(f = 1.25) { if (focused >= 0) { focusScale = Math.min(2.4, Math.max(1.1, focusScale * f)); touch(); } }
 
   // ---- the live station or webcam in front: its player laid exactly over that panel's picture, once the ring has stopped turning ----
@@ -901,7 +1033,9 @@ const holo = (() => {
     ring += (ringT - ring) * damp(coasting ? 12 : 5.5, dt);
     const ringVel = Math.abs(ring - ringPrev) / Math.max(dt, 1e-3); ringPrev = ring;
 
-    const showOrb = (items.length > 0 || wave.userData.t0) && !(window.__jvGlobe && window.__jvGlobe.on);
+    const showOrb = (items.length > 0 || wave.userData.t0) && !(window.__jvGlobe && window.__jvGlobe.on) && !(layout === 'arc' && !hidesFace() && now > launchAt + 1300 && !wave.userData.t0);
+    if (!(window.__jvGlobe && window.__jvGlobe.on) && !(window.__jvDesk && window.__jvDesk.on)) window.__jvFaceOff = hidesFace();
+    document.body.classList.toggle('pc-holo-cover', hidesFace());
     orb.visible = showOrb;
     const u = orb.material.uniforms, charge = items.length && now < launchAt ? 1 - (launchAt - now) / 450 : 0;
     u.uCharge.value += ((charge > 0 ? easeOut(charge) : 0) - u.uCharge.value) * damp(charge > 0 ? 30 : 8, dt);
@@ -926,7 +1060,9 @@ const holo = (() => {
     for (const it of items.slice()) {
       const i = it.i, m = it.mesh, mat = it.mat.uniforms; mat.uTime.value = t;
       let th = 0, sc = 1, op = 1, ry = 0, glow = 0;
+      let parked = false;
       if (layout === 'wall') wallPos(i, _p);
+      else if (layout === 'arc') { const slot = arcPos(i, _p); if (slot < 0) { parked = true; op = 0; sc = 0.6; } else { sc = slot === 2 ? 1.1 : 1.3; ry = _p.x > 0 ? -0.18 : 0.18; } }
       else { th = ringPos(i, _p); const depth = (Math.cos(th) + 1) / 2; sc = 0.76 + 0.3 * depth; op = 0.28 + 0.72 * depth; ry = -Math.sin(th) * 0.55; }
       if (focused === i) { _p.set(0, 0.04, 1.42); sc = focusScale; op = 1; ry = 0; glow = 1; }
       else if (focused >= 0) { op *= 0.35; }
@@ -971,8 +1107,9 @@ const holo = (() => {
       m.position.copy(it.pos); m.position.y += it.lift + (it.held ? 0 : Math.sin(t * 1.1 + i * 1.7) * 0.012);
       m.rotation.set(0, it.ry, 0); mat.uOpacity.value = it.op; mat.uGlow.value += (glow - mat.uGlow.value) * damp(8, dt);
       m.renderOrder = 10 + Math.round((m.position.z + 3) * 100);
+      if (parked && it.op < 0.02 && focused !== i) m.visible = false;      // waiting its turn off to the side
     }
-    if (items.length && !closingAt && focused < 0 && now - lastTouch > 90000 && !hasVideo()) clear();
+    if (items.length && !closingAt && focused < 0 && now - lastTouch > 60000 && !hasVideo()) clear();     // a minute untouched: they go
     const keep = items.length || head.on || wave.userData.t0;
     if (!keep) { orb.visible = false; stream.visible = false; }
     renderer.render(scene, camera);
@@ -981,7 +1118,7 @@ const holo = (() => {
   }
   return {
     show, clear: () => clear(), select: n => select(n - 1), back, rotate, drag, release, fling, twist, hover, pick, grab, movePanel, dropPanel, throwPanel,
-    explode, collapse, enlarge, has: () => items.length > 0 && !closingAt, get tv() { return hasVideo(); }, get tvSound() { return tv.sound; }, get focused() { return focused; }, get front() { return frontIndex(); },
+    explode, collapse, enlarge, has: () => items.length > 0 && !closingAt, get hidesFace() { return hidesFace(); }, get tv() { return hasVideo(); }, get tvSound() { return tv.sound; }, get focused() { return focused; }, get front() { return frontIndex(); },
     get hovered() { return hovered; }, get layout() { return layout; }, get count() { return items.length; },
     setHead(on) { head.on = on; if (!on) { head.tx = head.ty = 0; head.tz = 4; window.__jvSpin = { yaw: 0, pitch: 0 }; } if (on && !renderer) init(); activate(items.length > 0); },
     headAt(cx, cy, w) {
@@ -1295,7 +1432,7 @@ const feeds = (() => {
     if (!wall.classList.contains('on')) return;
     wall.classList.remove('show'); closeAll.classList.remove('on');
     setTimeout(() => { if (!wall.classList.contains('show')) { wall.classList.remove('on'); wall.innerHTML = ''; list = []; } }, 500);
-    window.__jvFaceOff = !!((window.__jvGlobe && window.__jvGlobe.on) || (window.__jvHolo && window.__jvHolo.has()));
+    window.__jvFaceOff = !!((window.__jvGlobe && window.__jvGlobe.on) || (window.__jvHolo && window.__jvHolo.hidesFace));
   }
   closeAll.onclick = close;
   addEventListener('resize', layout);

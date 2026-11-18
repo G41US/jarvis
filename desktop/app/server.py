@@ -60,8 +60,37 @@ SPOTIFY_READY = bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET and os.path.exi
 ws_clients = set()
 
 _QUIET = threading.local()     # set on a background thread (Jarvis's missions) so the tools it uses don't pop panels on screen
+# "sir" is seasoning, not punctuation: at most one in a reply, and most replies (and things he says on his own) without it
+_SIR = {"n": 0}
+def _drop_sir(text):
+    t = re.sub(r"^\s*(sir|ma'?am)\s*[,.!]\s*", "", text, flags=re.I)                       # "Sir, the ..." / "Sir." at the start
+    t = re.sub(r"\s*,\s*(sir|ma'?am)\b\s*(?=[.!?,;:]|$)", "", t, flags=re.I)              # "..., sir." / "..., sir, and"
+    t = re.sub(r"(?<=\w)\s+(sir|ma'?am)\s*,", ",", t, flags=re.I)                          # "Yes sir, on it" -> "Yes, on it"
+    t = re.sub(r"\b(sir|ma'?am)\s*,\s*", "", t, flags=re.I)                               # what's left mid-line
+    t = re.sub(r"\s+(sir|ma'?am)\b(?=\s*[.!?]|\s*$)", "", t, flags=re.I)                   # "Done sir."
+    t = re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), t.strip())
+    return t or text
+def _tame_sir(text, allow):
+    """allow: may this line keep one 'sir'. Returns (text, used_one)."""
+    if not text or not re.search(r"\b(sir|ma'?am)\b", text, re.I): return text, False
+    if not allow: return _drop_sir(text), False
+    m = re.search(r"\b(sir|ma'?am)\b", text, re.I)                     # keep the first, drop the rest
+    return text[:m.end()] + _drop_sir(text[m.end():]) if re.search(r"\b(sir|ma'?am)\b", text[m.end():], re.I) else text, True
+async def _sir_tamed(gen):
+    _SIR["n"] += 1; allow = _SIR["n"] % 3 == 1
+    async for ev in gen:
+        if ev.startswith("data:") and '"sentence"' in ev:
+            try:
+                obj = json.loads(ev[5:])
+                if obj.get("type") == "sentence":
+                    obj["text"], used = _tame_sir(obj.get("text", ""), allow); allow = allow and not used; ev = _sse(obj)
+            except Exception: pass
+        yield ev
+
 def _broadcast_ws(msg: str):
     if MAIN_LOOP is None or getattr(_QUIET, "on", False): return
+    if isinstance(msg, str) and msg.startswith("proactive:"):
+        _SIR["n"] += 1; msg = "proactive:" + _tame_sir(msg[10:], _SIR["n"] % 3 == 1)[0]
     async def _send():
         dead = set()
         for c in list(ws_clients):
@@ -1161,6 +1190,8 @@ def build_system_prompt():
         "- Streaming: 'prepare my stream' / 'set up scenes' / 'we need designs for the stream'->stream_studio (it designs every overlay and builds the OBS scenes); "
         "switching scenes, going live, recording, adding the camera or game->obs; alerts, the wanted-stars goal, the radio, countdown, a new look->overlay. "
         "Telling Discord or Telegram->announce: write the message in his style, read it to him, send only after he says yes. Going live: ask first.\n"
+        "- The browser: 'open a new tab', 'search X in Chrome', 'search X on YouTube / Amazon / Google', 'open some-site.com'->browse "
+        "(it opens his browser at the search, instantly). Only use open_app for a browser when he just wants the app open.\n"
         "- Anything on his PC that no other tool does (an app's menus, a form, Settings, a website he's logged into)->use_computer with the task "
         "in plain words; it works in the background and reports back. When it asks before a step that can't be undone and he says yes->use_computer "
         "action continue, confirmed true; 'stop'->use_computer stop. 'start with Windows' / 'don't start when I log in'->start_with_computer.\n"
@@ -1176,7 +1207,7 @@ def build_system_prompt():
         "- Never invent facts or context.\n"
     )
     addr = _address()
-    if addr in ("sir", "ma'am"): base += f"\nAddress the user as '{addr}'.\n"
+    if addr in ("sir", "ma'am"): base += f"\nCall the user '{addr}' now and then, never more than once in a reply; most replies need no '{addr}' at all.\n"
     elif addr == "none": base += "\nYou don't know yet whether to say sir or ma'am: call the user neither.\n"
     prefs = db_get_preferences(20)
     if prefs:
@@ -3937,7 +3968,7 @@ async def chat_stream(payload: dict):
     if payload.get("followup") and not _plainly_for_me(user_text):
         if _harmless_chat(user_text):
             # small talk: the "was that for me?" check and the answer run side by side; the words are only let out once it says yes
-            return StreamingResponse(_gated_stream(user_text), media_type="text/event-stream", headers=hdrs)
+            return StreamingResponse(_sir_tamed(_gated_stream(user_text)), media_type="text/event-stream", headers=hdrs)
         if not await asyncio.to_thread(_meant_for_me, user_text):      # it would do something (a tool): ask first, act after
             print(f"[HEARD] not for Jarvis (lyrics, TV or someone else): {user_text!r}")
             async def _ignored():
@@ -3945,7 +3976,7 @@ async def chat_stream(payload: dict):
             return StreamingResponse(_ignored(), media_type="text/event-stream")
     try: _MIND["heard"](user_text)
     except Exception as e: print(f"[MIND] heard: {e}")
-    return StreamingResponse(stream_chat(user_text), media_type="text/event-stream", headers=hdrs)
+    return StreamingResponse(_sir_tamed(stream_chat(user_text)), media_type="text/event-stream", headers=hdrs)
 
 def _harmless_chat(text):
     """Nothing but talk: no tool, no face or voice change. Safe to start answering before we know it was said to him."""
