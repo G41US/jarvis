@@ -114,6 +114,58 @@ def _do(step, elements, scale):
     if a == "wait": time.sleep(1.5); return "waited"
     return a
 
+# ---------------- the browser: new tabs and searches, straight in (no screen-reading needed) ----------------
+SITES = {   # where "search X on <site>" goes
+    "google": "https://www.google.com/search?q={q}", "youtube": "https://www.youtube.com/results?search_query={q}",
+    "amazon": "https://www.amazon.com/s?k={q}", "wikipedia": "https://en.wikipedia.org/w/index.php?search={q}",
+    "maps": "https://www.google.com/maps/search/{q}", "google maps": "https://www.google.com/maps/search/{q}",
+    "images": "https://www.google.com/search?tbm=isch&q={q}", "news": "https://news.google.com/search?q={q}",
+    "github": "https://github.com/search?q={q}", "reddit": "https://www.reddit.com/search/?q={q}", "x": "https://x.com/search?q={q}",
+    "twitter": "https://x.com/search?q={q}", "tiktok": "https://www.tiktok.com/search?q={q}", "instagram": "https://www.instagram.com/explore/search/keyword/?q={q}",
+    "jumia": "https://www.jumia.com.ng/catalog/?q={q}", "ebay": "https://www.ebay.com/sch/i.html?_nkw={q}", "spotify": "https://open.spotify.com/search/{q}",
+    "bing": "https://www.bing.com/search?q={q}", "duckduckgo": "https://duckduckgo.com/?q={q}", "chatgpt": "https://chatgpt.com/?q={q}",
+}
+
+def _browser_exe(which):
+    """The browser program on this PC (his own profile, not Jarvis's window)."""
+    which = (which or "").lower()
+    if WIN:
+        pf, pf86, local = os.environ.get("ProgramFiles", ""), os.environ.get("ProgramFiles(x86)", ""), os.environ.get("LOCALAPPDATA", "")
+        paths = {"chrome": [os.path.join(b, "Google", "Chrome", "Application", "chrome.exe") for b in (pf, pf86, local)],
+                 "edge": [os.path.join(b, "Microsoft", "Edge", "Application", "msedge.exe") for b in (pf86, pf)],
+                 "firefox": [os.path.join(b, "Mozilla Firefox", "firefox.exe") for b in (pf, pf86)],
+                 "brave": [os.path.join(b, "BraveSoftware", "Brave-Browser", "Application", "brave.exe") for b in (pf, pf86, local)],
+                 "opera": [os.path.join(local, "Programs", "Opera", "opera.exe")]}.get(which, [])
+        return next((p for p in paths if p and os.path.isfile(p)), None)
+    if sys.platform == "darwin":
+        return {"chrome": "Google Chrome", "edge": "Microsoft Edge", "firefox": "Firefox", "brave": "Brave Browser", "safari": "Safari", "opera": "Opera"}.get(which)
+    import shutil
+    return shutil.which({"chrome": "google-chrome", "edge": "microsoft-edge", "firefox": "firefox", "brave": "brave-browser"}.get(which, which or "xdg-open"))
+
+def open_in_browser(url, browser=""):
+    import subprocess, webbrowser
+    b = (browser or "").lower().replace("google chrome", "chrome").replace("microsoft edge", "edge").strip()
+    exe = _browser_exe(b) if b and b != "default" else None
+    try:
+        if exe and sys.platform == "darwin": subprocess.Popen(["open", "-a", exe, url]); return True
+        if exe:
+            args = [exe, "-new-tab", url] if "firefox" in exe.lower() else [exe, url]       # Chromium browsers open a URL as a new tab
+            subprocess.Popen(args, creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) if WIN else 0); return True
+        return webbrowser.open_new_tab(url)
+    except Exception as e:
+        print(f"[BROWSE] {type(e).__name__}: {e}"); return False
+
+def build_url(query="", url="", site=""):
+    from urllib.parse import quote_plus
+    if url:
+        u = url.strip()
+        return u if re.match(r"^[a-z]+://", u) else "https://" + u.lstrip("/")
+    if not query: return "about:blank"
+    site = (site or "google").lower().strip()
+    tpl = SITES.get(site) or SITES.get(site.replace(".com", "")) or SITES["google"]
+    q = quote_plus(query) if "{q}" in tpl and "/search/{q}" not in tpl else quote_plus(query).replace("+", "%20")
+    return tpl.format(q=q)
+
 def install(ns):
     tool, app = ns["tool"], ns["app"]
     _dpi_aware()
@@ -199,6 +251,21 @@ def install(ns):
         threading.Thread(target=run, daemon=True).start()
         return "On it. I'm driving the screen now: say stop if you need it back."
 
+    @tool("browse",
+          "Open a new browser tab and go somewhere or search: 'open a new tab in Chrome and search X', 'search X on YouTube / Amazon / "
+          "Google', 'open youtube.com', 'open a new tab'. Use this (not open_app or search_web) whenever he wants it in the browser. "
+          "query: what to search; url: a site to open instead; site: google (default), youtube, amazon, wikipedia, maps, images, news, "
+          "github, reddit, x, tiktok, jumia, ebay, spotify...; browser: chrome, edge, firefox, brave or default.",
+          {"query": {"type": "string"}, "url": {"type": "string"}, "site": {"type": "string"}, "browser": {"type": "string"}}, [])
+    def browse(query="", url="", site="", browser=""):
+        link = build_url(query, url, site)
+        if link == "about:blank": link = "chrome://newtab" if "chrome" in (browser or "").lower() or "edge" in (browser or "").lower() else "about:blank"
+        if not open_in_browser(link, browser):
+            return f"I couldn't open {browser or 'the browser'}." + (" Is it installed?" if browser else "")
+        where = f" in {browser.title()}" if browser and browser.lower() != "default" else ""
+        if query: return f"Searching {site.title() if site else 'Google'} for {query}{where}."
+        return f"Opened {url}{where}." if url else f"New tab open{where}."
+
     @tool("start_with_computer", "Turn on or off Jarvis starting by himself when the computer starts ('start with Windows', "
           "'don't start when I log in').", {"on": {"type": "boolean"}}, ["on"])
     def start_with_computer(on=True):
@@ -212,6 +279,10 @@ def install(ns):
              r"take over|drive|do it for me|stop (that|it|clicking|driving)|carry on|continue|start (with|when) (windows|my (computer|pc|laptop))|"
              r"(on|at) (startup|start ?up|log ?in))\b")
     ns["_TOOL_GROUPS"].append((words, ("use_computer", "start_with_computer")))
+    bwords = (r"\b(chrome|edge|firefox|brave|opera|safari|browser|new tab|tabs?|google (it|that|for)|search (for|on|up)|on (youtube|amazon|google|jumia|ebay|"
+              r"reddit|github|tiktok|wikipedia)|youtube|website|\w+\.(com|org|net|ng|io|co|ai|dev|app|tv))\b")
+    ns["_TOOL_GROUPS"].append((bwords, ("browse",)))
+    words = words + "|" + bwords
     ns["_TOOL_GROUPS"].append((r"^\s*(yes|yeah|yep|sure|go ahead|do it|please do|ok(ay)?|no|nope|stop|cancel|don'?t)\b", ("use_computer",)))
     _needs = ns["_needs_tool"]
     ns["_needs_tool"] = lambda text: bool(re.search(words, (text or "").lower())) or _needs(text)
