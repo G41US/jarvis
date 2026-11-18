@@ -281,6 +281,7 @@
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
 </script>
 
+<script src="/lips.js"></script>
 <script type="module">
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -902,7 +903,7 @@ window.__jvSyncFace = syncAvatarToVoice;
 const SCAN_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/facecap.glb';
 const SCAN_MORPHS = ['jawOpen', 'mouthClose', 'mouthFunnel', 'mouthPucker', 'mouthSmile_L', 'mouthSmile_R', 'mouthLowerDown_L', 'mouthLowerDown_R',
   'mouthUpperUp_L', 'mouthUpperUp_R', 'mouthStretch_L', 'mouthStretch_R', 'mouthPress_L', 'mouthPress_R', 'eyeBlink_L', 'eyeBlink_R',
-  'browInnerUp', 'browOuterUp_L', 'browOuterUp_R', 'cheekSquint_L', 'cheekSquint_R', 'eyeSquint_L', 'eyeSquint_R'];
+  'browInnerUp', 'browOuterUp_L', 'browOuterUp_R', 'cheekSquint_L', 'cheekSquint_R', 'eyeSquint_L', 'eyeSquint_R', 'mouthRollLower', 'mouthRollUpper'];
 function buildScanFace(gltf) {
   gltf.scene.updateMatrixWorld(true);
   let head = null;
@@ -975,10 +976,20 @@ function updateScanFace(S, dt, t) {
     lvl = real >= 0 ? real : (0.35 + 0.3 * Math.sin(t * 13) * Math.sin(t * 5.3)); }
   S.env += (lvl - S.env) * Math.min(1, dt * 25); S.envS += (lvl - S.envS) * Math.min(1, dt * 4);
   if (speaking) {
-    if (t > S.syl) { S.syl = t + 0.09 + Math.random() * 0.08; S.shape = lvl > 0.08 ? SCAN_SHAPES[Math.floor(Math.random() * SCAN_SHAPES.length)] : {}; }
-    const jaw = Math.min(0.55, S.env * 0.8);
-    set('jawOpen', jaw); set('mouthLowerDown_L', jaw * 0.6); set('mouthLowerDown_R', jaw * 0.6);
-    for (const k in S.shape) set(k, S.shape[k] * Math.min(1, S.env * 2.5));
+    // the shapes of the words he's saying, timed to the sound (lips.js); the jaw opens with the loudness of each syllable
+    const vz = window.__jvViseme ? window.__jvViseme() : null;
+    if (vz) {
+      const amp = Math.min(1, S.env * 2.2), a = vz.a, b = vz.b, k = vz.k;
+      const ja = a.jaw * (1 - k) + (b ? b.jaw : a.jaw) * k;
+      const jaw = (a.closed && k < 0.5) || (b && b.closed && k >= 0.5) ? 0 : Math.min(0.6, ja * (0.45 + 0.9 * amp));
+      set('jawOpen', jaw); set('mouthLowerDown_L', jaw * 0.4); set('mouthLowerDown_R', jaw * 0.4);
+      for (const n in a.m) set(n, a.m[n] * (1 - k)); if (b) for (const n in b.m) set(n, b.m[n] * k);
+    } else {                    // no timing to go on (the browser's own voice): open and close with the sound
+      if (t > S.syl) { S.syl = t + 0.09 + Math.random() * 0.08; S.shape = lvl > 0.08 ? SCAN_SHAPES[Math.floor(Math.random() * SCAN_SHAPES.length)] : {}; }
+      const jaw = Math.min(0.55, S.env * 0.8);
+      set('jawOpen', jaw); set('mouthLowerDown_L', jaw * 0.6); set('mouthLowerDown_R', jaw * 0.6);
+      for (const k in S.shape) set(k, S.shape[k] * Math.min(1, S.env * 2.5));
+    }
     if (S.env < 0.04) { set('mouthPress_L', 0.35); set('mouthPress_R', 0.35); }        // between words the lips meet
     S.nod += ((S.env - S.envS) * 0.9 - S.nod) * Math.min(1, dt * 8);
     S.brow += (Math.max(0, S.env - S.envS - 0.1) * 2.2 - S.brow) * Math.min(1, dt * 10);
@@ -991,7 +1002,7 @@ function updateScanFace(S, dt, t) {
   if (bl.at >= 0) { const e = (t - bl.at) / 0.16; if (e >= 1) bl.at = -1; else { const b = Math.sin(e * Math.PI); set('eyeBlink_L', b); set('eyeBlink_R', b); } }
   for (const k in (S.pend || {})) set(k, S.pend[k]); S.pend = {};          // the head's expressions (thinking squint, the brow on a question)
   let any = false;
-  for (const k in M) { const m = M[k], before = m.w; m.w += (m.t - m.w) * Math.min(1, dt * (k.startsWith('eye') ? 45 : 16)); if (Math.abs(m.w - before) > 1e-4 || m.w > 0.002) any = true; }
+  for (const k in M) { const m = M[k], before = m.w; m.w += (m.t - m.w) * Math.min(1, dt * (k.startsWith('eye') ? 45 : k.startsWith('mouth') || k === 'jawOpen' ? 26 : 16)); if (Math.abs(m.w - before) > 1e-4 || m.w > 0.002) any = true; }
   if (any || !S.still) { S.computeV(); S.place(); S.pg.attributes.position.needsUpdate = true; S.og.attributes.position.needsUpdate = true; S.still = !any; }
   // where he looks, like a person: mostly still, facing you; glances at things on purpose (the clock, a card that pops up, your mouse),
   // turns straight to you when you say "Hey Jarvis" and tilts while he listens, looks up and aside while he thinks, nods on "yes",
@@ -1965,6 +1976,12 @@ async function playSpeechChunk(text, pre, sig) {
     if (signal.aborted) return;
     const audio = new Audio(URL.createObjectURL(blob));
     currentAudio = audio;
+    // lip sync: the words' mouth shapes, timed against the decoded sound (decoding a sentence takes a few ms; it runs alongside)
+    (async () => {
+      let buf = null;
+      try { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); buf = await audioCtx.decodeAudioData(await blob.arrayBuffer()); } catch (e) {}
+      try { audio.__lips = window.__jvLips.build(text, buf, isFinite(audio.duration) ? audio.duration : text.length * 0.065); } catch (e) { console.warn('[LIPS]', e); }
+    })();
     audio.onplaying = () => { if (currentAudio === audio) { setState('speaking'); trackMouth(audio); if (!audio.__cap) { audio.__cap = 1; sayCaption(text, audio.duration); } } };
     await new Promise(resolve => { audio.onended = resolve; audio.onerror = resolve; audio.play().catch(resolve); });
   } catch (e) {} finally {
@@ -1985,6 +2002,14 @@ function trackMouth(audio) {
     mouthBuf = new Float32Array(an.fftSize); mouthAnalyser = an;
   } catch (e) { console.warn('[MOUTH]', e); }
 }
+window.__jvViseme = () => {        // the mouth shape for this instant of what he's saying (lips.js), or null
+  if (!window.__jvLips) return null;
+  const a = currentAudio;
+  if (a && !a.paused && a.__lips) return window.__jvLips.at(a.__lips, a.currentTime);
+  const b = window.__jvBrowserLips;
+  if (b && speechSynthesis.speaking) return window.__jvLips.at(b.tl, (performance.now() - b.t0) / 1000);
+  return null;
+};
 window.__jvMouthLevel = () => {
   if (!currentAudio || currentAudio.paused) return speechSynthesis.speaking ? -1 : 0;   // nothing playing: mouth shut
   if (!mouthAnalyser || audioCtx.state !== 'running') return -1;                       // can't measure: the old timed movement
@@ -2007,6 +2032,7 @@ function browserSpeak(text) {
     if (muted) return resolve();
     const u = new SpeechSynthesisUtterance(text);
     u.rate = TTS_RATE; u.pitch = TTS_PITCH;
+    u.onstart = () => { try { window.__jvBrowserLips = { tl: window.__jvLips.build(text, null, text.length * 0.065 / (TTS_RATE || 1)), t0: performance.now() }; } catch (e) {} };
     u.onend = resolve; u.onerror = resolve;
     speechSynthesis.speak(u);
   });
