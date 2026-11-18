@@ -856,10 +856,10 @@ const holo = (() => {
     out.set((c - (inRow - 1) / 2) * sx, 0.12 - (r - (rows - 1) / 2) * sy, 0.25);
   }
   const SHOWN = 3; let arcStart = 0;
-  function arcPos(i, out) {      // right of the face, left of it, then lower right: never over the face, the clock, the bottom buttons or the answer console (lower left)
+  function arcPos(i, out) {      // right of the face, left of it, then below the first: never over the face, the clock, the bottom buttons, the gesture camera (bottom right) or the answer console (lower left)
     const n = items.length, slot = ((i - arcStart) % n + n) % n, A = camera ? camera.aspect : 1.6;
     if (slot >= SHOWN) { out.set(A * 1.25, 0.1, -0.2); return -1; }
-    const P = [[A * 0.62, 0.2, 0.22], [-A * 0.62, 0.2, 0.22], [A * 0.78, -0.5, 0.16]][slot];
+    const P = [[A * 0.62, 0.2, 0.22], [-A * 0.62, 0.2, 0.22], [A * 0.74, -0.26, 0.16]][slot];
     out.set(P[0], P[1], P[2]); return slot;
   }
   function frontIndex() { const n = items.length; if (layout === 'arc') return n ? arcStart % n : -1; return n ? ((Math.round(ring / step()) % n) + n) % n : -1; }
