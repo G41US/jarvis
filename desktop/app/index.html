@@ -1355,11 +1355,23 @@ function addMsg(text, who) {
 }
 function setState(s) {
   appState = s; if (window.__jvOnState) window.__jvOnState(s);   // music and news go quiet while he listens and talks
+  reportUi();
   stateEl.className = ''; stateEl.classList.add(s);
   const labels = { idle: 'BOOTING', standby: 'STANDBY', listening: 'LISTENING', thinking: 'PROCESSING', speaking: 'RESPONDING', session: 'LISTENING', muted: 'MUTED' };
   stateEl.textContent = labels[s] || 'STANDBY';
   modeReadout.textContent = s === 'session' ? 'SESSION' : (s === 'idle' ? 'BOOT' : s.toUpperCase());
 }
+
+// the floating head (outside this window) mirrors his state, and shows itself while this window is minimised or closed
+var uiSent = '';   // var: setState can run before this line
+function reportUi(force) {
+  const msg = JSON.stringify({ state: appState, visible: document.visibilityState === 'visible' });
+  if (msg === uiSent && !force) return;
+  uiSent = msg;
+  fetch('/ui_state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: msg }).catch(() => {});
+}
+document.addEventListener('visibilitychange', () => reportUi());
+setInterval(() => reportUi(true), 3000);        // a heartbeat: when it stops, the window was closed
 
 let audioCtx = null;
 function beep(freq, duration, volume) {

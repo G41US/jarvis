@@ -19,6 +19,7 @@ node tests/xray_vitals.test.mjs | tail -1                         # the PC X-ray
 node tests/brain_fallback.test.mjs | tail -1                     # a failed search tries the news and Wikipedia; harder questions think more
 python3 tests/mind_agent_test.py | tail -1                       # missions report back, corrections become lessons, news gets followed
 python3 tests/studio_test.py | tail -1                           # OBS scenes, overlays, alerts, Discord/Telegram (against a stand-in OBS)
+[ -n "$DISPLAY" ] && python3 tests/pc_control_test.py | tail -1  # screen control with the real mouse and keyboard (needs a screen, e.g. Xvfb)
 node tests/mind_agent.test.mjs | tail -1                          # the same on the phone
 JW=$(mktemp -d); javac -d "$JW" app/src/main/java/com/jarvis/assistant/Wav.java tests/java/WavCheck.java 2>/dev/null && java -cp "$JW" com.jarvis.assistant.WavCheck 2>/dev/null   # the natural voice's audio
 python3 tools/make_www.py >/dev/null

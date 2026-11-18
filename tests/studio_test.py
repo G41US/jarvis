@@ -82,7 +82,7 @@ def main():
     web = TestClient(ns["app"])
 
     print("OBS not running:")
-    r = T["stream_studio"]("DEXTER x GTA 6", "MARATHON STREAM", "vice city", "twitch.tv/dexter, @dexter", 5, "SUB GOAL", 5)
+    r = T["stream_studio"]("JARVIS x GTA 6", "MARATHON STREAM", "vice city", "twitch.tv/yourname, @yourname", 5, "SUB GOAL", 5)
     check("designs are ready" in r and "WebSocket" in r, "says the designs are ready and how to switch OBS's WebSocket on")
     check(all(os.path.exists(f"overlays/jarvis-{k}.html") for k in ("starting", "brb", "ending", "gameplay")), "all four overlays written")
 
@@ -92,14 +92,14 @@ def main():
 
     print("OBS running:")
     os.environ["OBS_PASSWORD"] = PW; studio.OBS._drop()
-    r = T["stream_studio"]("DEXTER x GTA 6", "MARATHON STREAM", "vice city", "twitch.tv/dexter, @dexter", 5, "SUB GOAL", 5)
+    r = T["stream_studio"]("JARVIS x GTA 6", "MARATHON STREAM", "vice city", "twitch.tv/yourname, @yourname", 5, "SUB GOAL", 5)
     check(r.startswith("Done in OBS"), "builds the scenes: " + r[:70])
     check(set(fake.scenes) == {"Starting Soon", "Be Right Back", "Ending", "Gameplay"}, f"four scenes {fake.scenes}")
     check(fake.current == "Starting Soon", "Starting Soon on screen")
     check(fake.items["Gameplay"][0] == "Game" and "Jarvis Gameplay Overlay" in fake.items["Gameplay"], f"game under the overlay {fake.items['Gameplay']}")
     check(fake.inputs["Jarvis Starting Soon"][1]["url"].endswith("/overlay/jarvis-starting"), "browser source points at Jarvis's overlay")
     check(fake.inputs["Game"][0] in ("game_capture", "screen_capture"), "game capture source")
-    r = T["stream_studio"]("DEXTER x GTA 6", "MARATHON STREAM", "vice", "", 5)
+    r = T["stream_studio"]("JARVIS x GTA 6", "MARATHON STREAM", "vice", "", 5)
     check(r.startswith("Done in OBS") and len(fake.scenes) == 4, "running it twice doesn't duplicate scenes")
 
     print("OBS actions:")
@@ -113,7 +113,7 @@ def main():
 
     print("Overlays:")
     page = web.get("/overlay/jarvis-starting")
-    check(page.status_code == 200 and "DEXTER x GTA 6" in page.text and "STARTING IN" in page.text, "starting-soon page served")
+    check(page.status_code == 200 and "JARVIS x GTA 6" in page.text and "STARTING IN" in page.text, "starting-soon page served")
     check(web.get("/overlay/nope").status_code == 404, "unknown overlay is a 404")
     check(web.get("/overlay_image", params={"path": "/etc/passwd"}).status_code == 404, "won't serve non-image files")
     st = web.get("/overlay_state").json()
