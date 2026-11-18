@@ -23,7 +23,7 @@ for pkg in ("openwakeword", "faster_whisper", "ctranslate2", "sherpa_onnx", "fas
 if sys.platform == "win32": hidden += ["uiautomation"]
 
 a = Analysis([os.path.join(HERE, "jarvis_app.py")], pathex=[APP], binaries=binaries, datas=datas, hiddenimports=hidden,
-             excludes=["tkinter", "matplotlib", "torch", "tensorflow", "IPython", "pytest"])
+             excludes=["matplotlib", "torch", "tensorflow", "IPython", "pytest"])   # tkinter stays: the floating head is drawn with it
 pyz = PYZ(a.pure)
 icon = os.path.join(HERE, "icon.ico" if sys.platform == "win32" else "icon.icns")
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Jarvis", console=False, icon=icon if os.path.exists(icon) else None)

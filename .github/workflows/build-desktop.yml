@@ -120,9 +120,13 @@ jobs:
                   try: print(urllib.request.urlopen("http://127.0.0.1:8010/setup/status", timeout=3).read().decode()); ok = True; break
                   except Exception: time.sleep(3)
               home = os.environ["JARVIS_HOME"]
-              for log in ("jarvis.log", "wake.log"):
+              time.sleep(8)                          # the floating head starts alongside: give it time to fail if it's going to
+              for log in ("jarvis.log", "wake.log", "head.log"):
                   p = os.path.join(home, log)
-                  if os.path.exists(p): print(f"---- {log}"); print("".join(open(p, encoding="utf-8", errors="replace").readlines()[-50:]))
+                  if os.path.exists(p):
+                      text = open(p, encoding="utf-8", errors="replace").read()
+                      print(f"---- {log}"); print("".join(text.splitlines(True)[-50:]))
+                      if log == "head.log" and ("couldn't start" in text or "Traceback" in text): print("FAILED: the floating head can't start"); ok = False
           finally:   # stop only this test copy (and its listener), never the Jarvis he is using, even if the check itself failed
               if sys.platform == "win32":
                   subprocess.run(["powershell", "-NoProfile", "-Command",
