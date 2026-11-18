@@ -856,10 +856,10 @@ const holo = (() => {
     out.set((c - (inRow - 1) / 2) * sx, 0.12 - (r - (rows - 1) / 2) * sy, 0.25);
   }
   const SHOWN = 3; let arcStart = 0;
-  function arcPos(i, out) {      // right of the face, left of it, then lower right: never over the face, the clock or the bottom buttons
+  function arcPos(i, out) {      // right of the face, left of it, then lower right: never over the face, the clock, the bottom buttons or the answer console (lower left)
     const n = items.length, slot = ((i - arcStart) % n + n) % n, A = camera ? camera.aspect : 1.6;
     if (slot >= SHOWN) { out.set(A * 1.25, 0.1, -0.2); return -1; }
-    const P = [[A * 0.62, 0.2, 0.22], [-A * 0.62, 0.2, 0.22], [-A * 0.78, -0.5, 0.16]][slot];
+    const P = [[A * 0.62, 0.2, 0.22], [-A * 0.62, 0.2, 0.22], [A * 0.78, -0.5, 0.16]][slot];
     out.set(P[0], P[1], P[2]); return slot;
   }
   function frontIndex() { const n = items.length; if (layout === 'arc') return n ? arcStart % n : -1; return n ? ((Math.round(ring / step()) % n) + n) % n : -1; }
@@ -894,6 +894,9 @@ const holo = (() => {
     launchAt = now + 450; wave.userData.fired = false;
     items = list.map((d, i) => makeItem(d, i, launchAt + i * 95));
     setTimeout(() => window.__jvSfx && window.__jvSfx.burst(), 380);
+    // he looks at what he's showing: the first card (right of his face), then the second (left), then back to you
+    if (window.__jvLookAt) { setTimeout(() => window.__jvLookAt(innerWidth * 0.86, innerHeight * 0.42, 1100), 520);
+      if (items.length > 1) setTimeout(() => window.__jvLookAt(innerWidth * 0.14, innerHeight * 0.42, 800), 1750); }
     lastTouch = now; activate(true);
   }
   function dispose(it) { scene.remove(it.mesh); scene.remove(it.streak); it.mesh.geometry.dispose(); it.glow.geometry.dispose(); it.glow.material.dispose(); it.mat.dispose(); it.tex.dispose(); it.streak.geometry.dispose(); it.streak.material.dispose(); }
@@ -1640,7 +1643,7 @@ const desk = (() => {
     #pc-desk { position: fixed; inset: 0; z-index: 4; pointer-events: none; display: none; }
     body.pc-desk-on #pc-desk { display: block; }
     body.pc-desk-on #pc-cam { opacity: 0 !important; }
-    body.pc-desk-on #pc-subs { bottom: 166px; }
+    body.pc-desk-on #pc-subs { top: auto; bottom: 166px; }
     #pc-desk canvas.hands { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
     .pc-dp { position: absolute; width: 330px; max-height: min(440px, calc(100vh - 300px)); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; pointer-events: auto;
       background: rgba(8,16,28,.62); border: 1px solid rgba(120,200,255,.38); box-shadow: 0 0 0 1px rgba(120,200,255,.08), 0 0 28px rgba(80,170,255,.22), 0 18px 40px rgba(0,0,0,.45);
