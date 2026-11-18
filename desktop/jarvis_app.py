@@ -316,8 +316,11 @@ def main():
 
     if "--wake" in sys.argv:
         import wake; wake.main(); return
-    if "--head" in sys.argv:
-        import mini_head; mini_head.main(); return
+    if "--head" in sys.argv:            # never an error box over Jarvis: a head that can't start just writes why to head.log
+        try: import mini_head; mini_head.main()
+        except Exception as e:
+            import traceback; print(f"[HEAD] couldn't start: {type(e).__name__}: {e}"); traceback.print_exc()
+        return
 
     lock = socket.socket()
     try: lock.bind(("127.0.0.1", PORT + 1))   # held while this copy runs: opening Jarvis again brings his window back
