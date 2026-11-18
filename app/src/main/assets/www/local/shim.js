@@ -239,7 +239,7 @@ if (has('ttsSpeak')) {
 const NAV_UA = 'JarvisNavigation/1.0 (personal use; jarvis-android)';
 const httpJson = makeHttp({ userAgent: NAV_UA, language: 'en', timeoutMs: 12000, log });
 const reg = new Registry();
-persona = createPersona({ reg, cfgStore, onChange: () => { try { applyVoice(); if (brain) brain.refreshPrompt(); } catch {} } });
+persona = createPersona({ reg, cfgStore, builtKey: BUILD.fishKey || '', onChange: () => { try { applyVoice(); if (brain) brain.refreshPrompt(); } catch {} } });
 /** What the voice is given for a line: readable out loud, and in the character's delivery when he's playing one. */
 function spoken(text) { return forSpeech(text); }
 const navigator_ = new Navigator({ language: cfgStore.get('nav_language', 'en-US'), units: cfgStore.get('units', 'auto') }, httpJson);

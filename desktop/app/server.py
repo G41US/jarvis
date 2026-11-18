@@ -678,7 +678,13 @@ def load_config():
     return {}
 def _persona():
     p = CONFIG.get("persona"); return p if isinstance(p, dict) and p.get("who") and p.get("voice_id") else None
-def _fish_key(): return (os.environ.get("FISH_API_KEY") or CONFIG.get("fish_key") or "").strip()
+def _fish_key():
+    k = (os.environ.get("FISH_API_KEY") or CONFIG.get("fish_key") or "").strip()
+    if k: return k
+    for d in (getattr(sys, "_MEIPASS", ""), os.path.dirname(os.path.abspath(__file__))):     # the key built into the app
+        p = os.path.join(d, "fish_key") if d else ""
+        if p and os.path.exists(p): return open(p, encoding="utf-8").read().strip()
+    return ""
 
 def save_config(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f: json.dump(cfg, f, indent=2)

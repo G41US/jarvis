@@ -239,9 +239,10 @@ jobs:
           API_BASE: ${{ steps.proxy.outputs.deployment-url && format('{0}/v1', steps.proxy.outputs.deployment-url) || secrets.JARVIS_API_BASE }}
           APP_TOKEN: ${{ steps.token.outputs.token || secrets.JARVIS_APP_TOKEN }}
           WINDY_KEY: ${{ secrets.WINDY_KEY }}
+          FISH_KEY: ${{ secrets.FISH_API_KEY }}
         run: |
           # the Windy webcams key goes in either way (public webcams; never printed)
-          python3 -c "import json,os; open('app/src/main/assets/www/local/build_config.js','w').write('export const BUILD = ' + json.dumps({'apiBase': os.environ.get('API_BASE', ''), 'appToken': os.environ.get('APP_TOKEN', ''), 'windyKey': os.environ.get('WINDY_KEY', '')}) + ';\n')"
+          python3 -c "import json,os; open('app/src/main/assets/www/local/build_config.js','w').write('export const BUILD = ' + json.dumps({'apiBase': os.environ.get('API_BASE', ''), 'appToken': os.environ.get('APP_TOKEN', ''), 'windyKey': os.environ.get('WINDY_KEY', ''), 'fishKey': os.environ.get('FISH_KEY', '')}) + ';\n')"
           if [ -n "$API_BASE" ]; then
             echo "Built with the Jarvis proxy: users need no Groq key."
           else

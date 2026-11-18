@@ -24,10 +24,10 @@ export async function findVoices(who, fetchFn = fetch) {
 }
 export const findVoice = async (who, fetchFn = fetch) => (await findVoices(who, fetchFn))[0] || null;
 
-export function createPersona({ reg, cfgStore, onChange = () => {}, fetchFn = (...a) => fetch(...a) }) {
+export function createPersona({ reg, cfgStore, onChange = () => {}, fetchFn = (...a) => fetch(...a), builtKey = '' }) {
   const read = () => { try { const p = JSON.parse(cfgStore.get('persona', '') || 'null'); return p && p.who && p.voice && p.voice.id ? p : null; } catch { return null; } };
   let cur = read(), askedKeyAt = 0;
-  const key = () => String(cfgStore.get('fish_key', '') || '').trim();
+  const key = () => String(cfgStore.get('fish_key', '') || builtKey || '').trim();   // their own key, or the one built into the app
   const save = p => { cur = p; cfgStore.set('persona', p ? JSON.stringify(p) : ''); onChange(cur); };
   // the voice kept for each name ("that's not his voice" moves on, and the one he ends up with is remembered)
   const picks = () => { try { return JSON.parse(cfgStore.get('fish_picks', '') || '{}') || {}; } catch { return {}; } };

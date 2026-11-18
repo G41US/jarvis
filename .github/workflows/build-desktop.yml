@@ -67,6 +67,7 @@ jobs:
         env:
           GOOGLE_OAUTH_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT }}
           WINDY_KEY: ${{ secrets.WINDY_KEY }}
+          FISH_KEY: ${{ secrets.FISH_API_KEY }}
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
         run: |
@@ -82,6 +83,9 @@ jobs:
           w = os.environ.get("WINDY_KEY", "").strip()
           if w: open("desktop/app/windy_key", "w").write(w); print("Windy webcams: key built in")
           else: print("No WINDY_KEY secret: webcams are left out")
+          f = os.environ.get("FISH_KEY", "").strip()
+          if f: open("desktop/app/fish_key", "w").write(f); print("Fish Audio: key built in (characters' voices)")
+          else: print("No FISH_API_KEY secret: characters need the user's own Fish Audio key")
           sid, ssec = os.environ.get("SPOTIFY_CLIENT_ID", "").strip(), os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip()
           if sid and ssec: json.dump({"id": sid, "secret": ssec}, open("desktop/app/spotify_client.json", "w")); print("Spotify: app keys built in")
           else: print("No SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET secrets: Spotify is left out")
