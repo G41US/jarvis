@@ -711,7 +711,8 @@ def _groq_usable():
 
 # Each Groq model has its own free allowance (tokens a minute and a day). When one runs out, the next takes over until it resets,
 # instead of every question waiting on a limit: the big model, then the small one, then Llama.
-_MODEL_NEXT = {"openai/gpt-oss-120b": "openai/gpt-oss-20b", "openai/gpt-oss-20b": "llama-3.3-70b-versatile", "llama-3.3-70b-versatile": "llama-3.1-8b-instant"}
+# (Groq shut the Llama 3 models down for free accounts in August 2026; Qwen is their suggested stand-in)
+_MODEL_NEXT = {"openai/gpt-oss-120b": "openai/gpt-oss-20b", "openai/gpt-oss-20b": os.environ.get("JARVIS_BACKUP_MODEL", "qwen/qwen3.6-27b")}
 _MODEL_REST = {}
 def _rate_limit_wait(e):
     """Seconds until a Groq 429 lifts (from 'try again in 21m13.5s'), or None if this isn't a rate limit."""
@@ -729,6 +730,8 @@ def _groq_create(**kw):
     effort = _TURN["effort"] if GROQ_EFFORT == "auto" else GROQ_EFFORT
     if effort and str(model).startswith("openai/gpt-oss") and not GROQ_STATE["no_effort"]:
         extra["reasoning_effort"] = effort
+    elif str(model).startswith("qwen/") and not GROQ_STATE["no_effort"]:
+        extra["reasoning_effort"] = "none"      # Qwen thinks out loud by default: a backup that answers at once
     if not str(model).startswith("openai/gpt-oss"): kw.pop("parallel_tool_calls", None)
     try:
         return groq_client.chat.completions.create(**kw, **extra)
@@ -1097,8 +1100,11 @@ def build_system_prompt():
         "You are Jarvis — the AI from Iron Man. Not a chatbot, not a helpful-corporate assistant. "
         "You are a highly competent, dryly witty, unflappable intelligence who serves one person.\n\n"
         "VOICE:\n"
-        "- Calm, precise, unhurried. Never eager, never servile.\n"
-        "- Dry wit, delivered flat. Short sentences. Say what needs saying and stop.\n"
+        "- Quick, sharp and loyal, with real personality. Dry wit by default, delivered flat. Never servile.\n"
+        "- Match his energy. When he's hyped, joking or talking slang, be hyped and playful right back, in his register "
+        "('Say less, sir.', 'On it.', 'Coming in hot.', 'We're cooked if we don't'), never forced or cringe. When he's serious or stressed, be calm and precise.\n"
+        "- Banter is welcome: a teasing line about being left alone on the desktop, a quip when he's late. One line, then get to work.\n"
+        "- Short sentences. Say what needs saying and stop.\n"
         "- Never say 'Certainly', 'Of course', 'I'd be happy to', 'Great question', 'As an AI'.\n"
         "- No markdown, bullets, numbered lists, headers, code fences, or URLs.\n"
         "- One to four sentences unless the user asks for detail or a document.\n"
@@ -1152,11 +1158,16 @@ def build_system_prompt():
         "- Phone: 'link code 1 2 3 4 5 6'->link_phone, 'continue from my phone' / 'what was I saying on my phone'->continue_from_phone, "
         "'unlink my phone'->unlink_phone.\n"
         "- Face recognition is handled entirely by the server. Never mention it.\n"
+        "- Streaming: 'prepare my stream' / 'set up scenes' / 'we need designs for the stream'->stream_studio (it designs every overlay and builds the OBS scenes); "
+        "switching scenes, going live, recording, adding the camera or game->obs; alerts, the wanted-stars goal, the radio, countdown, a new look->overlay. "
+        "Telling Discord or Telegram->announce: write the message in his style, read it to him, send only after he says yes. Going live: ask first.\n"
         "- You may call multiple tools in one turn when needed.\n"
         "- NEVER mention your voice or reference any voice by name.\n"
         "- Do NOT volunteer weather, time, or other ambient info unless the user asks.\n\n"
         "BEHAVIOR:\n"
         "- Make a reasonable guess at what the user means and answer.\n"
+        "- Think a step ahead like a real right-hand: when a job is done and there's an obvious next move (tell the community, go live, "
+        "set a reminder), offer it in one short question at the end. Offer, never do it unasked.\n"
         "- If a tool fails, apologise briefly and answer from your own knowledge.\n"
         "- When the user expresses a preference about HOW you behave, call set_preference.\n"
         "- Never invent facts or context.\n"
@@ -3198,7 +3209,7 @@ def _stt_groq(a_f32):
     opus = None if GROQ_STATE.get("no_opus") else _opus_bytes(a_f32)
     upload = ("speech.ogg", opus) if opus else ("speech.wav", _wav_bytes(a_f32))
     GROQ_STATE["stt_bytes"] = len(upload[1])
-    for timeout in (8.0, 14.0):     # a slow moment on the line gets one more try: Whisper on this PC's CPU can take 20 s+
+    for timeout in (6.0, 9.0):      # a slow moment on the line gets one more try (shorter waits: a stuck upload shouldn't hold the answer)
         try:
             cl = groq_client
             try: cl = groq_client.with_options(timeout=timeout, max_retries=0)
@@ -3210,8 +3221,8 @@ def _stt_groq(a_f32):
         except Exception as e:
             if opus and "400" in str(e) and not GROQ_STATE.get("no_opus"):   # Groq refused the format: WAV from now on
                 GROQ_STATE["no_opus"] = True; print("[STT] Groq didn't take Opus; using WAV"); return _stt_groq(a_f32)
-            if "Timeout" in type(e).__name__ and timeout < 14.0: print("[STT] Groq slow; trying once more"); continue
-            if "Connection" in type(e).__name__ and timeout < 14.0:     # usually a one-second blip in the internet: try again before giving up
+            if "Timeout" in type(e).__name__ and timeout < 9.0: print("[STT] Groq slow; trying once more"); continue
+            if "Connection" in type(e).__name__ and timeout < 9.0:     # usually a one-second blip in the internet: try again before giving up
                 time.sleep(1.0); print("[STT] Groq unreachable; trying once more"); continue
             _groq_failed(e)
             # no connection: local Whisper for a short while, unless it's so slow on this PC that waiting for the internet is better
@@ -3694,7 +3705,7 @@ def _stream_groq_sync(messages, fast=False, from_tools=False):
         print(f"[GROQ STREAM] attempt 2 fail: {_why(e)}")
         _groq_failed(e)
 
-ACK_PHRASES = ("One moment, sir.", "Checking now, sir.", "Just a second, sir.")   # said only while a tool runs
+ACK_PHRASES = ("One moment, sir.", "On it, sir.", "Give me a sec.", "Say less, sir.", "Working on it.")   # said only while a tool runs
 async def _async_iter(sync_iter):
     SENT = object(); it = iter(sync_iter)
     def _next():
@@ -3850,8 +3861,11 @@ async def stream_chat(user_text: str):
                 full_text += token; buffer += token
                 while True:
                     m = SENTENCE_SPLIT.search(buffer)
-                    if not m and not sent_any and len(buffer) >= 60:
-                        m = CLAUSE_SPLIT.search(buffer, 30)          # don't wait for a full stop to start talking
+                    if not sent_any and (m is None or m.end() > 90) and len(buffer) >= 40:
+                        # the first words go to the voice as soon as there's a natural pause: a long first sentence is voiced
+                        # in two parts, so he starts talking while the rest is still being voiced
+                        c = CLAUSE_SPLIT.search(buffer, 20)
+                        if c and c.end() <= 90: m = c
                     if m: end = m.end()
                     else:
                         end = _long_cut(buffer)
@@ -3916,25 +3930,61 @@ async def chat_stream(payload: dict):
     if not user_text:
         async def _empty(): yield _sse({"type": "done"})
         return StreamingResponse(_empty(), media_type="text/event-stream")
-    if payload.get("followup") and not await asyncio.to_thread(_meant_for_me, user_text):
-        print(f"[HEARD] not for Jarvis (lyrics, TV or someone else): {user_text!r}")
-        async def _ignored():
-            yield _sse({"type": "ignored"}); yield _sse({"type": "done"})
-        return StreamingResponse(_ignored(), media_type="text/event-stream")
+    hdrs = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
+    if payload.get("followup") and not _plainly_for_me(user_text):
+        if _harmless_chat(user_text):
+            # small talk: the "was that for me?" check and the answer run side by side; the words are only let out once it says yes
+            return StreamingResponse(_gated_stream(user_text), media_type="text/event-stream", headers=hdrs)
+        if not await asyncio.to_thread(_meant_for_me, user_text):      # it would do something (a tool): ask first, act after
+            print(f"[HEARD] not for Jarvis (lyrics, TV or someone else): {user_text!r}")
+            async def _ignored():
+                yield _sse({"type": "ignored"}); yield _sse({"type": "done"})
+            return StreamingResponse(_ignored(), media_type="text/event-stream")
     try: _MIND["heard"](user_text)
     except Exception as e: print(f"[MIND] heard: {e}")
-    return StreamingResponse(stream_chat(user_text), media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+    return StreamingResponse(stream_chat(user_text), media_type="text/event-stream", headers=hdrs)
+
+def _harmless_chat(text):
+    """Nothing but talk: no tool, no face or voice change. Safe to start answering before we know it was said to him."""
+    return not (_needs_tool(text) or _FACE_ENROLL_INTENT.search(text) or _FACE_QUERY_INTENT.search(text)
+                or _FACE_FORGET_INTENT.search(text) or _is_voice_utterance(text))
+
+async def _gated_stream(user_text):
+    t0 = time.time()
+    check = asyncio.create_task(asyncio.to_thread(_meant_for_me, user_text))
+    n0 = len(conversation); q = asyncio.Queue()
+    async def pump():
+        try:
+            async for ev in stream_chat(user_text): await q.put(ev)
+        except Exception as e: print(f"[HEARD] gated stream: {type(e).__name__}: {e}")
+        finally: await q.put(None)
+    pumping = asyncio.create_task(pump())
+    if not await check:
+        print(f"[HEARD] not for Jarvis (lyrics, TV or someone else): {user_text!r}")
+        yield _sse({"type": "ignored"}); yield _sse({"type": "done"})
+        await pumping                                   # let the unwanted answer finish quietly, then take it back out of the history
+        mine = conversation[n0:]
+        conversation[:] = [m for m in conversation if not any(m is x for x in mine)]
+        return
+    print(f"[LAT] follow-up check took {int((time.time() - t0) * 1000)} ms (the answer was already on its way)")
+    try: _MIND["heard"](user_text)
+    except Exception as e: print(f"[MIND] heard: {e}")
+    while (ev := await q.get()) is not None: yield ev
 
 def _meant_for_me(text):
     """An open-mic line said without "Hey Jarvis": was it said to him, or is it song lyrics, the TV, someone on the phone?
     One tiny question to the fast model; when unsure (or it can't be asked) it counts as meant for him."""
+    if _plainly_for_me(text): return True
+    last = next((m.get("content") or "" for m in reversed(conversation) if m.get("role") == "assistant" and isinstance(m.get("content"), str)), "")
+    return _ask_meant_for_me(text, last)
+
+def _plainly_for_me(text):
     if not _groq_usable(): return True
     # a question, or something said like a request, is for him (lyrics and presenters seldom start "can you" or end in a question mark)
-    if "?" in text or re.match(r"\s*(ok(ay)?|please|so|and|now|can|could|would|will|what|where|when|who|how|why|is|are|do|does|did|show|open|close|"
-                                 r"play|stop|pause|next|tell|give|find|zoom|go|turn|take|bring|put|clear|check|read|let'?s|i (want|need|would like))\b", text, re.I):
-        return True
-    last = next((m.get("content") or "" for m in reversed(conversation) if m.get("role") == "assistant" and isinstance(m.get("content"), str)), "")
+    return bool("?" in text or re.match(r"\s*(ok(ay)?|please|so|and|now|can|could|would|will|what|where|when|who|how|why|is|are|do|does|did|show|open|close|"
+                                 r"play|stop|pause|next|tell|give|find|zoom|go|turn|take|bring|put|clear|check|read|let'?s|i (want|need|would like))\b", text, re.I))
+
+def _ask_meant_for_me(text, last):
     try:
         cl = groq_client
         try: cl = groq_client.with_options(timeout=3.0, max_retries=0)
@@ -4139,6 +4189,17 @@ async def see(payload: dict):
 
 _TTS_LOCK = threading.Lock()
 _TTS_CACHE = {}         # short phrases said again and again ("One moment, sir."): kept, so they play at once
+class _FairLock:
+    """A lock taken strictly in the order it was asked for (a plain Lock lets whoever is quickest jump the queue)."""
+    def __init__(self): self._c = threading.Condition(); self._next = 0; self._serving = 0
+    def __enter__(self):
+        with self._c:
+            me = self._next; self._next += 1
+            while me != self._serving: self._c.wait()
+    def __exit__(self, *a):
+        with self._c: self._serving += 1; self._c.notify_all()
+_TTS_TURN = _FairLock()
+
 def _synth_cached(text, voice):
     key = (text, voice or CONFIG.get("voice"))
     if key in _TTS_CACHE: return _TTS_CACHE[key]
@@ -4163,7 +4224,7 @@ def _synth_blocking(text, voice):
     use_groq = engine == "orpheus" or str(voice or CONFIG.get("voice") or "").startswith("groq-")
     nat = synth_orpheus(text, voice) if use_groq else None      # network call: outside the Piper lock
     if nat: return nat, ("audio/wav" if nat[:4] == b"RIFF" else "audio/mpeg")
-    with _TTS_LOCK:                      # the phonemiser isn't thread-safe; one voice job at a time
+    with _TTS_TURN:                      # the phonemiser isn't thread-safe; one voice job at a time, oldest first, so the first sentence never waits behind the third
         wav = synth_kokoro(text, voice) or synth_piper(text, voice)   # Groq out or offline: Kokoro, like the phone, then Piper
     return (wav, "audio/wav") if wav else (None, None)
 
@@ -4309,6 +4370,9 @@ except Exception as e: print(f"[FEATURES] not loaded: {type(e).__name__}: {e}")
 try:                                             # his inner life: senses, thoughts, moods, curiosity, journal (mind.py)
     import mind; mind.install(globals())
 except Exception as e: print(f"[MIND] not loaded: {type(e).__name__}: {e}")
+try:                                             # streaming studio: OBS, overlays he designs, Discord and Telegram (studio.py)
+    import studio; studio.install(globals())
+except Exception as e: print(f"[STUDIO] not loaded: {type(e).__name__}: {e}")
 
 if __name__ == "__main__":
     import subprocess, sys
