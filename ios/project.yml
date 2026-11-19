@@ -16,8 +16,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: NO
 packages:
   onnxruntime:
-    url: https://github.com/microsoft/onnxruntime-swift-package-manager
-    exactVersion: 1.24.2
+    path: OnnxRuntime          # built from Microsoft's pod archives by the CI (see OnnxRuntime/Package.swift)
   JarvisCore:
     path: JarvisCore
 targets:
