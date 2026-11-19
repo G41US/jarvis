@@ -55,9 +55,20 @@ final class Speech: NSObject, AVSpeechSynthesizerDelegate {
         return v.identifier.contains("eloquence") || v.identifier.contains("speech.synthesis.voice")
     }
 
+    private var after: [Int: () -> Void] = [:]                              // the natural voice's "then the next sentence"
+    private(set) var wordAt = 0.0, wordLen = 0, speaking = false
+    var lastRate = 1.0, lastPitch = 1.0
+
+    /** Apple's voice says one sentence for the natural voice (when it can't), then `then`. */
+    func speak(id: Int, text: String, then: @escaping () -> Void) {
+        after[id] = then
+        speak(id: id, text: text, rate: lastRate, pitch: lastPitch)
+    }
+
     func speak(id: Int, text: String, rate: Double, pitch: Double, lang: String? = nil) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty { onEvent(id, "done"); return }
+        if lang == nil { lastRate = rate; lastPitch = pitch }
+        if t.isEmpty { onEvent(id, "done"); after.removeValue(forKey: id)?(); return }
         AudioSessionKit.activate()
         let u = AVSpeechUtterance(string: t)
         u.voice = voice(lang: lang)
@@ -93,7 +104,21 @@ final class Speech: NSObject, AVSpeechSynthesizerDelegate {
 
     // ---- delegate
     private func finished(_ u: AVSpeechUtterance, _ ev: String) {
-        if let id = ids.removeValue(forKey: ObjectIdentifier(u)) { onEvent(id, ev) }
+        speaking = synth.isSpeaking
+        if let id = ids.removeValue(forKey: ObjectIdentifier(u)) { onEvent(id, ev); after.removeValue(forKey: id)?() }
+    }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didStart u: AVSpeechUtterance) { speaking = true }
+    /** Each word as it's said: the mouth opens on it (the same as the Android app with the phone's own voice). */
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, willSpeakRangeOfSpeechString r: NSRange, utterance u: AVSpeechUtterance) {
+        speaking = true; wordAt = CFAbsoluteTimeGetCurrent(); wordLen = r.length
+    }
+    /** How open the mouth is with Apple's voice: a shape on each word, closing between words. */
+    func mouthLevel() -> Float {
+        guard speaking else { return 0 }
+        let t = (CFAbsoluteTimeGetCurrent() - wordAt) * 1000, dur = min(520, 110 + 45 * Double(wordLen))
+        if t > dur { return 0.04 }
+        let syl = abs(sin(Double.pi * t / max(120, dur / Double(max(1, wordLen / 3)))))     // a few openings across a long word
+        return Float(0.25 + 0.75 * syl * sin(Double.pi * min(1.0, t / dur)))
     }
     func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { finished(u, "done") }
     func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) { finished(u, "done") }
