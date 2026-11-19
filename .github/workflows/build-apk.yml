@@ -391,12 +391,15 @@ jobs:
           for d in wake vad face; do cp -R ios-web/$d ios/Resources/models/$d; done
           ls ios/Resources/models/*; du -sh ios/Resources/*
 
-      - name: Make the Xcode project
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: ONNX Runtime from Microsoft's download server (its GitHub repos went missing in November 2026)
         run: |
-          # Swift packages are cloned from GitHub: signed in, so GitHub doesn't turn the clone away (it asked for a username)
-          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          set -e; V=1.24.2; cd ios/OnnxRuntime
+          for p in c objc; do curl -fsSL --retry 3 -o $p.zip https://download.onnxruntime.ai/pod-archive-onnxruntime-$p-$V.zip; done
+          unzip -q -o c.zip 'onnxruntime.xcframework/*' && unzip -q -o objc.zip 'objectivec/*' && rm c.zip objc.zip
+          ls; ls onnxruntime.xcframework objectivec/include
+
+      - name: Make the Xcode project
+        run: |
           xcodebuild -version
           brew install xcodegen >/dev/null 2>&1 || brew install xcodegen
           cd ios && xcodegen generate
