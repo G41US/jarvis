@@ -360,7 +360,7 @@ jobs:
   ios-core:
     needs: build
     if: needs.build.outputs.ios == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04            # setup-swift doesn't know ubuntu-latest (26.04) yet
     steps:
       - uses: actions/checkout@v4
       - uses: swift-actions/setup-swift@v2
@@ -451,6 +451,25 @@ jobs:
             sim
             build.log
           retention-days: 7
+
+      # ---- An unsigned .ipa on the "ios" release: install it with Sideloadly or AltStore, which sign it with your own Apple ID
+      #      (a free Apple ID works; the app then has to be re-signed every 7 days)
+      - name: Build the unsigned .ipa (for Sideloadly / AltStore)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/Jarvis.xcodeproj -scheme Jarvis -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath ios/build-device CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} build > device.log 2>&1 \
+            || { grep -E "error:" device.log | sort -u | head -40; tail -20 device.log; exit 1; }
+          APP=ios/build-device/Build/Products/Release-iphoneos/Jarvis.app
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/ && zip -qry Jarvis.ipa Payload && ls -la Jarvis.ipa
+          gh release view ios >/dev/null 2>&1 || gh release create ios --prerelease --title "Jarvis for iPhone (unsigned)" \
+            --notes "Install Jarvis.ipa with Sideloadly (Windows/Mac) or AltStore, signed with your Apple ID. With a free Apple ID, re-sign every 7 days."
+          gh release upload ios Jarvis.ipa --clobber
+          gh release edit ios --notes "Build ${{ github.run_number }} ($(date -u +%Y-%m-%d)). Install Jarvis.ipa with Sideloadly (Windows/Mac) or AltStore, signed with your Apple ID. With a free Apple ID, re-sign every 7 days."
+          echo "::notice title=iPhone app::Jarvis.ipa is on the 'ios' release"
 
       # ---- TestFlight (needs an Apple Developer account; see ios/README.md for the four secrets)
       - name: Sign and send to TestFlight
