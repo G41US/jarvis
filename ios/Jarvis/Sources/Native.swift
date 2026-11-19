@@ -13,6 +13,7 @@ import JarvisCore
 final class Native: NSObject, MFMessageComposeViewControllerDelegate {
     let bridge: JSBridge
     let speech: Speech
+    private(set) var natural: NaturalVoice!
     let ears = Ears()
     let tone = Tone()
     let http: Http
@@ -31,6 +32,9 @@ final class Native: NSObject, MFMessageComposeViewControllerDelegate {
     init(bridge: JSBridge) {
         self.bridge = bridge
         speech = Speech { id, ev in bridge.js("window.__ttsEvent&&window.__ttsEvent(\(id),'\(ev)')") }
+        let apple = speech
+        natural = NaturalVoice(onEvent: { id, ev in bridge.js("window.__ttsEvent&&window.__ttsEvent(\(id),'\(ev)')") },
+                               fallback: { id, text, then in apple.speak(id: id, text: text, then: then) })
         http = Http(bridge: bridge)
         location = Location(bridge: bridge)
         super.init()
@@ -54,10 +58,22 @@ final class Native: NSObject, MFMessageComposeViewControllerDelegate {
     private func register() {
         let b = bridge
         // ---- AndroidBridge: voice, microphone, web, opening things
-        b.on("B", "ttsSpeak") { [self] a in speech.speak(id: a.n(0), text: a.s(1), rate: a.d(2), pitch: a.d(3)); return nil }
+        b.on("B", "ttsSpeak") { [self] a in
+            speech.lastRate = a.d(2); speech.lastPitch = a.d(3)
+            if natural.speaksNow() { natural.speak(id: a.n(0), text: a.s(1)) } else { speech.speak(id: a.n(0), text: a.s(1), rate: a.d(2), pitch: a.d(3)) }
+            return nil
+        }
+        // ---- the natural voice, a character's own voice, speed and pitch, and the mouth that follows the sound (as on Android)
+        b.on("B", "setCloudVoice") { [self] a in natural.setCloud(url: a.s(0), headersJSON: a.s(1), voice: a.s(2)); return nil }
+        b.on("B", "setFishVoice") { [self] a in natural.setFish(key: a.s(0), ref: a.s(1)); return nil }
+        b.on("B", "cloudVoiceStatus") { [self] _ in natural.status() }
+        b.on("B", "ttsPrefetch") { [self] a in if natural.speaksNow() { natural.prefetch(a.s(0)) }; return nil }
+        b.on("B", "setSpeechSpeed") { [self] a in natural.setSpeed(a.d(0)); return nil }
+        b.on("B", "setVoicePitch") { [self] a in natural.setPitch(a.d(0)); return nil }
+        b.on("B", "mouthLevel") { [self] _ in Double(natural.isPlaying ? natural.level() : speech.mouthLevel()) }
         b.on("B", "ttsSpeakLang") { [self] a in speech.speak(id: a.n(0), text: a.s(1), rate: a.d(2), pitch: a.d(3), lang: a.s(4)); return nil }
         b.on("B", "ttsLangAvailable") { [self] a in speech.langAvailable(a.s(0)) }
-        b.on("B", "ttsStop") { [self] _ in speech.stop(); return nil }
+        b.on("B", "ttsStop") { [self] _ in natural.stop(); speech.stop(); return nil }
         b.on("B", "ttsVoices") { [self] _ in speech.voicesJSON() }
         b.on("B", "ttsSetVoice") { [self] a in speech.setVoice(a.s(0)); return nil }
         b.on("B", "micStart") { [self] _ in ears.start() }
