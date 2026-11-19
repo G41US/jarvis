@@ -392,11 +392,16 @@ jobs:
           ls ios/Resources/models/*; du -sh ios/Resources/*
 
       - name: Make the Xcode project
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # Swift packages are cloned from GitHub: signed in, so GitHub doesn't turn the clone away (it asked for a username)
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
           xcodebuild -version
           brew install xcodegen >/dev/null 2>&1 || brew install xcodegen
           cd ios && xcodegen generate
-          cd .. && xcodebuild -project ios/Jarvis.xcodeproj -resolvePackageDependencies > resolve.log 2>&1 || { tail -30 resolve.log; echo "::error::$(tail -3 resolve.log | tr '\n' ' ' | cut -c1-900)"; exit 1; }
+          cd .. && { xcodebuild -project ios/Jarvis.xcodeproj -resolvePackageDependencies -scmProvider system > resolve.log 2>&1 \
+            || { sleep 20; xcodebuild -project ios/Jarvis.xcodeproj -resolvePackageDependencies -scmProvider system > resolve.log 2>&1; }; } || { tail -30 resolve.log; echo "::error::$(tail -3 resolve.log | tr '\n' ' ' | cut -c1-900)"; exit 1; }
           tail -5 resolve.log
 
       - name: Build for the iPhone simulator
