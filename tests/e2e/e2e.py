@@ -304,6 +304,7 @@ def main():
         pg.on('console', lambda m: logs.append(m.text) if m.type in ('error', 'warning') else None)
         pg.goto(ORIGIN + '/index.html')
         pg.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000)
+        pg.evaluate("JARVIS.config.set('tour_v1', true)")       # the welcome cards have their own check (iPhone context)
         ev = pg.evaluate
         ev('JARVIS.proactive.stop()')     # no surprise alerts mid-test; the proactive tests run its checks by hand
 
@@ -420,6 +421,11 @@ def main():
         check('nav command skipped the LLM', len([c for c in state['groq_calls'] if c.get('stream')]) == len([c for c in state['groq_calls'][:n_before] if c.get('stream')]))
         check('native http used with User-Agent for Nominatim', any('nominatim' in h['url'] and 'Jarvis' in h['ua'] for h in ev('window.__native.http')))
         check('navsvc active', ev('JARVIS.navsvc.state.active') is True)
+        pg.wait_for_timeout(800); ev("document.querySelector('.nav-tools [data-t=close]').click()"); pg.wait_for_timeout(300)
+        check('the ✕ on the map asks: end navigation or hide the map', ev("document.body.classList.contains('jv-end')") and 'End navigation?' in ev("document.getElementById('jv-end').textContent"))
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/end_nav.png'))
+        ev("document.querySelector('#jv-end .end').click()"); pg.wait_for_timeout(600)
+        check('...End navigation ends it and the face comes back', ev('JARVIS.navsvc.state.active') is False and ev("document.body.getAttribute('data-nav')") is None)
 
         # ---- delivery via the model tool (stop the trip first, as a driver would)
         ev("JARVIS.say('Hey Jarvis, stop navigation')"); pg.wait_for_timeout(2500)
@@ -1003,6 +1009,8 @@ def main():
         ev("document.querySelector('#jv-ov .bar button').click()"); pg.wait_for_timeout(200)
 
         # ---- delivery mode: "from where, to where" for up to 4 orders; the face shrinks as orders are added; Start puts the route on the map
+        check('ending the shift earlier left its summary card up until Done', ev("document.body.classList.contains('jv-sum')"))
+        ev("document.getElementById('jv-tray-scrim').click()"); pg.wait_for_timeout(300)
         ev("JARVIS.navsvc.stop(); JARVIS.delivery.clear(); JARVIS.reg.exec('plan_deliveries','{}')"); pg.wait_for_timeout(800)
         r = ask0('delivery mode', 'Delivery mode')
         check('"delivery mode" opens the planner without the AI', ev("document.body.classList.contains('dm-open')") and 'picking up from' in r, r)
@@ -1012,7 +1020,7 @@ def main():
         o1.locator('input').nth(0).fill('Chip'); pg.wait_for_selector('#dm .sug button', timeout=5000)
         check('typing a place shows suggestions', 'Chipotle' in ev("document.querySelector('#dm .sug').textContent"))
         pg.locator('#dm .sug button').first.click(); pg.wait_for_timeout(200)
-        o1 = pg.locator('#dm .ord').nth(0); o1.locator('input').nth(1).fill('123 Oak Street'); pg.wait_for_timeout(500)
+        o1 = pg.locator('#dm .ord').nth(0); o1.locator('input').nth(1).fill('123 Oak Street'); o1.locator('.row.pay input').fill('12.50'); pg.wait_for_timeout(500)
         ev("document.querySelector('#dm .sug') && document.querySelector('#dm .sug').remove()")
         check('Start is ready once both ends are filled', ev("!document.querySelector('#dm .go').disabled"))
         pg.locator('#dm .add').click(); pg.wait_for_timeout(300)
@@ -1026,6 +1034,7 @@ def main():
         check('...the face shrinks as the sheet grows', s0 < 1 and s3 < s0, (s0, s3))
         check('...the sheet fits the screen, nothing sideways', g['bottom'] <= g['H'] + 1 and g['top'] > g['tb'] and g['sw'] <= g['cw'], g)
         check('...a third blank order counts toward 4, and an empty one blocks Start', g['n'] == 3 and '3 of 4' in g['label'] and g['go'] is True, g)
+        check('...a finished order shows its pay on its line', '12.50' in ev("document.querySelector('#dm .ord.mini .pv').textContent"), ev("document.querySelector('#dm .ord.mini') && document.querySelector('#dm .ord.mini').textContent"))
         pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/dmode.png'))
         pg.locator('#dm .ord').nth(2).locator('.rm').click(); pg.wait_for_timeout(300)
         pg.locator('#dm .go').click()
@@ -1034,8 +1043,18 @@ def main():
         check('Start: both orders in the stack, full map, head in the corner', ev("JARVIS.delivery.activeOrders().length") == 2 and ev("document.body.getAttribute('data-nav')") == 'full' and ev('JARVIS.navsvc.state.delivery') is True,
               (ev("JARVIS.delivery.activeOrders().length"), ev("document.body.getAttribute('data-nav')")))
         check('...and the face is back to normal size behind the map', ev("window.__jvStage.s") == 1)
+        check('...the pay went in with the order', 12.5 in [o['payout'] for o in ev("JARVIS.delivery.activeOrders()")], ev("JARVIS.delivery.activeOrders().map(o => o.payout)"))
+        # ---- arriving at a stop: a card with one big button
+        ev("window.dispatchEvent(new CustomEvent('jv-arrive', { detail: { kind: 'pickup', label: 'Chipotle' } }))"); pg.wait_for_timeout(600)
+        check('arriving: "You\'re at Chipotle" with Picked up', ev("document.body.classList.contains('jv-here')") and "You're at Chipotle" in ev("document.getElementById('jv-here').textContent") and 'Picked up' in ev("document.getElementById('jv-here').textContent"))
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/arrive.png'))
+        ev("document.querySelector('#jv-here .yes').click()"); pg.wait_for_timeout(1500)
+        check('...Picked up marks it', not ev("document.body.classList.contains('jv-here')") and ev("JARVIS.delivery.activeOrders().some(o => o.status === 'picked')"), ev("JARVIS.delivery.activeOrders().map(o => o.status)"))
         # ---- the full map: side buttons; Whole route frees the camera and Recenter brings it back
-        check('full map: compass, whole-route and voice buttons', ev("getComputedStyle(document.querySelector('.nav-tools')).display") == 'flex' and ev("document.querySelectorAll('.nav-tools button').length") == 3)
+        check('full map: close, compass, whole-route and voice buttons', ev("getComputedStyle(document.querySelector('.nav-tools')).display") == 'flex' and ev("document.querySelectorAll('.nav-tools button').length") == 4)
+        ev("document.querySelector('.nav-tools [data-t=close]').click()"); pg.wait_for_timeout(300)
+        check('...the ✕ on a delivery trip asks about the orders', ev("document.body.classList.contains('jv-end')") and 'End this trip?' in ev("document.getElementById('jv-end').textContent"))
+        ev("document.querySelector('#jv-end .no').click()"); pg.wait_for_timeout(200)
         ev("document.querySelector('.nav-tools [data-t=overview]').click()"); pg.wait_for_timeout(600)
         check('...Whole route shows the Recenter pill', ev("document.getElementById('nav-frame').classList.contains('free')") and ev("getComputedStyle(document.querySelector('.nav-recenter')).opacity") == '1')
         ev("document.querySelector('.nav-recenter').click()"); pg.wait_for_timeout(300)
@@ -1060,6 +1079,12 @@ def main():
         check('voice "end trip" asks before clearing', 'End the trip and clear your 2 orders' in r and ev("JARVIS.delivery.activeOrders().length") == 2, r)
         r = ask0('yes', 'Trip ended')
         check('..."yes" ends it', 'Trip ended' in r and ev("JARVIS.delivery.activeOrders().length") == 0, r)
+        # ---- the end of a shift: a summary card
+        ev("window.dispatchEvent(new CustomEvent('jv-shift-done', { detail: { start: Date.now() - 3 * 3600000 - 1200000, end: Date.now(), miles: 41.2, orders: 9, earned: 148.5, perHour: 44.6, perMile: 3.6, spent: 0 } }))"); pg.wait_for_timeout(600)
+        t = ev("document.getElementById('jv-sum').textContent")
+        check('shift summary card: earnings, time, orders, per hour', ev("document.body.classList.contains('jv-sum')") and '148' in t and '3h 20m' in t and '9 orders' in t and 'per hour' in t, t)
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/shift_summary.png'))
+        ev("document.querySelector('#jv-sum button').click()"); pg.wait_for_timeout(300)
         pg.wait_for_timeout(1200); pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/dmode_map.png'))
         ev("JARVIS.navsvc.stop(); JARVIS.delivery.clear(); JARVIS.reg.exec('plan_deliveries','{}')"); pg.wait_for_timeout(600)
 
@@ -1078,7 +1103,7 @@ def main():
             return asset_handler(route)
         ctx2.route(ORIGIN + '/**', asset2); ctx2.route('https://jarvis-proxy.example.workers.dev/**', proxy_handler)
         ctx2.route(re.compile(r'https://(?!appassets|jarvis-proxy).*'), other_handler)
-        p2 = ctx2.new_page(); p2.goto(ORIGIN + '/index.html'); p2.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000); p2.wait_for_timeout(800)
+        p2 = ctx2.new_page(); p2.goto(ORIGIN + '/index.html'); p2.wait_for_function('window.JARVIS && window.JARVIS.config', timeout=15000); p2.evaluate("JARVIS.config.set('tour_v1', true)"); p2.wait_for_timeout(800)
         cv = p2.evaluate("window.__native.cloud")
         check('proxy build: the natural voice goes through the Jarvis service with its token (Daniel for the male face)', cv and cv[0] == 'https://jarvis-proxy.example.workers.dev/v1/audio/speech' and cv[1].get('X-Jarvis-Token') == 'tok123' and cv[2] == 'daniel', cv)
         check('proxy build: settings does not demand a key', p2.evaluate("!document.getElementById('jv-ov').classList.contains('on')") and p2.evaluate("JARVIS.api.mode()") == 'proxy')
@@ -1160,6 +1185,14 @@ def main():
         p3.evaluate("Object.assign(window.__phone.status, { calls: false }); JARVIS.setup.open(true)"); p3.wait_for_timeout(300)
         n3 = p3.evaluate("document.querySelectorAll('#jv-setup .dots i').length")
         check('iPhone: setup walkthrough has just the one step (the ordinary questions)', n3 == 1 and 'iPhone' in p3.evaluate("document.querySelector('#jv-setup .why').textContent"), n3)
+        # ---- the first time on the new home screen: three welcome cards
+        p3.evaluate("JARVIS.setup.close && JARVIS.setup.close(true); JARVIS.config.set('setup_v1', true); JARVIS.config.set('tour_v1', false)")
+        try: p3.wait_for_function("document.body.classList.contains('jv-tour')", timeout=8000)
+        except Exception: pass
+        check('welcome tour shows once setup is done', p3.evaluate("document.body.classList.contains('jv-tour')") and 'Talk to me' in p3.evaluate("document.getElementById('jv-tour').textContent"))
+        p3.screenshot(path=os.path.join(ROOT, 'tests/e2e/tour.png'))
+        for _ in range(3): p3.evaluate("document.querySelector('#jv-tour button').click()"); p3.wait_for_timeout(200)
+        check('...three cards, then it never shows again', not p3.evaluate("document.body.classList.contains('jv-tour')") and p3.evaluate("JARVIS.config.get('tour_v1')") is True)
         ctx3.close()
 
         bad = [e for e in errs if 'three' not in e.lower()]

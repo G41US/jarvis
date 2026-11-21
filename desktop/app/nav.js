@@ -31,9 +31,14 @@ body[data-nav="full"] .nav-tools { display: flex; }
 .nav-tools button { width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; padding: 0; }
 .nav-tools button svg { width: 22px; height: 22px; }
 .nav-tools button.on { color: #f5c97a; border-color: rgba(245,201,122,.5); }
+.nav-tools button.close { color: #ff8a93; border-color: rgba(255,90,103,.45); background: rgba(40,10,14,.78); }
 .nav-recenter { position: absolute; left: 50%; bottom: 150px; transform: translate(-50%, 12px); z-index: 3; display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 20px; border-radius: 23px;
   background: #fff6e8; color: #1b1206; font-weight: 700; font-size: 15px; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; }
 .nav-recenter svg { width: 18px; height: 18px; }
+.nav-preview { position: absolute; left: 50%; bottom: 150px; transform: translate(-50%, 16px) scale(.96); z-index: 3; display: flex; align-items: baseline; gap: 10px; padding: 12px 20px; border-radius: 20px;
+  background: rgba(14,11,7,.9); border: 1px solid rgba(245,201,122,.35); color: #fff6e8; font-family: Roboto, system-ui, sans-serif; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .35s, transform .45s; }
+.nav-preview b { font-size: 24px; color: #7ee0a1; } .nav-preview span { font-size: 14px; color: #cdbb9f; }
+.nav-preview.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
 body[data-nav="full"] #nav-frame.free .nav-recenter { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
 #nav-map .nav-layer { position: absolute; inset: 0; opacity: 0; transition: opacity .6s; }
 #nav-map .nav-layer.ready { opacity: 1; }
@@ -268,6 +273,27 @@ export class MapLibreAdapter {
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: { 'line-color': color, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, w[0], 17, w[1]], 'line-opacity': op } }); };
     lay('route-casing', ROUTE_EDGE, [6, 16], 0.9); lay('route-line', ROUTE, [4, 10], 1);
+    this._style3d();
+  }
+  _style3d() {   // raised buildings (OpenFreeMap has heights) and, at night, warm gold-on-black colours to match Jarvis
+    const map = this.map, layers = (map.getStyle() && map.getStyle().layers) || [];
+    try {
+      if (map.getSource('openmaptiles') && !layers.some(l => l.type === 'fill-extrusion')) {
+        const label = layers.find(l => l.type === 'symbol'), beforeId = map.getLayer('route-casing') ? 'route-casing' : label && label.id;
+        map.addLayer({ id: 'jv-buildings', type: 'fill-extrusion', source: 'openmaptiles', 'source-layer': 'building', minzoom: 14,
+          paint: { 'fill-extrusion-color': this.night ? '#2c2218' : '#ddd6c8', 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
+            'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0], 'fill-extrusion-opacity': this.night ? 0.92 : 0.78 } }, beforeId);
+      }
+      if (!this.night) return;
+      for (const l of layers) {
+        const id = l.id;
+        if (l.type === 'background') map.setPaintProperty(id, 'background-color', '#090705');
+        else if (l.type === 'fill' && /water/.test(id)) map.setPaintProperty(id, 'fill-color', '#0b1218');
+        else if (l.type === 'line' && /motorway|trunk|primary/.test(id) && !/casing/.test(id)) map.setPaintProperty(id, 'line-color', '#6e5129');
+        else if (l.type === 'line' && /road|street|secondary|tertiary|minor|service|highway|path/.test(id) && !/casing/.test(id)) map.setPaintProperty(id, 'line-color', '#3a2f23');
+        else if (l.type === 'symbol' && l.paint && 'text-color' in l.paint) map.setPaintProperty(id, 'text-color', '#cdbb9f');
+      }
+    } catch (e) { console.warn('[NAV] 3d style', e); }
   }
   setNight(b) { if (b === this.night) return; this.night = b; this.map.setStyle(b ? STYLE_NIGHT : STYLE_DAY); }
   setRoute(shape) { this.coords = (shape || []).map(p => [p[1], p[0]]); const s = this.map.getSource('route'); if (s) s.setData(this._geo()); }
@@ -466,9 +492,11 @@ export function createNav(env = {}) {
     <div class="nb-then"></div>
     <div class="ne"></div>
     <div id="nav-badge"></div><div id="nav-toast"></div>
-    <div class="nav-tools"><button type="button" data-t="north" aria-label="North up or heading up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l4 9-4-2-4 2z" fill="currentColor"/><path d="M12 21l-4-9 4 2 4-2z"/></svg></button>
+    <div class="nav-tools"><button type="button" data-t="close" class="close" aria-label="End or hide navigation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <button type="button" data-t="north" aria-label="North up or heading up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l4 9-4-2-4 2z" fill="currentColor"/><path d="M12 21l-4-9 4 2 4-2z"/></svg></button>
       <button type="button" data-t="overview" aria-label="Whole route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/></svg></button>
       <button type="button" data-t="voice" aria-label="Voice guidance on or off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="w" d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></button></div>
+    <div class="nav-preview"></div>
     <button type="button" class="nav-recenter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 21 3l-8.5 18-2-7.5z"/></svg>Recenter</button>`;
   const orb = document.createElement('div'); orb.id = 'nav-orb';
   const caption = document.createElement('div'); caption.id = 'nav-caption';
@@ -476,7 +504,7 @@ export function createNav(env = {}) {
   document.body.appendChild(frame); document.body.appendChild(orb);
   const $ = sel => frame.querySelector(sel);
   const dom = { map: $('#nav-map'), banner: $('.nb'), icon: $('.nb-icon'), dist: $('.nb-dist'), text: $('.nb-text'),
-    then: $('.nb-then'), eta: $('.ne'), badge: $('#nav-badge'), toast: $('#nav-toast') };
+    then: $('.nb-then'), eta: $('.ne'), badge: $('#nav-badge'), toast: $('#nav-toast'), preview: $('.nav-preview') };
 
   const S = { cfg: { provider: 'jarvis', theme: 'auto', units: 'miles', use_gps: true, google_key: '', apple_token: '' },
     route: null, meta: {}, voice: true, sim: null, simSpeed: 25, gpsWatch: null, gps: { state: 'idle', last: null },
@@ -604,6 +632,7 @@ export function createNav(env = {}) {
   frame.querySelector('.nav-recenter').onclick = e => { e.stopPropagation(); recenter(); };
   frame.querySelector('.nav-tools').onclick = e => {
     const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
+    if (b.dataset.t === 'close') { const ev = new CustomEvent('jv-map-close', { cancelable: true }); if (window.dispatchEvent(ev)) setView('off'); return; }   // the phone asks end-or-hide; elsewhere it just hides
     if (b.dataset.t === 'north') { S.north = !S.north; b.classList.toggle('on', S.north); if (!S.free && !S.overview) refollow(); }
     else if (b.dataset.t === 'overview') { if (S.route) { S.overview = true; mv.overview(S.route.bbox); frame.classList.add('free'); } }
     else if (b.dataset.t === 'voice') { S.voice = !S.voice; b.classList.toggle('on', !S.voice); b.querySelector('.w').style.opacity = S.voice ? 1 : 0; toast(S.voice ? 'Voice guidance on' : 'Voice guidance off', 1800); }
@@ -635,6 +664,16 @@ export function createNav(env = {}) {
     startGps();
     if (S.sim || meta.simulate) startSim();
     else if (S.gps.last && Date.now() - S.gps.last.ts < 10000) guide.fix(S.gps.last);
+    if (!meta.reroute && meta.view !== 'keep' && !silent) preview(route);
+  }
+  // a new trip: the whole route and its numbers for three seconds, then the camera flies down behind you
+  function preview(route) {
+    if (S.view !== 'full' || !route.bbox) return;
+    S.overview = true; mv.overview(route.bbox);
+    const n = (route.waypoints || []).length - 1;
+    dom.preview.innerHTML = `<b>${fmtDur(route.time_s || 0)}</b><span>${fmtDist(route.distance_m || 0, route.units || S.cfg.units)}${n > 1 ? ` · ${n} stops` : ''}</span>`;
+    dom.preview.classList.add('show'); clearTimeout(S.prevT);
+    S.prevT = setTimeout(() => { dom.preview.classList.remove('show'); if (S.overview && !S.free) { S.overview = false; refollow(); } }, 3200);
   }
   function stopNav(sayText) {
     clearTimeout(S.endTimer); stopSim();

@@ -39,7 +39,7 @@ export const GROUPS = {
   interpreter: [/\b(interpret|interpreter|translat\w* (for|between|conversation)|conversation mode|speak to (him|her|them)|talk to (him|her|them)|in (spanish|french|german|portuguese|chinese|arabic|hindi|yoruba|igbo|hausa|swahili|japanese|korean|russian|italian))/,
     ['start_interpreter', 'stop_interpreter']],
   driving: [/\b(park|parked|parking|car|gas|fuel|petrol|station|shift|mileage|miles|mile log|tax|deduct|irs|break|drive|driving|driven|clock (in|out)|start (my )?(shift|dash|day)|end (my )?(shift|dash|day))/,
-    ['remember_parking', 'find_my_car', 'find_gas', 'start_shift', 'end_shift', 'shift_status', 'mileage_log', 'set_driving_mode', 'show_earnings']],
+    ['fuel_price', 'remember_parking', 'find_my_car', 'find_gas', 'start_shift', 'end_shift', 'shift_status', 'mileage_log', 'set_driving_mode', 'show_earnings']],
   expenses: [/\b(receipt|expense|expenses|spent|spend|spending|bought|cost|costs|budget|write.?off)/, ['scan_receipt', 'add_expense', 'expense_summary']],
   safety: [/\b(emergency|sos|help me|danger|unsafe|scared|threat|attack|accident|crash|911|police|ambulance|i'?m safe|safe now|emergency contact|share (my )?location|where i am)/,
     ['emergency', 'im_safe', 'set_emergency_contact', 'share_location']],

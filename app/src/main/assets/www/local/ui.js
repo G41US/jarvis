@@ -246,7 +246,7 @@ body[data-nav="full"] #jv-dock { bottom: calc(var(--safe-b) + 110px); }
 body[data-nav="full"] #jv-orb { left: auto; right: 12px; margin: 0; width: 58px; height: 58px; }
 @media (orientation: portrait) {   /* phone: his head is in the bottom-right corner, so the talk button goes bottom-left */
   body[data-nav="full"] #jv-orb { left: 16px; right: auto; }
-  body[data-nav="full"] #jv-toast { top: calc(var(--nb-b, 182px) + 50px); }   /* under the turn banner and its "Then" row, not over them */
+  body[data-nav="full"] #jv-toast { top: var(--toast-top, calc(var(--nb-b, 182px) + 50px)); }   /* under the turn banner and its "Then" row, not over them */
   body[data-nav="full"] #nav-orb { pointer-events: auto; cursor: pointer; }   /* tap his head: back to the face (the trip keeps going) */
   body[data-nav="full"] .nb-then { left: 12px !important; top: calc(var(--nb-b, 182px) + 8px) !important; }   /* the PC put it at a fixed 118px, inside the phone's taller banner */
   body[data-nav="full"] #nav-caption { left: 12px; right: 12px; transform: none; max-width: none; bottom: auto; top: auto;
@@ -362,6 +362,8 @@ body.st-listening #jv-keys .bars i, body.st-session #jv-keys .bars i, body.st-sp
 #jv-dock #jv-grid svg { width: 22px; height: 22px; }
 body[data-nav] #jv-grid, body.jv-drive #jv-grid { display: none !important; }
 body[data-nav="full"] .nav-tools { right: auto; left: 16px; top: auto; bottom: calc(var(--safe-b) + 196px); }   /* above the talk button: the delivery card and his head have the right side */
+body[data-nav="full"] .nav-preview { bottom: auto; top: 30%; }
+#jv-hint { display: none !important; }   /* the welcome cards explain the screen now; the old hint sat on the greeting */   /* the trip numbers float mid-screen, clear of the card, his head and the buttons */
 body[data-nav="full"] .nav-recenter { left: calc((74px + var(--orb-cx, 300px) - var(--orb-d, 100px) / 2) / 2); }   /* centred between the talk button and his head */
 /* the shortcuts tray: app-style tiles */
 #jv-tray-scrim { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, .62); opacity: 0; pointer-events: none; transition: opacity .3s; }
@@ -392,6 +394,42 @@ body.jv-orders:not([data-nav]) { --resume-h: 62px; }
   text-transform: none; letter-spacing: normal; border: 1px solid rgba(255, 214, 150, .18); background: rgba(255, 236, 190, .06); color: var(--ice); }
 #route-panel .rp-acts button svg { width: 16px; height: 16px; }
 #route-panel .rp-acts .end { color: #ff8a93; border-color: rgba(255, 90, 103, .38); background: rgba(255, 90, 103, .1); }
+#jv-here { position: fixed; z-index: 12; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 92px); padding: 14px; border-radius: 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  background: linear-gradient(180deg, rgba(34, 26, 15, .97), rgba(14, 11, 7, .98)); border: 1px solid rgba(245, 201, 122, .35); box-shadow: 0 14px 40px rgba(0, 0, 0, .55);
+  font-family: Roboto, system-ui, sans-serif; transform: translateY(140%); opacity: 0; transition: transform .45s var(--ease), opacity .3s; pointer-events: none; }
+body.jv-here #jv-here { transform: none; opacity: 1; pointer-events: auto; }
+#jv-here .tile { width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center; flex: none; background: linear-gradient(160deg, #ffd88a, #e08a1e); box-shadow: inset 0 1px 0 rgba(255,255,255,.4); }
+#jv-here .tile.drop { background: linear-gradient(160deg, #9fe7b8, #2fa86a); }
+#jv-here .tile svg { width: 24px; height: 24px; }
+#jv-here .t { flex: 1; min-width: 0; }
+#jv-here .t b { display: block; font: 600 17px/1.2 'Saira', system-ui, sans-serif; font-stretch: 92%; color: var(--ice); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#jv-here .t span { font-size: 13px; color: var(--mist); }
+#jv-here .acts { flex-basis: 100%; display: flex; gap: 8px; }
+#jv-here .acts button { flex: 1; height: 48px; border-radius: 15px; border: 1px solid rgba(255, 214, 150, .2); background: rgba(255, 236, 190, .06); color: var(--ice); font: 600 15px/1 Roboto, sans-serif; text-transform: none; letter-spacing: normal; }
+#jv-here .acts .yes { flex: 1.6; border: 0; color: #1b1206; background: linear-gradient(160deg, #ffe3a6 0%, #f5b94f 45%, #e08a1e 100%); }
+
+#jv-sum, #jv-tour { position: fixed; z-index: 42; left: 12px; right: 12px; top: 50%; transform: translateY(-46%) scale(.97); opacity: 0; pointer-events: none; padding: 22px 20px 18px; border-radius: 28px;
+  background: radial-gradient(120% 70% at 100% 0%, rgba(245, 185, 79, .2), transparent 60%), linear-gradient(180deg, rgba(34, 26, 15, .98), rgba(12, 9, 6, .99));
+  border: 1px solid rgba(255, 214, 150, .25); box-shadow: 0 30px 80px rgba(0, 0, 0, .7); font-family: Roboto, system-ui, sans-serif; color: var(--ice); transition: opacity .35s, transform .45s var(--ease); }
+body.jv-sum #jv-sum, body.jv-tour #jv-tour { opacity: 1; transform: translateY(-50%); pointer-events: auto; }
+body.jv-sum #jv-tray-scrim, body.jv-tour #jv-tray-scrim { opacity: 1; pointer-events: auto; }
+#jv-sum .k, #jv-tour .k { font: 600 11px/1 Roboto, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: var(--holo); }
+#jv-sum .big { font: 600 44px/1 'Saira', system-ui, sans-serif; font-stretch: 92%; margin: 10px 0 4px; }
+#jv-sum .sub { font-size: 13.5px; color: var(--mist); margin-bottom: 16px; }
+#jv-sum .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+#jv-sum .grid div { border-radius: 16px; padding: 11px 10px; background: rgba(255, 236, 190, .06); }
+#jv-sum .grid b { display: block; font: 600 18px/1.1 'Saira', system-ui, sans-serif; font-stretch: 92%; }
+#jv-sum .grid span { font-size: 11px; color: var(--mist); }
+#jv-sum .grid .good b { color: #7ee0a1; }
+#jv-sum button, #jv-tour button { width: 100%; height: 52px; border: 0; border-radius: 17px; font: 700 15.5px/1 Roboto, sans-serif; text-transform: none; letter-spacing: normal; color: #1b1206;
+  background: linear-gradient(160deg, #ffe3a6 0%, #f5b94f 45%, #e08a1e 100%); }
+#jv-tour .tile { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; margin: 4px 0 16px; box-shadow: 0 8px 22px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .4); }
+#jv-tour .tile svg { width: 30px; height: 30px; }
+#jv-tour h3 { margin: 0 0 8px; font: 600 26px/1.1 'Saira', system-ui, sans-serif; font-stretch: 96%; text-transform: none; letter-spacing: normal; color: var(--ice); }
+#jv-tour p { margin: 0 0 20px; font-size: 15px; line-height: 1.45; color: var(--mist); }
+#jv-tour .dots { display: flex; gap: 6px; margin-bottom: 16px; } #jv-tour .dots i { width: 7px; height: 7px; border-radius: 4px; background: rgba(255, 236, 190, .2); transition: width .3s; }
+#jv-tour .dots i.on { width: 22px; background: var(--holo); }
+#jv-tour .skip { background: none; color: var(--mist); height: 38px; margin-top: 4px; font-weight: 500; }
 #jv-end { position: fixed; z-index: 41; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 12px); padding: 18px; border-radius: 24px; display: none; flex-direction: column; gap: 10px;
   background: linear-gradient(180deg, rgba(34, 26, 15, .98), rgba(14, 11, 7, .99)); border: 1px solid rgba(255, 214, 150, .22); box-shadow: 0 -10px 40px rgba(0, 0, 0, .6); font-family: Roboto, system-ui, sans-serif; }
 body.jv-end #jv-end { display: flex; } body.jv-end #jv-tray-scrim { opacity: 1; pointer-events: auto; }
@@ -564,7 +602,7 @@ export function initUi() {
   if ($('jv-dock')) return;
   const st = el('style'); st.textContent = CSS; document.head.append(st);
   const B = document.body.classList;
-  const buzz = k => { try { if (window.AndroidBridge && window.AndroidBridge.vibrate) window.AndroidBridge.vibrate(k); else if (navigator.vibrate) navigator.vibrate(k === 'mute' ? [25, 60, 25] : 20); } catch {} };
+  const buzz = window.__jvBuzz = k => { try { if (window.AndroidBridge && window.AndroidBridge.vibrate) window.AndroidBridge.vibrate(k); else if (navigator.vibrate) navigator.vibrate(k === 'mute' ? [25, 60, 25] : 20); } catch {} };
 
   const aura = el('canvas'); aura.id = 'jv-aura'; aura.setAttribute('aria-hidden', 'true');
   const three = $('three'); if (three && three.parentNode) three.parentNode.insertBefore(aura, three.nextSibling); else document.body.prepend(aura);
@@ -597,8 +635,21 @@ export function initUi() {
     const d = new Date(), name = (J() && J().config && String(J().config.get('user_name', '') || '').trim()) || '';
     hG.textContent = greeting(d.getHours()) + (name ? ', ' + name : '');
     hN.innerHTML = 'How can I <em>help</em>?';
-    clock.textContent = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + timeText(d);
+    clock.textContent = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + (wx.text || timeText(d));
   };
+  // the weather where you are, next to the date (Open-Meteo, every 20 minutes)
+  const wx = { text: '', at: 0 };
+  const WX = c => c === 0 ? 'Clear' : c <= 2 ? 'Partly cloudy' : c === 3 ? 'Cloudy' : c <= 48 ? 'Fog' : c <= 57 ? 'Drizzle' : c <= 67 ? 'Rain' : c <= 77 ? 'Snow' : c <= 82 ? 'Showers' : c <= 86 ? 'Snow' : 'Storms';
+  async function weather() {
+    try {
+      const o = J() && J().navsvc && J().navsvc.origin(); if (!o || Date.now() - wx.at < 20 * 60000) return;
+      const f = J().delivery && J().delivery.units === 'miles' && (J().navsvc.state.cc || '') === 'us';
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${o[0].toFixed(3)}&longitude=${o[1].toFixed(3)}&current=temperature_2m,weather_code${f ? '&temperature_unit=fahrenheit' : ''}`);
+      const c = (await r.json()).current; if (!c) return;
+      wx.text = `${Math.round(c.temperature_2m)}° ${WX(c.weather_code)}`; wx.at = Date.now(); paintHello();
+    } catch {}
+  }
+  setTimeout(weather, 4000); setInterval(weather, 5 * 60000);
   let greetTimer = 0, hiddenAt = 0;
   const greet = () => { paintHello(); B.add('jv-greet'); clearTimeout(greetTimer); greetTimer = setTimeout(() => B.remove('jv-greet'), TIMING.greetMs); };
   document.addEventListener('visibilitychange', () => {
@@ -738,7 +789,7 @@ export function initUi() {
     new MutationObserver(() => {
       const shown = rp.classList.contains('show');
       B.toggle('jv-route', shown && document.body.getAttribute('data-nav') !== 'dash');
-      if (shown && !rp._seen) { rp._seen = true; if (!document.body.hasAttribute('data-nav')) rp.classList.add('jv-folded'); }
+      if (shown && !rp._seen) { rp._seen = true; if (document.body.getAttribute('data-nav') !== 'dash') rp.classList.add('jv-folded'); }
       if (!shown) rp._seen = false;
     }).observe(rp, { attributes: true, attributeFilter: ['class'] });
   }
@@ -764,7 +815,7 @@ export function initUi() {
     b.onclick = () => { tray_(false); buzz('tick'); setTimeout(go, 120); }; tiles.append(b);
   }
   grid.onclick = () => tray_(!B.contains('jv-tray'));
-  trayScrim.onclick = () => { tray_(false); B.remove('jv-end'); };
+  trayScrim.onclick = () => { tray_(false); B.remove('jv-end'); B.remove('jv-sum'); };
 
   // ---- orders waiting while the face is up: a gold pill back to the route
   const D = () => J() && J().delivery;
@@ -783,17 +834,84 @@ export function initUi() {
     addB.onclick = () => window.dispatchEvent(new CustomEvent('jv-dmode'));
     endB.onclick = () => openEnd();
   }
+  // the ✕ on the map: a delivery trip asks about its orders; a plain route asks end or hide
+  window.addEventListener('jv-map-close', e => {
+    e.preventDefault(); const N = J() && J().navsvc;
+    if (N && N.state.delivery) { openEnd(); return; }
+    endSheet.innerHTML = '';
+    const yes = el('button', 'end', 'End navigation'), keep = el('button', '', 'Hide the map, keep guiding me'), no = el('button', 'no', 'Cancel');
+    for (const b of [yes, keep, no]) b.type = 'button';
+    endSheet.append(el('h3', '', 'End navigation?'), el('p', '', N && N.state.label ? `You're on your way to ${N.state.label}.` : ''), yes, keep, no);
+    yes.onclick = () => { B.remove('jv-end'); buzz('mute'); try { N.stop(); } catch {} };
+    keep.onclick = async () => { B.remove('jv-end'); try { await N.mapControl('hide_map'); } catch {} };
+    no.onclick = () => B.remove('jv-end');
+    B.add('jv-end'); buzz('tick');
+  });
   function openEnd() {
     const n = D() ? D().activeOrders().length : 0;
     endSheet.innerHTML = '';
     const yes = el('button', 'end', `End trip and clear ${n} order${n !== 1 ? 's' : ''}`), keep = el('button', '', 'Keep orders, hide the map'), no = el('button', 'no', 'Cancel');
     for (const b of [yes, keep, no]) b.type = 'button';
     endSheet.append(el('h3', '', 'End this trip?'), el('p', '', 'Ending clears the orders from your stack. Your earnings so far are kept.'), yes, keep, no);
-    yes.onclick = async () => { B.remove('jv-end'); try { const r = await J().reg.exec('clear_deliveries', '{}'); J().navsvc.stop(); showToast('Trip ended. ' + r); } catch {} };
+    yes.onclick = async () => { B.remove('jv-end'); buzz('mute'); try { const r = await J().reg.exec('clear_deliveries', '{}'); J().navsvc.stop(); showToast('Trip ended. ' + r); } catch {} };
     keep.onclick = async () => { B.remove('jv-end'); try { await J().navsvc.mapControl('hide_map'); } catch {} };
     no.onclick = () => B.remove('jv-end');
     B.add('jv-end'); buzz('tick');
   }
+  // ---- arriving at a stop: one big button instead of having to say it
+  const here = el('section'); here.id = 'jv-here'; here.setAttribute('role', 'dialog'); here.setAttribute('aria-live', 'polite'); document.body.append(here);
+  let hereKind = '';
+  window.addEventListener('jv-arrive', e => {
+    const d = e.detail; if (!d) { B.remove('jv-here'); return; }
+    hereKind = d.kind === 'pickup' ? 'pickup' : 'drop';
+    const bag = '<path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>', pin = '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>';
+    here.innerHTML = `<span class="tile ${hereKind}"><svg viewBox="0 0 24 24" fill="none" stroke="#1b1206" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${hereKind === 'pickup' ? bag : pin}</svg></span>`;
+    const t = el('div', 't'), nm = el('b'); nm.textContent = `You're at ${d.label}`; t.append(nm, el('span', '', hereKind === 'pickup' ? 'Pick up the order' : 'Drop off the order'));
+    const acts = el('div', 'acts'), yes = el('button', 'yes', hereKind === 'pickup' ? 'Picked up' : 'Delivered'), no = el('button', '', 'Not yet');
+    yes.type = no.type = 'button'; acts.append(no, yes); here.append(t, acts);
+    yes.onclick = async () => { B.remove('jv-here'); buzz('tick'); try { const r = await J().reg.exec('complete_stop', JSON.stringify({ stop_type: hereKind })); showToast(r); } catch {} };
+    no.onclick = () => B.remove('jv-here');
+    B.add('jv-here'); buzz('mute');
+  });
+  // ---- the end of a shift: a card with what it was worth
+  const sum = el('section'); sum.id = 'jv-sum'; sum.setAttribute('role', 'dialog'); sum.setAttribute('aria-label', 'Shift summary'); document.body.append(sum);
+  window.addEventListener('jv-shift-done', e => {
+    const n = e.detail || {}, Dl = J().delivery, km = Dl && Dl.units === 'km', dist = (n.miles || 0) * (km ? 1.609344 : 1), m = v => Dl ? Dl.money(v, 2) : String(v);
+    const pd = J().fuel ? J().fuel.perDist() : 0, fuelCost = pd * dist, mins = Math.round(((n.end || 0) - (n.start || 0)) / 60000);
+    const cell = (v, l, c = '') => `<div class="${c}"><b>${v}</b><span>${l}</span></div>`;
+    sum.innerHTML = `<div class="k">Shift done</div><div class="big">${m(n.earned || 0)}</div><div class="sub">${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m · ${n.orders || 0} order${n.orders === 1 ? '' : 's'}</div>
+      <div class="grid">${cell(n.perHour ? m(n.perHour) : '—', 'per hour')}${cell(dist.toFixed(1), km ? 'kilometres' : 'miles')}${cell(n.perMile ? m(km ? n.perMile / 1.609344 : n.perMile) : '—', km ? 'per km' : 'per mile')}
+      ${cell(fuelCost > 0 ? m(fuelCost) : '—', 'fuel')}${cell(fuelCost > 0 ? m((n.earned || 0) - fuelCost) : '—', 'after fuel', 'good')}${cell(n.spent ? m(n.spent) : '—', 'expenses')}</div>`;
+    const ok = el('button', '', 'Done'); ok.type = 'button'; ok.onclick = () => B.remove('jv-sum'); sum.append(ok);
+    B.add('jv-sum'); buzz('mute');
+  });
+
+  // ---- first time on the new home screen: three quick cards
+  const tour = el('section'); tour.id = 'jv-tour'; tour.setAttribute('role', 'dialog'); tour.setAttribute('aria-label', 'Welcome'); document.body.append(tour);
+  const TOUR = [
+    ['#ffe3a6', '#e59a2a', '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>', 'Talk to me', 'Say "Hey Jarvis", or tap the gold mic. Tap "Ask or type anything" to type instead.'],
+    ['#ffd88a', '#e08a1e', '<path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>', 'Delivery mode', 'Say "delivery mode": add up to 4 orders with their pay, tap Start, and I take you the fastest way on the map.'],
+    ['#a9c8ff', '#3d6fe0', '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>', 'Your shortcuts', 'The grid button next to the mic has everything else: earnings, briefing, your shift, chat and settings.'],
+  ];
+  let tourAt = 0;
+  function paintTour() {
+    const [c1, c2, path, h, p] = TOUR[tourAt];
+    tour.innerHTML = `<div class="k">Welcome · ${tourAt + 1} of ${TOUR.length}</div><span class="tile" style="background:linear-gradient(160deg,${c1},${c2})"><svg viewBox="0 0 24 24" fill="none" stroke="#1b1206" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg></span>`;
+    const hh = el('h3', '', h), pp = el('p', '', p), dots = el('div', 'dots'); TOUR.forEach((_, i) => dots.append(el('i', i === tourAt ? 'on' : '')));
+    const next = el('button', '', tourAt < TOUR.length - 1 ? 'Next' : "Let's go"), skip = el('button', 'skip', 'Skip');
+    next.type = skip.type = 'button'; tour.append(hh, pp, dots, next); if (tourAt < TOUR.length - 1) tour.append(skip);
+    next.onclick = () => { if (tourAt < TOUR.length - 1) { tourAt++; paintTour(); buzz('tick'); } else endTour(); };
+    skip.onclick = endTour;
+  }
+  function endTour() { B.remove('jv-tour'); try { J().config.set('tour_v1', true); } catch {} }
+  const tourTry = setInterval(() => {
+    const c = J() && J().config; if (!c) return;
+    if (c.get('tour_v1', false)) { clearInterval(tourTry); return; }
+    const busy = !c.get('setup_v1', false) || document.querySelector('#jv-setup.on, #jv-ov.on') || B.contains('jv-history') || B.contains('jv-talking') || document.body.hasAttribute('data-nav') || B.contains('dm-open');
+    if (busy) return;
+    clearInterval(tourTry); tourAt = 0; paintTour(); B.add('jv-tour');
+  }, 2500);
+
   // a tap on the small map opens it full screen
   window.addEventListener('jv-map-tap', () => { try { J().navsvc.mapControl('show_map'); } catch {} });
   let ideasTimer = 0;
@@ -835,6 +953,8 @@ export function initUi() {
     if (document.body.hasAttribute('data-nav')) closeIdeas();
     setTimeout(dashLayout, 30); setTimeout(stage, 40);
   }).observe(document.body, { attributes: true, attributeFilter: ['data-nav'] });
+  // the full map: the delivery card folds to one line so the road, the buttons and his messages have the room (tap it to open)
+  if (rp) new MutationObserver(() => { if (document.body.getAttribute('data-nav') === 'full') rp.classList.add('jv-folded'); }).observe(document.body, { attributes: true, attributeFilter: ['data-nav'] });
   if (rp && window.ResizeObserver) new ResizeObserver(() => { dashLayout(); stage(); }).observe(rp);
   window.addEventListener('resize', () => setTimeout(dashLayout, 50));
   setInterval(dashLayout, 1500);
@@ -845,6 +965,10 @@ export function initUi() {
     if (e.target.closest && e.target.closest('#nav-orb') && document.body.getAttribute('data-nav') === 'full') { try { window.JARVIS.navsvc.mapControl('hide_map'); } catch {} }
   });
   setInterval(() => { const N = window.JARVIS && window.JARVIS.navsvc; B.toggle('jv-trip-hidden', !!(N && N.state.active && !N.state.delivery && N.state.view === 'off')); }, 700);
+  setInterval(() => {                         // the map's messages go under whatever is lowest at the top: the turn banner or the delivery card
+    const nb = document.querySelector('.nb'), n = nb && nb.offsetHeight ? nb.getBoundingClientRect().bottom : 0, p = rp && rp.classList.contains('show') && rp.offsetHeight ? rp.getBoundingClientRect().bottom : 0;
+    document.documentElement.style.setProperty('--toast-top', Math.round(Math.max(n + 50, p + 10, 120)) + 'px');
+  }, 700);
   setInterval(() => { const nb = document.querySelector('.nb'); if (!nb || nb === nbSeen || !window.ResizeObserver) return; nbSeen = nb; new ResizeObserver(() => nbLayout(nb)).observe(nb); nbLayout(nb); }, 1000);
 
   // the face makes room for the answer card

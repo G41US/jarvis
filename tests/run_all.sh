@@ -23,6 +23,7 @@ python3 tests/studio_test.py | tail -1                           # OBS scenes, o
 [ -n "$DISPLAY" ] && python3 tests/pc_control_test.py | tail -1  # screen control with the real mouse and keyboard (needs a screen, e.g. Xvfb)
 node tests/mind_agent.test.mjs | tail -1                          # the same on the phone
 node tests/nav_trip.test.mjs | tail -1                            # several pickups in the fastest order on the map; no made-up directions
+node tests/fuel.test.mjs | tail -1                                # fuel price from the web answer, cost per km/mile, currency by country
 JW=$(mktemp -d); javac -d "$JW" app/src/main/java/com/jarvis/assistant/Wav.java tests/java/WavCheck.java 2>/dev/null && java -cp "$JW" com.jarvis.assistant.WavCheck 2>/dev/null   # the natural voice's audio
 python3 tools/make_www.py >/dev/null
 python3 tests/e2e/e2e.py | tail -1                                 # the whole phone page, fake Android bridge, mocked services

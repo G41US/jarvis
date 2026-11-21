@@ -1,6 +1,7 @@
 // navsvc.js - on-phone navigation service: port of the navigation block in server.py.
 // Owns route requests, the delivery-stack route, map/voice controls, and the spoken-command fast path.
 import { Navigator, haversineM, resolveUnits, fmtDistance, fmtDuration, clock } from './navlib.js';
+import { currencyFor } from './delivery.js';
 
 const MAP_ACTIONS = ['show_map', 'mini_map', 'hide_map', 'zoom_in', 'zoom_out', 'overview', 'recenter', 'night', 'day', 'auto_theme', 'mute_voice', 'unmute_voice',
   'simulate', 'stop_simulation', 'use_google', 'use_apple', 'use_jarvis_map', 'avoid_highways', 'avoid_tolls', 'avoid_ferries', 'allow_all_roads', 'gps_off', 'gps_on', 'reroute'];
@@ -15,6 +16,9 @@ export function bestOrder(D) {
   go([], Array.from({ length: n }, (_, i) => i + 1), 0);
   return best || [];
 }
+
+/** How much to stretch our route times to match the traffic-aware time (kept between half and three times). */
+export const trafficScale = (ours, live) => (ours > 0 && live > 0 ? Math.min(3, Math.max(0.5, live / ours)) : 1);
 
 export const NO_ORIGIN = "I don't know where you are yet. Allow location for the app, or tell me 'I'm at' and your address.";
 
@@ -63,7 +67,23 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     return null;
   }
   const units = (cc = '') => { const u = resolveUnits((NAV.cfg.units || 'auto'), S.cc || cc); delivery.setUnits(u); return u; };
-  const route = (pts, mode) => NAV.route(pts, mode, units(), null, S.avoid);
+  const route = async (pts, mode) => withTraffic(await NAV.route(pts, mode, units(), null, S.avoid), pts, mode);
+  // live traffic (a free TomTom key in Settings): the same roads, but times from current traffic, and the delivery planner
+  // weighs stops by it too. Without a key, typical speeds as before.
+  async function withTraffic(r, pts, mode) {
+    const key = String(config.get('tomtom_key', '') || '').trim();
+    if (!r || !r.ok || !key || mode !== 'auto' || pts.length > 150) return r;
+    try {
+      const locs = pts.map(([a, b]) => `${a.toFixed(6)},${b.toFixed(6)}`).join(':');
+      const j = await delivery._get(`https://api.tomtom.com/routing/1/calculateRoute/${locs}/json`, { key, traffic: 'true', travelMode: 'car', routeType: 'fastest', computeTravelTimeFor: 'all' });
+      const sm = j && j.routes && j.routes[0] && j.routes[0].summary; if (!sm || !(sm.travelTimeInSeconds > 0)) return r;
+      const k = trafficScale(r.time_s, sm.travelTimeInSeconds);
+      r.time_s = Math.round(r.time_s * k); for (const st of r.steps || []) st.time_s = Math.round(st.time_s * k); for (const l of r.legs || []) l.time_s = Math.round(l.time_s * k);
+      r.traffic = { delay_s: Math.max(0, Math.round(sm.trafficDelayInSeconds || 0)) };
+      if (sm.noTrafficTravelTimeInSeconds > 0) delivery.cfg.traffic_factor = Math.min(3, Math.max(1, sm.travelTimeInSeconds / sm.noTrafficTravelTimeInSeconds));
+    } catch (e) { console.warn('[NAV] traffic', e); }
+    return r;
+  }
 
   async function syncLocation(lat, lon) {
     const last = S.synced; if (last && haversineM(last[0], last[1], lat, lon) < 20) return;
@@ -72,7 +92,12 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     const rv = S.rv;
     if (!rv || haversineM(rv[0], rv[1], lat, lon) > 4000) {
       const info = await NAV.reverse(lat, lon);
-      if (info) { S.rv = [lat, lon]; S.cc = info.country_code || ''; if (info.area) delivery._setState('area', info.area); units(); }
+      if (info) {
+        S.rv = [lat, lon]; S.cc = info.country_code || ''; if (info.area) delivery._setState('area', info.area); units();
+        const sym = currencyFor(S.cc);                                    // money in the local currency unless he picked one
+        if (sym && String(config.get('currency_auto', 'true')) !== 'false' && config.get('currency', '') !== sym) { config.set('currency', sym); delivery.cfg.currency = sym; }
+        S.place = [info.short, info.area].filter(Boolean).join(', '); S.placeAt = Date.now();
+      }
     }
   }
   async function position(p) {
@@ -89,6 +114,8 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   // ---- knowing when a stop is done: you stop near it for a while, then drive away -> picked up / delivered.
   //      Only for stops with a real address (an area-only drop-off is too vague to tell), and you can say "undo".
   const ARRIVE_M = 120, LEAVE_M = 300, DWELL_MS = 40000;
+  // the arrival card on the phone: "You're at Chipotle · Picked up"
+  const arrived = detail => { try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('jv-arrive', { detail })); } catch {} };
   function watchStops(lat, lon, acc) {
     if (S.active && !S.delivery && S.dest.length > 1 && acc <= 100 && haversineM(lat, lon, S.dest[0][0], S.dest[0][1]) <= ARRIVE_M) {
       const done = S.dest.shift(); S.label = S.dest[0][2];          // a stop on a multi-stop trip: on to the next one
@@ -97,9 +124,9 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if (!(S.active && S.delivery && S.route) || acc > 100 || !S.onStopDone || config.get('auto_stops', true) === false) return;
     const w = (S.route.waypoints || [])[1]; if (!w || w.approx || !w.kind || w.kind === 'stop') { S.here = null; return; }
     const d = haversineM(lat, lon, w.lat, w.lon), key = `${w.kind}:${w.label}`, now = Date.now();
-    if (d <= ARRIVE_M) { if (!S.here || S.here.key !== key) S.here = { key, since: now, last: now }; else S.here.last = now; return; }
+    if (d <= ARRIVE_M) { if (!S.here || S.here.key !== key) { S.here = { key, since: now, last: now }; arrived({ kind: w.kind, label: w.label }); } else S.here.last = now; return; }
     if (S.here && S.here.key === key && d >= LEAVE_M) {
-      const stayed = S.here.last - S.here.since; S.here = null;
+      const stayed = S.here.last - S.here.since; S.here = null; arrived(null);
       if (stayed >= (globalThis.__jvDwellMs || DWELL_MS)) { try { S.onStopDone(w.kind, w.label); } catch (e) { console.warn('[NAV] auto stop', e); } }
     }
   }
@@ -195,6 +222,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     Object.assign(S, { active: true, route: r, label, mode, delivery: false, progress: null, view: 'full', dest: [[g.lat, g.lon, label]] });
     cmd('route', { route: r, meta: { label, delivery: false } });
     let txt = Navigator.spokenSummary(r, label);
+    if (r.traffic && r.traffic.delay_s >= 180) txt += ` Traffic is adding about ${Math.round(r.traffic.delay_s / 60)} minutes.`;
     if (g.distance_km && g.distance_km > 150) txt = `The closest match I found is ${g.display.slice(0, 70)}, ${fmtDistance(g.distance_km * 1000, r.units)} away. ` + txt;
     return txt;
   }
@@ -397,5 +425,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if ((m = R.gps.exec(t))) return mapControl(m[1].toLowerCase() === 'on' ? 'gps_on' : 'gps_off');
     return null;
   }
-  return { state: S, startTrip, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, stop, status, mapControl, openInMaps, externalUrl };
+  /** Where he is, for the brain: a fresh look at the phone's GPS (no map needed), named by the street and area. */
+  function place() { if (!S.pos || Date.now() / 1000 - S.pos.ts > 300) phoneFix(false); return S.place ? { text: S.place, at: S.placeAt, cc: S.cc } : null; }
+  return { state: S, place, startTrip, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, stop, status, mapControl, openInMaps, externalUrl };
 }

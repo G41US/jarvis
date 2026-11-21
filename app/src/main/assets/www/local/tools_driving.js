@@ -113,9 +113,10 @@ export function registerDrivingTools(ctx) {
     if (!has('shiftEnd')) return 'I can only track shifts on the phone.';
     const t = parse(P().shiftEnd()) || {}; if (t.error === 'none') return "You weren't on a shift.";
     const n = shiftNumbers({ start: t.start, end: t.end, meters: t.meters, deliveries: deliveries(), expenses: expenses() });
-    kv.set('last_shift', { ...t, ...n }); setTimeout(() => window.dispatchEvent(new Event('jv-refresh')), 0);
+    kv.set('last_shift', { ...t, ...n }); setTimeout(() => { window.dispatchEvent(new Event('jv-refresh')); window.dispatchEvent(new CustomEvent('jv-shift-done', { detail: { ...t, ...n } })); }, 0);
+    const us = cur() === '$' && miles();                                // the IRS mileage rate only means something in the US
     return `Shift done. ${hm(t.end - t.start)}, ${n.miles.toFixed(1)} miles, ${n.orders} order${n.orders !== 1 ? 's' : ''}, ${money(n.earned)} earned` +
-      (n.earned ? `, ${money(n.perHour)} an hour${n.perMile ? ' and ' + money(n.perMile) + ' a mile' : ''}` : '') + `. At the IRS rate those miles are worth a ${money(n.deduction)} deduction.` +
+      (n.earned ? `, ${money(n.perHour)} an hour${n.perMile ? ' and ' + money(n.perMile) + ' a mile' : ''}` : '') + (us ? `. At the IRS rate those miles are worth a ${money(n.deduction)} deduction.` : '.') +
       (n.spent ? ` You logged ${money(n.spent)} in expenses.` : '');
   });
   T('mileage_log', "Miles driven on shifts, with the IRS deduction: period today, week, last week, month, last month, year, last year, all. export: 'csv' or 'pdf' for taxes.",

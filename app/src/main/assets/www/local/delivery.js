@@ -4,6 +4,23 @@ import { haversineM, clock as clockOf, METERS_PER_MILE } from './navlib.js';
 import { pyRound, nominatimThrottle } from './net.js';
 
 export const MAX_STACK = 4;
+// Money where you drive: the country (from GPS) picks the symbol unless you chose one in Settings.
+export const CURRENCIES = [['$', 'US dollar ($)'], ['₦', 'Nigerian naira (₦)'], ['£', 'British pound (£)'], ['€', 'Euro (€)'], ['C$', 'Canadian dollar (C$)'], ['A$', 'Australian dollar (A$)'],
+  ['NZ$', 'New Zealand dollar (NZ$)'], ['₹', 'Indian rupee (₹)'], ['R', 'South African rand (R)'], ['KSh', 'Kenyan shilling (KSh)'], ['GH₵', 'Ghanaian cedi (GH₵)'], ['USh', 'Ugandan shilling (USh)'],
+  ['TSh', 'Tanzanian shilling (TSh)'], ['E£', 'Egyptian pound (E£)'], ['MAD', 'Moroccan dirham (MAD)'], ['CFA', 'CFA franc (CFA)'], ['AED', 'UAE dirham (AED)'], ['SAR', 'Saudi riyal (SAR)'],
+  ['QAR', 'Qatari riyal (QAR)'], ['₺', 'Turkish lira (₺)'], ['₽', 'Russian rouble (₽)'], ['¥', 'Japanese yen / Chinese yuan (¥)'], ['₩', 'South Korean won (₩)'], ['₱', 'Philippine peso (₱)'],
+  ['Rp', 'Indonesian rupiah (Rp)'], ['RM', 'Malaysian ringgit (RM)'], ['S$', 'Singapore dollar (S$)'], ['฿', 'Thai baht (฿)'], ['₫', 'Vietnamese dong (₫)'], ['Rs', 'Pakistani / Sri Lankan rupee (Rs)'],
+  ['৳', 'Bangladeshi taka (৳)'], ['R$', 'Brazilian real (R$)'], ['MX$', 'Mexican peso (MX$)'], ['COL$', 'Colombian peso (COL$)'], ['ARS$', 'Argentine peso (ARS$)'], ['CLP$', 'Chilean peso (CLP$)'],
+  ['S/', 'Peruvian sol (S/)'], ['CHF', 'Swiss franc (CHF)'], ['kr', 'Swedish / Norwegian / Danish krone (kr)'], ['zł', 'Polish złoty (zł)'], ['Kč', 'Czech koruna (Kč)'], ['Ft', 'Hungarian forint (Ft)'],
+  ['lei', 'Romanian leu (lei)'], ['₴', 'Ukrainian hryvnia (₴)'], ['₪', 'Israeli shekel (₪)'], ['HK$', 'Hong Kong dollar (HK$)'], ['NT$', 'Taiwan dollar (NT$)'], ['J$', 'Jamaican dollar (J$)']];
+const EURO = 'at be cy de ee es fi fr gr hr ie it lt lu lv mt nl pt si sk';
+const CC = { us: '$', pr: '$', ec: '$', sv: '$', pa: '$', ng: '₦', gb: '£', ca: 'C$', au: 'A$', nz: 'NZ$', in: '₹', za: 'R', ke: 'KSh', gh: 'GH₵', ug: 'USh', tz: 'TSh', eg: 'E£',
+  ma: 'MAD', sn: 'CFA', ci: 'CFA', cm: 'CFA', bj: 'CFA', tg: 'CFA', ml: 'CFA', bf: 'CFA', ne: 'CFA', ga: 'CFA', cg: 'CFA', td: 'CFA', cf: 'CFA', ae: 'AED', sa: 'SAR', qa: 'QAR',
+  tr: '₺', ru: '₽', jp: '¥', cn: '¥', kr: '₩', ph: '₱', id: 'Rp', my: 'RM', sg: 'S$', th: '฿', vn: '₫', pk: 'Rs', lk: 'Rs', bd: '৳', br: 'R$', mx: 'MX$', co: 'COL$', ar: 'ARS$',
+  cl: 'CLP$', pe: 'S/', ch: 'CHF', se: 'kr', no: 'kr', dk: 'kr', pl: 'zł', cz: 'Kč', hu: 'Ft', ro: 'lei', ua: '₴', il: '₪', hk: 'HK$', tw: 'NT$', jm: 'J$' };
+for (const c of EURO.split(' ')) CC[c] = '€';
+/** The currency symbol for a two-letter country code ('ng' -> '₦'); '' when we don't know it. */
+export const currencyFor = cc => CC[String(cc || '').toLowerCase()] || '';
 export const DEFAULTS = {
   areas: [], country_codes: '',                      // your town comes from GPS (or the 'Busy areas' setting)
   pickup_dwell_s: 150, same_stop_dwell_s: 30, drop_dwell_s: 120,
