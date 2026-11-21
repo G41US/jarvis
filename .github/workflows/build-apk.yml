@@ -6,8 +6,8 @@ on:
     paths-ignore: ['desktop/**', '.github/workflows/build-desktop.yml']   # the PC app has its own build
   workflow_dispatch:
     inputs:
-      cloud:
-        description: "Build on GitHub's machines instead of the laptop (uses paid minutes)"
+      laptop:
+        description: "Build on the laptop's Ubuntu (WSL runner) instead of GitHub's machines"
         type: boolean
         default: false
 
@@ -16,8 +16,8 @@ permissions:
 
 jobs:
   build:
-    # on the laptop's Ubuntu (WSL, set up with tools/wsl_runner.sh): free and unlimited. Tick "cloud" for GitHub's machines.
-    runs-on: ${{ inputs.cloud && 'ubuntu-latest' || fromJSON('["self-hosted", "Linux", "jarvis-linux"]') }}
+    # GitHub's machines (free: the repo is public). Tick "laptop" to use the laptop's Ubuntu (WSL, tools/wsl_runner.sh) instead.
+    runs-on: ${{ inputs.laptop && fromJSON('["self-hosted", "Linux", "jarvis-linux"]') || 'ubuntu-latest' }}
     outputs:
       ios: ${{ steps.ioswant.outputs.ios }}
     env:
