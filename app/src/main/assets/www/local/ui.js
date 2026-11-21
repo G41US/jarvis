@@ -716,11 +716,13 @@ export function initUi() {
     const talking = B.contains('jv-talking') && !document.body.hasAttribute('data-nav');
     let topBelow = top.getBoundingClientRect().bottom;
     if (rp && rp.classList.contains('show') && rp.offsetHeight) topBelow = Math.max(topBelow, rp.getBoundingClientRect().bottom);
-    const r = talking ? stageFor({ H: window.innerHeight, W: window.innerWidth, cardTop: card.getBoundingClientRect().top, safeTop: topBelow - 52 }) : { ty: 0, s: 1 };
+    const r = window.__jvPlan ? window.__jvPlan        // delivery mode's sheet sets its own room for the face
+      : talking ? stageFor({ H: window.innerHeight, W: window.innerWidth, cardTop: card.getBoundingClientRect().top, safeTop: topBelow - 52 }) : { ty: 0, s: 1 };
     const key = r.ty + '|' + r.s; if (key === stageKey) return; stageKey = key;
     window.__jvStage = r; window.__jvStageInstant = reduced();
     document.documentElement.style.setProperty('--stage-ty', r.ty + 'px'); document.documentElement.style.setProperty('--stage-s', String(r.s));
   };
+  window.__jvRestage = stage;
   if (window.ResizeObserver) new ResizeObserver(() => stage()).observe(card);
   window.addEventListener('resize', () => setTimeout(stage, 60));
 

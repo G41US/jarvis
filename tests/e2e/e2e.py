@@ -35,6 +35,7 @@ def nominatim(q):
     ql = q.lower()
     if 'main' in ql: return [{'lat': str(B[0]), 'lon': str(B[1]), 'display_name': '100 Main Street, Phoenix, Arizona, United States', 'name': '', 'address': {'house_number': '100', 'road': 'Main Street', 'city': 'Phoenix', 'state': 'Arizona', 'country_code': 'us'}}]
     if 'chipotle' in ql or 'elm' in ql: return [{'lat': '33.4550', 'lon': '-112.0650', 'display_name': 'Chipotle, 5 Elm Street, Phoenix, Arizona', 'name': 'Chipotle', 'address': {'house_number': '5', 'road': 'Elm Street', 'city': 'Phoenix', 'state': 'Arizona', 'country_code': 'us'}}]
+    if 'taco' in ql: return [{'lat': '33.4500', 'lon': '-112.0500', 'display_name': 'Taco House, 9 Pine Street, Phoenix, Arizona', 'name': 'Taco House', 'address': {'house_number': '9', 'road': 'Pine Street', 'city': 'Phoenix', 'state': 'Arizona', 'country_code': 'us'}}]
     if 'oak' in ql: return [{'lat': '33.4700', 'lon': '-112.0300', 'display_name': '123 Oak Street, Phoenix, Arizona', 'name': '', 'address': {'house_number': '123', 'road': 'Oak Street', 'city': 'Phoenix', 'state': 'Arizona', 'country_code': 'us'}}]
     return []
 
@@ -144,7 +145,12 @@ def other_handler(route):
     if 'routing.openstreetmap.de' in url or 'router.project-osrm.org' in url:
         if '/table/' in url: return route.fulfill(status=400, headers=cors, body='{}')
         return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps(OSRM))
-    if 'photon' in url: return route.fulfill(status=200, headers=cors, content_type='application/json', body='{"features":[]}')
+    if 'photon' in url:
+        from urllib.parse import unquote_plus
+        q = re.search(r'[?&]q=([^&]*)', url); q = unquote_plus(q.group(1)).lower() if q else ''
+        feats = [{'geometry': {'coordinates': [-112.0650, 33.4550]}, 'properties': {'name': 'Chipotle', 'housenumber': '5', 'street': 'Elm Street', 'city': 'Phoenix', 'state': 'Arizona'}}] if 'chip' in q else \
+                [{'geometry': {'coordinates': [-112.0300, 33.4700]}, 'properties': {'housenumber': '123', 'street': 'Oak Street', 'city': 'Phoenix', 'state': 'Arizona'}}] if 'oak' in q else []
+        return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'features': feats}))
     if 'overpass-api.de' in url:
         return route.fulfill(status=200, headers=cors, content_type='application/json', body=json.dumps({'elements': [
             {'type': 'node', 'lat': A[0] + 0.004, 'lon': A[1], 'tags': {'amenity': 'fuel', 'brand': 'Circle K'}},
@@ -979,6 +985,41 @@ def main():
         ev("document.getElementById('jv-powers').scrollIntoView()"); pg.wait_for_timeout(200)
         pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/powers.png'))
         ev("document.querySelector('#jv-ov .bar button').click()"); pg.wait_for_timeout(200)
+
+        # ---- delivery mode: "from where, to where" for up to 4 orders; the face shrinks as orders are added; Start puts the route on the map
+        ev("JARVIS.navsvc.stop(); JARVIS.delivery.clear(); JARVIS.reg.exec('plan_deliveries','{}')"); pg.wait_for_timeout(800)
+        r = ask0('delivery mode', 'Delivery mode')
+        check('"delivery mode" opens the planner without the AI', ev("document.body.classList.contains('dm-open')") and 'picking up from' in r, r)
+        pg.wait_for_timeout(700)
+        s0 = ev("window.__jvStage.s")
+        o1 = pg.locator('#dm .ord').nth(0)
+        o1.locator('input').nth(0).fill('Chip'); pg.wait_for_selector('#dm .sug button', timeout=5000)
+        check('typing a place shows suggestions', 'Chipotle' in ev("document.querySelector('#dm .sug').textContent"))
+        pg.locator('#dm .sug button').first.click(); pg.wait_for_timeout(200)
+        o1 = pg.locator('#dm .ord').nth(0); o1.locator('input').nth(1).fill('123 Oak Street'); pg.wait_for_timeout(500)
+        ev("document.querySelector('#dm .sug') && document.querySelector('#dm .sug').remove()")
+        check('Start is ready once both ends are filled', ev("!document.querySelector('#dm .go').disabled"))
+        pg.locator('#dm .add').click(); pg.wait_for_timeout(300)
+        o2 = pg.locator('#dm .ord').nth(1); o2.locator('input').nth(0).fill('Taco House'); o2.locator('input').nth(1).fill('100 Main Street'); pg.wait_for_timeout(700)
+        ev("document.querySelector('#dm .sug') && document.querySelector('#dm .sug').remove()")
+        pg.locator('#dm .add').click(); pg.wait_for_timeout(700)
+        s3 = ev("window.__jvStage.s")
+        g = ev("""(()=>{ const d = document.getElementById('dm').getBoundingClientRect(), t = document.getElementById('jv-top').getBoundingClientRect();
+          return { top: d.top, bottom: d.bottom, H: innerHeight, W: innerWidth, sw: document.getElementById('dm').scrollWidth, cw: document.getElementById('dm').clientWidth, tb: t.bottom,
+                   n: document.querySelectorAll('#dm .ord').length, go: document.querySelector('#dm .go').disabled, label: document.querySelector('#dm .add').textContent }; })()""")
+        check('...the face shrinks as the sheet grows', s0 < 1 and s3 < s0, (s0, s3))
+        check('...the sheet fits the screen, nothing sideways', g['bottom'] <= g['H'] + 1 and g['top'] > g['tb'] and g['sw'] <= g['cw'], g)
+        check('...a third blank order counts toward 4, and an empty one blocks Start', g['n'] == 3 and '3 of 4' in g['label'] and g['go'] is True, g)
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/dmode.png'))
+        pg.locator('#dm .ord').nth(2).locator('.rm').click(); pg.wait_for_timeout(300)
+        pg.locator('#dm .go').click()
+        try: pg.wait_for_function("!document.body.classList.contains('dm-open') && document.body.getAttribute('data-nav') === 'full'", timeout=15000)
+        except Exception: print('DEBUG dm', ev("document.querySelector('#dm .foot').textContent"), ev("JARVIS.navsvc.state.view"))
+        check('Start: both orders in the stack, full map, head in the corner', ev("JARVIS.delivery.activeOrders().length") == 2 and ev("document.body.getAttribute('data-nav')") == 'full' and ev('JARVIS.navsvc.state.delivery') is True,
+              (ev("JARVIS.delivery.activeOrders().length"), ev("document.body.getAttribute('data-nav')")))
+        check('...and the face is back to normal size behind the map', ev("window.__jvStage.s") == 1)
+        pg.wait_for_timeout(1200); pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/dmode_map.png'))
+        ev("JARVIS.navsvc.stop(); JARVIS.delivery.clear(); JARVIS.reg.exec('plan_deliveries','{}')"); pg.wait_for_timeout(600)
 
         # ---- rollout mode: no key on the phone, the build points at the Jarvis proxy
         state['proxy'] = []

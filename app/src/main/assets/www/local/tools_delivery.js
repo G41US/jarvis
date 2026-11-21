@@ -94,8 +94,16 @@ export function registerDeliveryTools(ctx) {
   const EARN = /\b(my earnings|how much (have )?i (made|earned)|earnings (so far|today))\b/i;
   // "it's 1420", "the number is 22B", "house number 1420" while an order still has only a rough address
   const NUMBER_ONLY = /^(?:(?:ok(?:ay)?|so|and)[, ]+)?(?:it'?s|it is|the (?:house |street |building )?number(?: is)?|house number|number)\s+#?(\d{1,6}[a-z]?)[.!]?$/i;
+  const DMODE = /^(?:(?:ok(?:ay)?|hey|jarvis|please)[, ]+)*(?:(?:start|open|enter|go (?:in)?to|switch to|turn on|begin)\s+)?(?:the\s+)?(?:delivery|deliveries|dash(?:ing)?|dasher)\s+mode[.!]*$|^(?:new|plan (?:my|the|some)?)\s*deliver(?:y|ies)[.!]*$/i;
+  function deliveryMode() {
+    if (typeof window === 'undefined' || !window.__jvDeliveryMode) return "Delivery mode isn't available on this screen.";
+    window.dispatchEvent(new CustomEvent('jv-dmode'));
+    return D.hasActive() ? 'Delivery mode. Add another order, or start the route.' : 'Delivery mode. Where are you picking up from?';
+  }
+  T('delivery_mode', "Open delivery mode: a screen to type up to 4 orders (pick up from, deliver to) and start the fastest route on the map. Use for 'delivery mode', 'dash mode', 'plan my deliveries'.", {}, [], () => deliveryMode());
   async function fastpath(text) {
     const t = String(text || '').trim(); if (!t) return null;
+    if (DMODE.test(t)) return deliveryMode();
     if (EARN.test(t) && !/^(show|open|see)\b/i.test(t)) return earnings();          // "show my earnings" opens the page instead
     if (UNDO.test(t) && D._undo) return reg.exec('undo_stop', '{}');
     if (!D.hasActive()) return null;
