@@ -65,6 +65,11 @@ body.dm-open #jv-dock, body.dm-open #jv-hint, body.dm-open #jv-hello, body.dm-op
 #dm .sum .arr { font-style: normal; color: rgba(245, 201, 122, .6); flex: none; }
 #dm .ord.mini .tag { top: 19px; }
 #dm .ord.mini.locked .sum { padding-right: 104px; }
+#dm .row.pay { height: 44px; padding-left: 40px; }
+#dm .row.pay .sym { position: absolute; left: 44px; min-width: 22px; text-align: center; font: 600 14px/1 Roboto, sans-serif; color: #7ee0a1; }
+#dm .row.pay input { padding-left: 34px; font-size: 15px; }
+#dm .row.pay input::placeholder { color: rgba(126, 224, 161, .55); }
+#dm .sum .pv { flex: none; margin-left: 6px; font-weight: 600; color: #7ee0a1; }
 #dm .err { padding: 0 14px 10px 46px; font-size: 12.5px; color: #ff8a93; }
 #dm .tag { position: absolute; right: 44px; top: 16px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #7ee0a1; }
 #dm .sug { margin: -2px 0 8px; border-radius: 16px; overflow: hidden; background: rgba(10, 8, 5, .7); border: 1px solid rgba(255, 214, 150, .14); }
@@ -129,9 +134,11 @@ export function initDeliveryMode() {
 
   function loadStack() {
     const d = D(); if (!d) return [];
-    return d.activeOrders().map(o => ({ id: o.id, locked: true, from: o.restaurant, fromQ: '', to: o.drop_addr, toQ: '', err: '' }));
+    return d.activeOrders().map(o => ({ id: o.id, locked: true, from: o.restaurant, fromQ: '', to: o.drop_addr, toQ: '', pay: o.payout ? String(o.payout) : '', err: '' }));
   }
-  const blank = () => ({ from: '', fromQ: '', to: '', toQ: '', err: '', locked: false });
+  const blank = () => ({ from: '', fromQ: '', to: '', toQ: '', pay: '', err: '', locked: false });
+  const cur = () => String((J() && J().config.get('currency', '$')) || '$');
+  const payText = r => { const v = parseFloat(String(r.pay || '').replace(/[^\d.]/g, '')); return v > 0 ? D().money(v, v % 1 ? 2 : 0) : ''; };
 
   function render() {
     list.innerHTML = '';
@@ -142,6 +149,7 @@ export function initDeliveryMode() {
         const line = el('button', 'sum'); line.type = 'button'; line.setAttribute('aria-label', `Order ${i + 1}: ${r.from} to ${r.to}`);
         const a = el('span', 'a'), b = el('span', 'b'); a.textContent = r.from; b.textContent = r.to;
         line.append(el('i', 'p1'), a, el('i', 'arr', '→'), el('i', 'p2'), b);
+        if (payText(r)) { const pv = el('span', 'pv'); pv.textContent = payText(r); line.append(pv); }
         line.onclick = () => { if (r.locked) return; openIdx = i; hideSug(); render(); };
         const rm = el('button', 'rm', I.x); rm.type = 'button'; rm.setAttribute('aria-label', `Remove order ${i + 1}`); rm.onclick = () => remove(i);
         c.append(line, rm); if (r.locked) c.append(el('span', 'tag', 'In stack')); list.append(c); return;
@@ -158,6 +166,11 @@ export function initDeliveryMode() {
         inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); hideSug(); if (k === 'from') card.querySelector('.row.to input').focus(); else inp.blur(); } };
         row.append(el('i', 'pin'), inp); card.append(row);
       }
+      { const row = el('div', 'row pay'), sym = el('span', 'sym'), inp = el('input'); sym.textContent = cur();     // what the order pays (optional)
+        inp.value = r.pay; inp.readOnly = r.locked; inp.placeholder = 'Pay (optional)'; inp.inputMode = 'decimal'; inp.setAttribute('aria-label', `Order ${i + 1} pay`); inp.autocomplete = 'off'; inp.enterKeyHint = 'done';
+        inp.oninput = () => { r.pay = inp.value.replace(/[^\d.,]/g, ''); };
+        inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } };
+        row.append(sym, inp); card.append(row); }
       if (r.locked) card.append(el('span', 'tag', 'In stack'));
       const rm = el('button', 'rm', I.x); rm.type = 'button'; rm.setAttribute('aria-label', `Remove order ${i + 1}`);
       rm.onclick = () => remove(i); card.append(rm);
@@ -226,14 +239,15 @@ export function initDeliveryMode() {
     busy = true; go.classList.add('busy'); go.disabled = true; go.innerHTML = I.go + 'Finding the fastest route…'; foot.textContent = ''; foot.classList.remove('bad'); hideSug();
     try {
       for (const r of readyRows(rows)) {
-        const res = await D().addOrder(r.from.trim(), r.toQ || r.to.trim(), r.fromQ || r.from.trim());
+        const pay = parseFloat(String(r.pay || '').replace(/,/g, '')) || 0;
+        const res = await D().addOrder(r.from.trim(), r.toQ || r.to.trim(), r.fromQ || r.from.trim(), pay);
         if (!res.ok) { r.err = res.error; openIdx = rows.indexOf(r); throw new Error(res.error); }
         Object.assign(r, { id: res.id, locked: true, err: '' });
       }
       await J().reg.exec('plan_deliveries', '{}');                    // the route card and the delivery map catch up
       const said = await J().navsvc.startDelivery();
       if (!/^Navigating/.test(said)) throw new Error(said);
-      close(); try { J().announce(said); } catch {}
+      close(); try { window.__jvBuzz && window.__jvBuzz('mute'); J().announce(said); } catch {}
     } catch (e) {
       foot.textContent = (e && e.message) || 'Something went wrong. Try again.'; foot.classList.add('bad'); render();
     } finally { busy = false; go.classList.remove('busy'); sync(); }

@@ -1,6 +1,6 @@
 // Several pickups on one trip go in the fastest order on the map; asking for directions never gets a made-up route.
 import assert from 'node:assert/strict';
-import { createNavService, bestOrder } from '../app/src/main/assets/www/local/navsvc.js';
+import { createNavService, bestOrder, trafficScale } from '../app/src/main/assets/www/local/navsvc.js';
 import { NAV_ASK } from '../app/src/main/assets/www/local/brain.js';
 import { Registry } from '../app/src/main/assets/www/local/tools.js';
 
@@ -42,4 +42,5 @@ out = await nav.fastpath('navigate to Jabi Lake Mall'); assert.doesNotMatch(out,
 
 for (const t of ['give me directions to Wuse', 'I need to pick up a delivery in Gwagwalada', 'whats the fastest way to Jabi', 'take me to Shoprite']) assert.ok(NAV_ASK.test(t), t);
 for (const t of ['what time is it', 'play some music']) assert.ok(!NAV_ASK.test(t), t);
+assert.equal(trafficScale(600, 900), 1.5); assert.equal(trafficScale(600, 6000), 3); assert.equal(trafficScale(0, 900), 1);
 process.stdout.write('nav trip OK\n');

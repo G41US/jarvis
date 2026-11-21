@@ -12,6 +12,7 @@ import { registerGeneralTools, timeOfDay, parseWhen } from './tools_general.js';
 import { registerPhoneTools } from './tools_phone.js';
 import { registerExtraTools } from './tools_extras.js';
 import { registerDrivingTools } from './tools_driving.js';
+import { registerFuel } from './fuel.js';
 import { registerHomeTools } from './tools_home.js';
 import { registerUiTools, earningsInput } from './tools_ui.js';
 import { summary as earningsSummary } from './earnings.js';
@@ -245,6 +246,12 @@ W.__jvPersona = { who: () => (persona.get() || {}).who || '', stop: async () => 
 /** What the voice is given for a line: readable out loud, and in the character's delivery when he's playing one. */
 function spoken(text) { return forSpeech(text); }
 const navigator_ = new Navigator({ language: cfgStore.get('nav_language', 'en-US'), units: cfgStore.get('units', 'auto') }, httpJson);
+// Jarvis always knows roughly where you are (the phone's GPS, named by street and area), so "near me", the weather,
+// prices, local news and directions just work without asking.
+function placeLine() {
+  try { const p = navsvc.place(); if (!p) return '';
+    return `\nWHERE HE IS NOW (phone GPS, ${Math.max(0, Math.round((Date.now() - p.at) / 60000))} min ago): ${p.text}. Use it for anything local (near me, weather, prices, news, directions) without asking where he is.`; } catch { return ''; }
+}
 function deliveryConfig() {
   const c = cfgStore.all(), d = {};
   if (c.currency) d.currency = c.currency; if (c.units && c.units !== 'auto') d.units = c.units;
@@ -254,6 +261,7 @@ function deliveryConfig() {
 }
 const delivery = new Copilot(kv, deliveryConfig(), { broadcast, http: httpJson });
 const navsvc = createNavService({ reg, config: cfgStore, delivery, broadcast, openUrl, navigator: navigator_ });
+setTimeout(() => navsvc.place(), 2500); setInterval(() => { if (!document.hidden) navsvc.place(); }, 180000);   // keep 'where he is' fresh
 const dtools = registerDeliveryTools({ reg, delivery, navsvc, openUrl, config: cfgStore, broadcast });
 setTimeout(() => { if (delivery.hasActive()) dtools.refresh().catch(() => {}); }, 2500);   // orders from before a restart: card and map come back
 let brain = null;
@@ -263,6 +271,7 @@ Object.assign(gctx, { api, parseWhen });
 const phone = registerPhoneTools(gctx);                 // also gives gctx reminderItems / calendarToday for the briefing
 registerExtraTools(gctx);                                // camera extras, expenses
 registerDrivingTools(gctx);                              // parking, gas, shifts and mileage, SOS
+const fuel = registerFuel({ ...gctx, log });              // the local pump price, for profit after fuel
 registerHomeTools(gctx);                                 // Home Assistant, Philips Hue
 registerUiTools(gctx);                                   // Earnings page, what Jarvis knows, driving mode
 const extras = registerExtras({ ...gctx, log });          // globe, live news and webcams, answers as cards (cards.js)
@@ -295,7 +304,7 @@ brain = createBrain({ reg, kv, config: cfgStore, api, fastpaths: [briefingFast, 
   instant, onTiming: t => { stats.lat = { ...(stats.lat || {}), ...t, at: Date.now() }; },
   onTool: name => W.dispatchEvent(new CustomEvent('jv-activity', { detail: name })),
   onToolResult: (name, args, out) => { extras.onToolResult(name, args, out).catch(() => {}); },
-  extraPrompt: () => (mind ? mind.prompt() : '') + (persona ? persona.prompt() : ''),
+  extraPrompt: () => (mind ? mind.prompt() : '') + (persona ? persona.prompt() : '') + placeLine(),
   onTurn: (user, said) => { if (learner) learner.observe(user, said); extras.onReply(user, said); if (mind) mind.noteUser(user); } });
 mind = createMind({ brain, kv, config: cfgStore, broadcast, reg, ctx: gctx, log });   // his inner life: thoughts, moods, curiosity, a nightly journal
 W.__jvSay = t => broadcast('proactive:' + t);
@@ -329,7 +338,13 @@ let lastOffer = null;
 W.__jvOffer = (json, speakHere) => {
   try { lastOffer = { ...JSON.parse(json), at: Date.now() }; } catch { return; }
   stats.lastOffer = lastOffer;
-  if (speakHere) broadcast('proactive:' + lastOffer.spoken);          // Jarvis on screen: he says it (and the mic stays shut while he does)
+  let said = lastOffer.spoken;
+  try {                                                                 // and what's left of the pay after fuel, when he knows the local price
+    const pd = fuel.perDist(), d = Number(lastOffer.miles) * (delivery.units === 'km' ? 1.609344 : 1), pay = Number(lastOffer.payout);
+    if (pd > 0 && d > 0 && pay > 0) said += ` After fuel, about ${delivery.money(pay - pd * d, 0)}.`;
+  } catch {}
+  lastOffer.spoken = said;
+  if (speakHere) broadcast('proactive:' + said);          // Jarvis on screen: he says it (and the mic stays shut while he does)
 };
 reg.add('screen_offer', "The last DoorDash or Uber Eats offer Jarvis read off the driver's screen, with the verdict (take it / your call / pass). Use for 'what was that offer', 'should I take it', 'was that worth it'.",
   {}, [], () => {
@@ -419,7 +434,7 @@ if (W.JARVIS_IOS) reg.remove(IPHONE_CANT);                // after every tool is
 
 W.JARVIS = {
   wake: () => W.__jvWake(1, true), say: t => deliverTranscript(t), announce: t => broadcast('proactive:' + t), applySettings, config: cfgStore, api, brain, navsvc, delivery, reg, stats, stt,
-  kv, faces: FACES, chooseFace, update: { info: () => upd, check: checkUpdate, install: installUpdate }, refreshMemory: () => brain && brain.refreshPrompt(), earningsNow: () => earningsSummary(earningsInput(delivery)),
+  fuel, kv, faces: FACES, chooseFace, update: { info: () => upd, check: checkUpdate, install: installUpdate }, refreshMemory: () => brain && brain.refreshPrompt(), earningsNow: () => earningsSummary(earningsInput(delivery)),
   phone, interp, proactive, learner, shiftSummary: () => (gctx.shiftSummary ? gctx.shiftSummary() : null), verifyKey: () => brain.verifyKey(), voices: voiceList, chosenVoice, wantedVoice, setVoice, announceVoice, pcVoices: readPc, ensurePcVoice, offerStatus: () => { try { return JSON.parse(bridge().offerReaderStatus()); } catch { return null; } }, openOfferSettings: () => has('openOfferReaderSettings') && bridge().openOfferReaderSettings(), refreshVoices: () => { rawVoices = []; return applyVoice(); },
   speakTest: t => W.speechSynthesis && W.speechSynthesis.speak(Object.assign(new W.SpeechSynthesisUtterance(t || 'Jarvis online.'), { rate: 1.1 })),
 };

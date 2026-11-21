@@ -127,6 +127,8 @@ export function initPages() {
       tile(money(p.perHour, 0), 'per hour', p.perHour > 0),
       tile(dist(p.miles).toFixed(1), unit() === 'km' ? 'kilometres' : 'miles', p.miles > 0.05),
       tile(money(unit() === 'km' ? p.perMile / 1.609344 : p.perMile), unit() === 'km' ? 'per km' : 'per mile', p.perMile > 0)));
+    { const pd = J().fuel ? J().fuel.perDist() : 0, d = dist(p.miles);           // what he keeps after fuel
+      if (pd > 0 && d > 0.05) box.append(el('div', { class: 'hero-sub' }, `Fuel ≈ ${money(pd * d, 0)} · after fuel ≈ ${money(p.earned - pd * d, 0)}`)); }
 
     // last 7 days
     box.append(el('h3', {}, 'Last 7 days'));

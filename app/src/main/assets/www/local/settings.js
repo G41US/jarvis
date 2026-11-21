@@ -1,5 +1,6 @@
 // settings.js - the phone's settings screen. Opens by itself the first time (when Jarvis has no way to think yet),
 // and from the gear afterwards. Everything is stored on this phone only.
+import { CURRENCIES } from './delivery.js';
 const J = () => window.JARVIS;
 const el = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -397,13 +398,22 @@ export function initSettings() {
   add(nd, 'select', 'drive_mode', 'Driving mode', { def: 'auto', options: [['auto', "Automatic: during a shift or while you're driving"], ['on', 'Always on'], ['off', 'Off']],
     hint: "A simple screen with big text and buttons: the time, your next stop and today's pay. The face rests to save battery." });
   add(nd, 'select', 'units', 'Distance', { def: 'auto', options: [['auto', 'Automatic'], ['miles', 'Miles'], ['km', 'Kilometres']] });
-  add(nd, 'text', 'currency', 'Currency symbol', { def: '$', ph: '$' });
+  add(nd, 'select', 'currency_auto', 'Currency', { def: 'true', options: [['true', 'Automatic: the money where you drive'], ['false', 'Always the one below']] });
+  { const cur = String(J().config.get('currency', '$') || '$'); const opts = CURRENCIES.some(c => c[0] === cur) ? CURRENCIES : [[cur, cur], ...CURRENCIES];
+    add(nd, 'select', 'currency', 'Money shown in', { def: '$', options: opts, hint: 'Pay, earnings, fuel and offers all use this.' }); }
+  { // fuel: looked up for where you are once a day, or your own pump price
+    const f = J().config.get('fuel_found', null), km = J().delivery && J().delivery.units === 'km';
+    const seen = f && f.price > 0 ? `Found ${J().delivery.money(f.price)} a ${f.unit} around ${f.where}${f.source ? ' (' + f.source + ')' : ''}, ${new Date(f.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.` : 'Jarvis looks it up for where you are once a day.';
+    add(nd, 'select', 'fuel_auto', 'Fuel price', { def: 'true', options: [['true', 'Automatic: look it up where I am'], ['false', 'Use my price below']], hint: seen });
+    add(nd, 'number', 'fuel_price', `My fuel price per ${km ? 'litre' : 'gallon'} (optional)`, { num: true, inputmode: 'decimal', ph: km ? '1150' : '3.50' });
+    add(nd, 'number', 'fuel_economy', km ? 'My car: kilometres per litre' : 'My car: miles per gallon', { num: true, inputmode: 'decimal', ph: km ? '12' : '28', hint: 'For what you keep after fuel, in Earnings.' }); }
   add(nd, 'text', 'areas', 'Busy areas (comma-separated)', { ph: 'Downtown, Airport', hint: 'Used to suggest where to wait between orders.' });
   add(nd, 'number', 'min_per_hour', 'Lowest pay per hour you accept (offer reader uses this)', { num: true, inputmode: 'decimal', ph: '18' });
   add(nd, 'number', 'min_per_mile', 'Lowest pay per mile you accept (offer reader uses this)', { num: true, inputmode: 'decimal', ph: '1.50' });
   add(nd, 'select', 'use_gps', 'Use GPS', { def: 'true', options: [['true', 'Yes'], ['false', 'No, I will say where I am']] });
   add(nd, 'select', 'map_theme', 'Map colours', { def: 'auto', options: [['auto', 'Follow the time of day'], ['night', 'Always night'], ['day', 'Always day']] });
   add(nd, 'select', 'map_provider', 'Map', { def: 'jarvis', options: [['jarvis', 'Jarvis map (free)'], ['google', 'Google Maps (needs key)'], ['apple', 'Apple Maps (needs token)']] });
+  add(nd, 'password', 'tomtom_key', 'Live traffic: TomTom API key (optional)', { ph: 'TomTom key', hint: 'Free at developer.tomtom.com. With it, arrival times and the order of your stops follow current traffic.' });
   add(nd, 'password', 'google_key', 'Google Maps JavaScript API key (optional)', { ph: 'AIza…' });
   add(nd, 'password', 'apple_token', 'Apple MapKit JS token (optional)', { ph: 'eyJ…' });
 
