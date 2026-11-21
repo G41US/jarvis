@@ -4,6 +4,18 @@ import { Navigator, haversineM, resolveUnits, fmtDistance, fmtDuration, clock } 
 
 const MAP_ACTIONS = ['show_map', 'mini_map', 'hide_map', 'zoom_in', 'zoom_out', 'overview', 'recenter', 'night', 'day', 'auto_theme', 'mute_voice', 'unmute_voice',
   'simulate', 'stop_simulation', 'use_google', 'use_apple', 'use_jarvis_map', 'avoid_highways', 'avoid_tolls', 'avoid_ferries', 'allow_all_roads', 'gps_off', 'gps_on', 'reroute'];
+/** Fastest order to visit every stop once, starting at 0, from a travel-time matrix D (row/column 0 = the start). Stops are 1..n. */
+export function bestOrder(D) {
+  const n = D.length - 1; let best = null, bestT = Infinity;
+  const go = (path, left, t) => {
+    if (t >= bestT) return;
+    if (!left.length) { best = path; bestT = t; return; }
+    for (const k of left) go([...path, k], left.filter(x => x !== k), t + D[path.length ? path[path.length - 1] : 0][k]);
+  };
+  go([], Array.from({ length: n }, (_, i) => i + 1), 0);
+  return best || [];
+}
+
 export const NO_ORIGIN = "I don't know where you are yet. Allow location for the app, or tell me 'I'm at' and your address.";
 
 export function createNavService({ reg, config, delivery, broadcast, openUrl, navigator }) {
@@ -78,6 +90,10 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   //      Only for stops with a real address (an area-only drop-off is too vague to tell), and you can say "undo".
   const ARRIVE_M = 120, LEAVE_M = 300, DWELL_MS = 40000;
   function watchStops(lat, lon, acc) {
+    if (S.active && !S.delivery && S.dest.length > 1 && acc <= 100 && haversineM(lat, lon, S.dest[0][0], S.dest[0][1]) <= ARRIVE_M) {
+      const done = S.dest.shift(); S.label = S.dest[0][2];          // a stop on a multi-stop trip: on to the next one
+      broadcast('proactive:' + `You're at ${done[2]}. Next, ${S.dest[0][2]}.`); return;
+    }
     if (!(S.active && S.delivery && S.route) || acc > 100 || !S.onStopDone || config.get('auto_stops', true) === false) return;
     const w = (S.route.waypoints || [])[1]; if (!w || w.approx || !w.kind || w.kind === 'stop') { S.here = null; return; }
     const d = haversineM(lat, lon, w.lat, w.lon), key = `${w.kind}:${w.label}`, now = Date.now();
@@ -180,14 +196,35 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if (g.distance_km && g.distance_km > 150) txt = `The closest match I found is ${g.display.slice(0, 70)}, ${fmtDistance(g.distance_km * 1000, r.units)} away. ` + txt;
     return txt;
   }
+  // several places on one trip ("pick up at Chicken Republic and at Shoprite"): Jarvis visits them in the fastest order
+  async function startTrip(places, mode = 'auto', fromText = '') {
+    let org = await originNow(), from = null;
+    if (fromText && !HERE.test(fromText.trim())) { from = await resolve(fromText, org); if (!from) return `I couldn't find ${fromText}. Try the street and the town.`; org = [from.lat, from.lon]; }
+    if (!org) return noOrigin();
+    const found = [];
+    for (const p of places.slice(0, 6)) {
+      const g = await resolve(p, org); if (!g) return `I couldn't find ${p}. Try the street and the town.`;
+      found.push({ lat: g.lat, lon: g.lon, label: (g.short || p).trim() || p });
+    }
+    let order = found.map((_, i) => i + 1);
+    try { const [D] = await delivery.matrix([org, ...found.map(f => [f.lat, f.lon])]); order = bestOrder(D); } catch (e) { console.warn('[NAV] trip order', e); }
+    const stops = order.map(i => found[i - 1]);
+    const r = await route([org, ...stops.map(f => [f.lat, f.lon])], mode); if (!r.ok) return r.error;
+    r.waypoints = [{ lat: org[0], lon: org[1], label: from ? (from.short || fromText) : 'You', kind: 'stop' }, ...stops.map(f => ({ ...f, kind: 'drop' }))];
+    Object.assign(S, { active: true, route: r, label: stops[0].label, mode, delivery: false, progress: null, view: 'full', dest: stops.map(f => [f.lat, f.lon, f.label]) });
+    cmd('route', { route: r, meta: { label: stops[0].label, delivery: false } });
+    const first = r.steps.find(x => !x.icon.startsWith('arrive'));
+    return `Fastest way: ${stops.map(f => f.label).join(', then ')}. ${fmtDuration(r.time_s)} and ${fmtDistance(r.distance_m, r.units)} in all.` + (first && first.say ? ' ' + first.say : '');
+  }
+
   async function reroute(lat, lon) {
     if (!S.active) return { ok: false, error: "Navigation isn't active." };
     S.pos = { lat, lon, acc: 10.0, ts: Date.now() / 1000, speed: null };
     let r, meta;
     if (S.delivery) { let info; [r, info] = await buildDelivery([lat, lon]); if (r === null) return { ok: false, error: info }; meta = { label: info, delivery: true }; }
     else {
-      const d = S.dest[S.dest.length - 1]; r = await route([[lat, lon], [d[0], d[1]]], S.mode); if (!r.ok) return { ok: false, error: r.error };
-      r.waypoints = [{ lat, lon, label: 'You', kind: 'stop' }, { lat: d[0], lon: d[1], label: d[2], kind: 'drop' }]; meta = { label: d[2], delivery: false };
+      r = await route([[lat, lon], ...S.dest.map(d => [d[0], d[1]])], S.mode); if (!r.ok) return { ok: false, error: r.error };   // through every stop still ahead
+      r.waypoints = [{ lat, lon, label: 'You', kind: 'stop' }, ...S.dest.map(d => ({ lat: d[0], lon: d[1], label: d[2], kind: 'drop' }))]; meta = { label: S.dest[0][2], delivery: false };
     }
     S.route = r; S.progress = null; return { ok: true, route: r, meta };
   }
@@ -282,8 +319,13 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   // ---- tools
   const T = (n, d, p, r, f) => reg.add(n, d, p, r, f);
   T('navigate_to', "Start turn-by-turn navigation to any address, place, business or landmark anywhere in the world. The screen turns into a map. Use for 'navigate to', 'take me to', 'directions to', 'directions from A to B', 'drive to', 'walk to'. Never answer directions with a link or a description of a map: call this.",
-    { destination: { type: 'string', description: 'address, place name or saved place like home or work' }, from: { type: 'string', description: "only when they name a different starting point ('from Wuse 2'); otherwise leave out: it starts where they are" }, mode: { type: 'string', enum: ['driving', 'walking', 'cycling', 'scooter'], description: 'default driving' } }, ['destination'],
-    a => start(a.destination, { walking: 'pedestrian', cycling: 'bicycle', scooter: 'motor_scooter' }[(a.mode || '').toLowerCase()] || 'auto', a.from || ''));
+    { destination: { type: 'string', description: 'address, place name or saved place like home or work' }, from: { type: 'string', description: "only when they name a different starting point ('from Wuse 2'); otherwise leave out: it starts where they are" }, mode: { type: 'string', enum: ['driving', 'walking', 'cycling', 'scooter'], description: 'default driving' },
+      stops: { type: 'array', items: { type: 'string' }, description: "other places on the same trip, e.g. a second pickup ('pick up at X and Y': destination X, stops [Y]). Jarvis visits them all in the fastest order." } }, ['destination'],
+    a => {
+      const mode = { walking: 'pedestrian', cycling: 'bicycle', scooter: 'motor_scooter' }[(a.mode || '').toLowerCase()] || 'auto';
+      const more = (Array.isArray(a.stops) ? a.stops : []).map(x => String(x || '').trim()).filter(Boolean);
+      return more.length ? startTrip([a.destination, ...more], mode, a.from || '') : start(a.destination, mode, a.from || '');
+    });
   T('start_delivery_navigation', 'Start turn-by-turn navigation through every stop of the current delivery stack, in the best order.', {}, [], () => startDelivery());
   T('stop_navigation', 'End turn-by-turn navigation and bring the face back.', {}, [], () => stop());
   T('navigation_status', 'How far, how long, when you arrive, and the next turn, during navigation.', {}, [], () => status());
@@ -299,7 +341,7 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
   const R = {
     stop: /\b(stop|cancel|end|exit|quit|abort|finish)\b.{0,20}\b(navigat\w*|directions|guidance|route|trip)\b|\bnavigation off\b/i,
     fromTo: /^(?:(?:ok(?:ay)?|please|jarvis|hey|can you|could you)[, ]+)*(?:(?:get|give|show) me )?(?:the )?(?:directions?|route|the way|way|navigate|drive|take me)\s+from\s+(.+?)\s+to\s+(.+?)[.!?]*$/i,
-    to: /^(?:(?:ok(?:ay)?|please|jarvis|hey|can you|could you)[, ]+)*(?:(?:navigate|drive|route|head|take me|bring me|guide me|walk|cycle|bike|ride)\s+(?:me\s+)?(?:to|towards?)|(?:get|give) me directions to|directions to|how (?:do|can|would) i get to|(?:i )?(?:need|want) (?:to get|directions) to|let'?s drive to|navigate)\s+(.+?)[.!?]*$/i,
+    to: /^(?:(?:ok(?:ay)?|please|jarvis|hey|can you|could you)[, ]+)*(?:(?:navigate|drive|route|head|take me|bring me|guide me|walk|cycle|bike|ride)\s+(?:me\s+)?(?:to|towards?)|(?:get|give) me directions to|directions to|how (?:do|can|would) i get to|(?:i )?(?:need|want) (?:to get|directions) to|let'?s drive to|navigate|(?:i (?:need|have) to |let'?s |go )?pick ?up (?:(?:an? |the |my |two |2 |both )?(?:orders?|deliver(?:y|ies)|food|packages?)s? )?(?:at|from|in))\s+(.+?)[.!?]*$/i,
     deliv: /\b(next stop|my (?:next )?(?:stops?|route|deliver\w*|orders?)|the (?:stack|route)|(?:next )?(?:pick.?up|drop.?off|delivery|customer|restaurant)s?)\b/i,
     startDeliv: /^(?:please )?(?:start|begin|resume)\s+(?:the |my )?(?:delivery |route |stack )?(?:navigation|route|run|deliveries)[.!?]*$/i,
     show: /^(?:please )?(?:show|open|bring up|display|pull up|turn on)(?: me)?(?: the| a| your)? (?:map|navigation|map view)[.!?]*$|^map (?:view|mode)[.!?]*$/i,
@@ -336,6 +378,8 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if ((m = R.to.exec(t))) {
       const dest = m[1].trim().replace(/[, ]+(please|thanks|thank you|now|jarvis)$/i, '').trim();
       if (R.deliv.test(dest) && !/\d/.test(dest)) return delivery.hasActive() ? startDelivery() : 'You have no orders in the stack to navigate to.';
+      const parts = dest.split(/\s*(?:,\s*(?:and\s+)?(?:then\s+)?|\s+and then\s+|\s+then\s+|\s+and\s+(?:(?:at|from|to)\s+)?)\s*/i).map(x => x.replace(/^(?:at|from|to)\s+/i, '').trim()).filter(Boolean);
+      if (parts.length > 1 && parts.length <= 6) { const r = await startTrip(parts, modeOf(t)); if (!/^I couldn't find/.test(r)) return r; }   // "Shoprite and Chicken Republic"
       return start(dest, modeOf(t));
     }
     if (R.mini.test(t)) return mapControl('mini_map');
@@ -351,5 +395,5 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     if ((m = R.gps.exec(t))) return mapControl(m[1].toLowerCase() === 'on' ? 'gps_on' : 'gps_off');
     return null;
   }
-  return { state: S, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, stop, status, mapControl, openInMaps, externalUrl };
+  return { state: S, startTrip, startDash, endDash, onStopDone: f => { S.onStopDone = f; }, fastpath, position, progress, ended, reroute, config: cfgOut, refreshDelivery, startDelivery, start, origin, stop, status, mapControl, openInMaps, externalUrl };
 }

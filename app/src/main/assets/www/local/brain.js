@@ -29,6 +29,10 @@ export const isSmallTalk = text => {
   return SMALL_TALK.test(t) || CHAT.some(re => re.test(t));
 };
 export function needsTool(text) { return !isSmallTalk(text); }
+// Asking for directions: the map tools must answer. The model never writes routes, distances or times itself.
+export const NAV_ASK = /\b(directions?|navigat\w*|route (to|from)|take me|how (do|can|would) i get|the way to|drive (me )?to|pick ?up\b.*\b(at|from|in)|get me to|fastest way|shortest (way|route))\b/i;
+const NAV_TOOLS = new Set(['navigate_to', 'start_delivery_navigation']);
+const NAV_FAILED = "I couldn't get the map route just now. Say navigate to and the place, and I'll try again.";
 
 // Harder questions get more thinking time; quick commands and simple facts stay fast.
 const DEEP = /\b(what('?s| is| are) (happening|going on)|latest|current events|situation in|why|how (do|does|did|can|could|should|would|to|much|many|long)|explain|compare|difference|versus|vs|plan|planning|advice|advise|should i|what should|best (way|option|time|route)|what if|recommend|suggest|solve|work out|figure out|analy[sz]e|pros and cons|strategy|help me (decide|understand|write|figure|plan|think)|write (me )?(a|an|the)|draft|summari[sz]e|story|poem|essay|math|calculate|percent|budget|worth it|is it (good|bad|safe|true))\b/;
@@ -94,6 +98,8 @@ export function buildSystemPrompt({ prefs = [], memories = [], summary = '', nam
     "- Use real spoken sounds where a person would, spelled exactly like this: 'Hmm' (thinking), 'Ah' (realising), 'Oh' (surprise), 'Huh' (puzzled), 'Ha!' (amused), 'Ooh', 'Uh-huh', 'Whoa', 'Phew', 'Ugh'. Never 'hm', 'mm' or 'mhm': they get read out as letters. At most one per reply, only when it's real. Let the thinking show now and then ('Tuesday... no, Wednesday').\n" +
     "- Your voice can act: a short direction in square brackets right before a sentence, when the feeling matters: '[chuckling] Fair point.', '[warm] Glad you're back.', '[sigh] Fine, Monday it is.', '[whisper]', '[excited]', '[deadpan]'. One or two words, at most one per reply, never every reply; it's never shown or read out.\n\n" +
     "TOOLS:\n" +
+    "- Directions: always navigate_to (several pickups or stops on one trip: destination plus stops; for accepted delivery orders, add_delivery_order then start_delivery_navigation). " +
+    "Never write out routes, turns, distances or travel times yourself: only the map gives real ones.\n" +
     "- Work it out yourself like an agent: break a request into steps, use as many tools as it takes, check what came back, and if one way finds nothing try another " +
     "(news_headlines with a topic, fetch_page on a result, wikipedia). Never name a tool or say a tool failed; only if every way failed, say plainly you couldn't get it right now.\n" +
     "- Routing: time->get_time, weather->get_weather, math->calculate, facts->wikipedia or search_web, news->news_headlines/search_web, timer->set_timer, " +
@@ -189,13 +195,13 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
   }
 
   // ---------------------------------------------------------------- streaming rounds
-  async function* streamTools(messages, scratch, signal, tools) {
+  async function* streamTools(messages, scratch, signal, tools, mustNav = false) {
     let spoke = false;
     try {
       const MAX_ROUNDS = 10;                                   // phone control works step by step: open, read, tap, read, type...
       for (let rnd = 0; rnd < MAX_ROUNDS; rnd++) {
         const kw = { model: model(), messages, max_tokens: turnEffort === 'low' ? 2000 : 4000, tools };
-        if (rnd < MAX_ROUNDS - 1) { kw.tool_choice = 'auto'; kw.parallel_tool_calls = true; } else kw.tool_choice = 'none';
+        if (rnd < MAX_ROUNDS - 1) { kw.tool_choice = mustNav && rnd === 0 ? 'required' : 'auto'; kw.parallel_tool_calls = true; } else kw.tool_choice = 'none';
         const text = [], calls = {};
         for await (const chunk of groqStream(kw, signal)) {
           const d = chunk.choices && chunk.choices[0] && chunk.choices[0].delta; if (!d) continue;
@@ -218,6 +224,7 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
       }
       return;
     } catch (e) { if (e && e.name === 'AbortError') return; noteFailure(e); if (G.bad || spoke) return; }
+    if (mustNav && !scratch.some(m => m.role === 'tool' && NAV_TOOLS.has(m.name))) { yield NAV_FAILED; return; }   // never a made-up route
     if (scratch.length) {
       try { for await (const chunk of groqStream({ model: model(), messages, max_tokens: 1200, tools, tool_choice: 'none' }, signal)) { const t = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content; if (t) yield t; } }
       catch (e) { noteFailure(e); }
@@ -288,7 +295,8 @@ export function createBrain({ reg, kv, config, api, fastpaths = [], pickTools = 
       if (!api.ready() || G.bad) { const m = noBrainMessage(); yield { type: 'sentence', text: m }; conversation.push({ role: 'assistant', content: m }); yield { type: 'done' }; return; }
       if (useTools) yield { type: 'status', text: 'thinking' };
       let full = '', buffer = '', sent = false; CLAUSE_SPLIT.lastIndex = 0;
-      const src = useTools ? streamTools(conversation, scratch, signal, tools) : streamSync(conversation, signal);
+      const mustNav = useTools && NAV_ASK.test(userText) && tools.some(t => t.function && NAV_TOOLS.has(t.function.name));
+      const src = useTools ? streamTools(conversation, scratch, signal, tools, mustNav) : streamSync(conversation, signal);
       for await (const tok of src) {
         full += tok; buffer += tok;
         for (;;) {
