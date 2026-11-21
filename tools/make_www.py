@@ -346,6 +346,8 @@ def main():
 
     # no localhost anywhere: the page must only talk to its own origin (which the app answers itself)
     os.makedirs(WWW, exist_ok=True)
+    # a one-word answer ("yes", "keep") to a question he just asked isn't his own echo, even though his question had that word in it
+    html = sub_once(html, "const ec = !speaking ? isEcho(text) : { echo: false };", "const ec = !speaking && !(window.__jvShortOk && window.__jvShortOk(text)) ? isEcho(text) : { echo: false };", 'short answers are not echoes')
     open(os.path.join(WWW, 'index.html'), 'w', encoding='utf-8').write(html)
     nav = open(os.path.join(SRC, 'nav.js'), encoding='utf-8').read()
     # MapLibre ships inside the app too (the build workflow copies it to www/vendor/maplibre)

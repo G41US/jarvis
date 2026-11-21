@@ -326,6 +326,81 @@ body.jv-drive.jv-busy #jv-drive .dv-head { visibility: hidden; }
 body.jv-drive #jv-orb { width: 84px; height: 84px; margin-left: -42px; top: -8px; }
 body.jv-drive.jv-talking #jv-drive .dv-today, body.jv-drive.jv-talking #jv-drive .dv-shift { visibility: hidden; }
 
+/* ==== home: the cinematic look. His face with halo rings and a gold floor light, the date and what he's doing on top, the greeting
+   low, and one talk bar ("Ask or type anything" + the mic) with a grid button for the shortcuts. */
+body:not([data-nav]):not(.jv-drive) #jv-clock { display: block !important; }
+#jv-clock { white-space: nowrap; font: 500 11.5px/1 Roboto, system-ui, sans-serif; font-stretch: 100%; letter-spacing: .1em; text-transform: uppercase; color: var(--mist); padding-left: 2px; }
+body:not([data-nav]):not(.jv-drive) #jv-status { display: inline-flex; height: 32px; padding: 0 13px 0 11px; font: 500 13px/1 Roboto, system-ui, sans-serif; color: var(--holo); }
+#jv-floor { position: fixed; z-index: 1; left: 50%; width: 72vw; max-width: 330px; height: 40px; top: var(--face-bottom, 70vh); transform: translate(-50%, -40%);
+  border-radius: 50%; background: radial-gradient(ellipse, color-mix(in srgb, var(--state) 34%, transparent), transparent 70%); pointer-events: none; transition: top .5s var(--ease), opacity .5s; }
+body[data-nav] #jv-floor, body.jv-drive #jv-floor, body.jv-faceless #jv-floor { opacity: 0; }
+#jv-hello { top: auto !important; bottom: calc(var(--safe-b) + 112px + var(--resume-h, 0px)); left: 22px; right: 22px; }
+#jv-hello .g { font: 300 15px/1.2 Roboto, system-ui, sans-serif; font-stretch: 100%; color: var(--mist); letter-spacing: .01em; }
+#jv-hello .n { font: 300 36px/1.05 'Saira', system-ui, sans-serif; font-stretch: 118%; margin-top: 8px; letter-spacing: -.01em; background: none; color: var(--ice); -webkit-background-clip: initial; background-clip: initial; }
+#jv-hello .n em { font-style: normal; font-weight: 600; color: var(--holo); }
+#jv-hello .d { display: none; }
+body:not(.jv-greet) #jv-hello { opacity: 1; transform: none; }
+body.jv-talking #jv-hello, body[data-nav] #jv-hello, body.jv-typing #jv-hello, body.jv-ideas #jv-hello, body.jv-history #jv-hello, body.sos-on #jv-hello { opacity: 0 !important; transform: translateY(8px) !important; }
+body:not([data-nav]):not(.jv-drive) #jv-dock { left: 16px; right: 88px; height: 64px; border-radius: 32px; pointer-events: auto;
+  background: rgba(24, 18, 10, .62); border: 1px solid var(--glass-hi); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 14px 34px rgba(0, 0, 0, .4); }
+body:not([data-nav]):not(.jv-drive) #jv-orb { left: auto; right: 6px; top: 6px; margin: 0; width: 52px; height: 52px; color: #1b1206;
+  background: radial-gradient(circle at 50% 35%, #ffe3a6, #e59a2a 72%); box-shadow: 0 0 calc(16px + var(--lvl, 0) * 40px) rgba(245, 185, 79, .55); }
+body:not([data-nav]):not(.jv-drive).st-muted #jv-orb { background: radial-gradient(circle at 50% 35%, #ff8a93, #b3303e 72%); color: #fff; }
+body:not([data-nav]):not(.jv-drive) #jv-orb svg { width: 24px; height: 24px; }
+body:not([data-nav]):not(.jv-drive) #jv-dock #jv-keys { position: absolute; left: 0; top: 0; right: 64px; width: auto; height: 100%; border: 0; border-radius: 32px 0 0 32px;
+  background: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: 0 8px 0 22px; color: var(--mist); font: 400 15px/1 Roboto, system-ui, sans-serif; }
+#jv-keys .ask { display: none; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#jv-keys .bars { display: none; margin-left: auto; gap: 3px; align-items: center; }
+#jv-keys .bars i { width: 3px; height: 8px; border-radius: 3px; background: var(--holo); opacity: .85; }
+body:not([data-nav]):not(.jv-drive) #jv-keys .ask, body:not([data-nav]):not(.jv-drive) #jv-keys .bars { display: inline-flex; }
+body:not([data-nav]):not(.jv-drive) #jv-keys > svg { display: none; }
+body.st-listening #jv-keys .bars i, body.st-session #jv-keys .bars i, body.st-speaking #jv-keys .bars i { animation: jvBars .9s ease-in-out infinite; }
+#jv-keys .bars i:nth-child(2) { animation-delay: -.2s !important; } #jv-keys .bars i:nth-child(3) { animation-delay: -.5s !important; } #jv-keys .bars i:nth-child(4) { animation-delay: -.7s !important; }
+@media (max-width: 380px) { #jv-keys .bars { display: none !important; } }   /* a narrow phone keeps the words whole */
+#jv-dock #jv-hist { display: none; }   /* the conversation is in the shortcuts now */
+#jv-dock #jv-grid { position: absolute; right: -72px; top: 0; width: 64px; height: 64px; border-radius: 22px; color: var(--holo); }
+#jv-dock #jv-grid svg { width: 22px; height: 22px; }
+body[data-nav] #jv-grid, body.jv-drive #jv-grid { display: none !important; }
+body[data-nav="full"] .nav-tools { right: auto; left: 16px; top: auto; bottom: calc(var(--safe-b) + 196px); }   /* above the talk button: the delivery card and his head have the right side */
+body[data-nav="full"] .nav-recenter { left: calc((74px + var(--orb-cx, 300px) - var(--orb-d, 100px) / 2) / 2); }   /* centred between the talk button and his head */
+/* the shortcuts tray: app-style tiles */
+#jv-tray-scrim { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, .62); opacity: 0; pointer-events: none; transition: opacity .3s; }
+#jv-tray { position: fixed; z-index: 31; left: 0; right: 0; bottom: 0; padding: 10px 18px calc(22px + var(--safe-b)); border-radius: 28px 28px 0 0;
+  background: linear-gradient(180deg, rgba(34, 26, 15, .97), rgba(14, 11, 7, .99)); border-top: 1px solid rgba(255, 214, 150, .22);
+  transform: translateY(105%); transition: transform .4s var(--ease); font-family: Roboto, system-ui, sans-serif; }
+body.jv-tray #jv-tray { transform: none; } body.jv-tray #jv-tray-scrim { opacity: 1; pointer-events: auto; }
+#jv-tray .grab { width: 40px; height: 4px; border-radius: 4px; background: rgba(255, 236, 190, .25); margin: 0 auto 14px; }
+#jv-tray h3 { margin: 0 0 16px; font: 600 19px/1 'Saira', system-ui, sans-serif; font-stretch: 92%; color: var(--ice); text-transform: none; letter-spacing: normal; }
+#jv-tray .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px 6px; }
+#jv-tray .tiles button { display: flex; flex-direction: column; align-items: center; gap: 7px; border: 0; background: none; padding: 0; color: var(--ice); font: 500 11.5px/1.2 Roboto, sans-serif;
+  text-transform: none; letter-spacing: normal; -webkit-tap-highlight-color: transparent; }
+#jv-tray .tiles button:active .tile { transform: scale(.92); }
+#jv-tray .tile { width: 58px; height: 58px; border-radius: 16px; display: grid; place-items: center; transition: transform .15s;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .35); }
+#jv-tray .tile svg { width: 27px; height: 27px; }
+/* orders waiting: one gold tap back to the route */
+#jv-resume { position: fixed; z-index: 9; left: 16px; right: 16px; bottom: calc(var(--safe-b) + 100px); height: 50px; border: 0; border-radius: 18px; display: none; align-items: center; gap: 12px; padding: 0 8px 0 14px;
+  background: linear-gradient(160deg, #ffe3a6 0%, #f5b94f 45%, #e08a1e 100%); color: #1b1206; font: 700 15px/1 Roboto, system-ui, sans-serif; text-transform: none; letter-spacing: normal;
+  box-shadow: 0 10px 26px rgba(240, 164, 58, .3); -webkit-tap-highlight-color: transparent; }
+#jv-resume svg { width: 20px; height: 20px; }
+#jv-resume .go { margin-left: auto; width: 34px; height: 34px; border-radius: 50%; background: rgba(27, 18, 6, .12); display: grid; place-items: center; }
+body.jv-orders:not([data-nav]):not(.jv-drive):not(.jv-talking):not(.jv-typing):not(.dm-open) #jv-resume { display: flex; }
+body.jv-orders:not([data-nav]) { --resume-h: 62px; }
+/* the delivery card's own buttons: add another order, end the trip */
+#route-panel .rp-acts { display: flex; gap: 8px; margin-top: 10px; }
+#route-panel .rp-acts button { flex: 1; height: 40px; border-radius: 13px; display: flex; align-items: center; justify-content: center; gap: 7px; font: 600 13.5px/1 Roboto, system-ui, sans-serif;
+  text-transform: none; letter-spacing: normal; border: 1px solid rgba(255, 214, 150, .18); background: rgba(255, 236, 190, .06); color: var(--ice); }
+#route-panel .rp-acts button svg { width: 16px; height: 16px; }
+#route-panel .rp-acts .end { color: #ff8a93; border-color: rgba(255, 90, 103, .38); background: rgba(255, 90, 103, .1); }
+#jv-end { position: fixed; z-index: 41; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 12px); padding: 18px; border-radius: 24px; display: none; flex-direction: column; gap: 10px;
+  background: linear-gradient(180deg, rgba(34, 26, 15, .98), rgba(14, 11, 7, .99)); border: 1px solid rgba(255, 214, 150, .22); box-shadow: 0 -10px 40px rgba(0, 0, 0, .6); font-family: Roboto, system-ui, sans-serif; }
+body.jv-end #jv-end { display: flex; } body.jv-end #jv-tray-scrim { opacity: 1; pointer-events: auto; }
+#jv-end h3 { margin: 0; font: 600 19px/1.2 'Saira', system-ui, sans-serif; font-stretch: 92%; color: var(--ice); text-transform: none; letter-spacing: normal; }
+#jv-end p { margin: 0 0 4px; font-size: 13.5px; color: var(--mist); }
+#jv-end button { height: 52px; border-radius: 16px; border: 1px solid rgba(255, 214, 150, .18); background: rgba(255, 236, 190, .06); color: var(--ice); font: 600 15px/1 Roboto, sans-serif; text-transform: none; letter-spacing: normal; }
+#jv-end button.end { background: linear-gradient(160deg, #ff8a93, #d9404f); color: #fff; border: 0; }
+#jv-end button.no { background: none; border: 0; color: var(--mist); height: 40px; }
+
 @media (prefers-reduced-motion: reduce) {
   #jv-status .sig i, #jv-orb::before, #jv-card .wait b, #jv-card .heard::after, #jv-hint svg, body.jv-busy #jv-status { animation: none !important; }
   body:not([data-nav]) #three, #jv-aura, #jv-card, #jv-hello, #jv-ideas, #jv-toast { transition: none; }
@@ -337,6 +412,10 @@ const ICON = {
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
   mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.7-1.3M5.5 11a6.5 6.5 0 0 0 10.6 5M18.4 12.6c.06-.5.1-1 .1-1.6M12 17.5V21M3 3l18 18"/></svg>',
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>',
+  go: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 21 3l-8.5 18-2-7.5z"/></svg>',
+  next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   hist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.8 7L4 20l1.1-4A8 8 0 1 1 20 12z"/><path d="M8.5 10.5h7M8.5 13.5h4"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -516,10 +595,9 @@ export function initUi() {
   const timeText = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/[  ]/g, ' ');
   const paintHello = () => {
     const d = new Date(), name = (J() && J().config && String(J().config.get('user_name', '') || '').trim()) || '';
-    hG.textContent = greeting(d.getHours()) + (name ? ',' : '');
-    hN.textContent = name || 'I’m listening.';
-    hD.textContent = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) + ', ' + timeText(d);
-    clock.textContent = timeText(d);
+    hG.textContent = greeting(d.getHours()) + (name ? ', ' + name : '');
+    hN.innerHTML = 'How can I <em>help</em>?';
+    clock.textContent = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + timeText(d);
   };
   let greetTimer = 0, hiddenAt = 0;
   const greet = () => { paintHello(); B.add('jv-greet'); clearTimeout(greetTimer); greetTimer = setTimeout(() => B.remove('jv-greet'), TIMING.greetMs); };
@@ -554,7 +632,15 @@ export function initUi() {
   const mapBack = el('button', '', 'Map'); mapBack.id = 'jv-mapback'; mapBack.type = 'button'; mapBack.setAttribute('aria-label', 'Back to the map');
   mapBack.onclick = () => { try { window.JARVIS.navsvc.mapControl('show_map'); } catch {} };
   const keys = el('button', 'jv-ic'); keys.id = 'jv-keys'; keys.type = 'button'; keys.setAttribute('aria-label', 'Type to Jarvis'); keys.innerHTML = ICON.keys;
-  dock.append(orb, keys, hist, mapBack);
+  keys.innerHTML = ICON.keys + '<span class="ask">Ask or type anything</span><span class="bars"><i></i><i></i><i></i><i></i></span>';
+  const grid = el('button', 'jv-ic'); grid.id = 'jv-grid'; grid.type = 'button'; grid.setAttribute('aria-label', 'Shortcuts'); grid.innerHTML = ICON.grid;
+  dock.append(orb, keys, hist, mapBack, grid);
+  const floor = el('div'); floor.id = 'jv-floor'; floor.setAttribute('aria-hidden', 'true');
+  const trayScrim = el('div'); trayScrim.id = 'jv-tray-scrim';
+  const tray = el('section'); tray.id = 'jv-tray'; tray.setAttribute('role', 'dialog'); tray.setAttribute('aria-label', 'Shortcuts');
+  const tiles = el('div', 'tiles'); tray.append(el('div', 'grab'), el('h3', '', 'Shortcuts'), tiles);
+  const resume = el('button'); resume.id = 'jv-resume'; resume.type = 'button';
+  const endSheet = el('section'); endSheet.id = 'jv-end'; endSheet.setAttribute('role', 'dialog'); endSheet.setAttribute('aria-label', 'End trip');
   const typeBar = el('form'); typeBar.id = 'jv-type'; typeBar.setAttribute('aria-label', 'Type to Jarvis');
   const typeIn = el('input'); typeIn.type = 'text'; typeIn.placeholder = 'Type a message or an address'; typeIn.setAttribute('enterkeyhint', 'send');
   typeIn.setAttribute('aria-label', 'Message'); typeIn.autocomplete = 'off';
@@ -570,7 +656,7 @@ export function initUi() {
   const links = el('div', 'links'); links.append(hEarn, hKnow, hGear, hClear);
   hh.append(el('h2', '', 'Conversation'), hClose, links);
 
-  document.body.append(sos, top, hello, card, toast, scrim, ideas, hint, dock, typeBar, hh);
+  document.body.append(floor, sos, top, hello, card, toast, scrim, ideas, hint, resume, dock, typeBar, hh, trayScrim, tray, endSheet);
 
   // ---- actions
   const muteBtn = () => $('muteBtn');
@@ -659,6 +745,57 @@ export function initUi() {
 
   // ---- ideas
   const ask = text => { if (!J()) return; J().wake(); setTimeout(() => J().say(text), 350); };
+
+  // ---- the shortcuts tray (grid button)
+  const TILE = (c1, c2, path) => `<span class="tile" style="background:linear-gradient(160deg,${c1},${c2})"><svg viewBox="0 0 24 24" fill="none" stroke="#1b1206" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg></span>`;
+  const tray_ = on => { B.toggle('jv-tray', on); if (on) { closeIdeas(); typing(false); } };
+  const shortcuts = [
+    ['Delivery', '#ffd88a', '#e08a1e', '<path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>', () => window.dispatchEvent(new CustomEvent('jv-dmode'))],
+    ['Navigate', '#9fe7b8', '#2fa86a', '<path d="M3 11.5 21 3l-8.5 18-2-7.5z"/>', () => { typeIn.value = 'Navigate to '; typing(true); }],
+    ['Earnings', '#a9c8ff', '#3d6fe0', '<path d="M5 20V10M12 20V4M19 20v-7"/>', () => J() && J().openEarnings && J().openEarnings()],
+    ['Briefing', '#ffb0c8', '#d9477a', '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M5 19l1.4-1.4M17.6 6.4 19 5"/>', () => ask('Give me my briefing')],
+    ['Shift', '#c9b4ff', '#7a52e0', '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', () => ask(B.contains('on-shift') ? 'End my shift' : 'Start my shift')],
+    ['Chat', '#9fe0f0', '#1f9bb8', '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>', () => toggleHist(true)],
+    ['What I know', '#ffd2a0', '#e0702e', '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', () => J() && J().openKnows && J().openKnows()],
+    ['Settings', '#d6d0c4', '#857a68', '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', () => J() && J().openSettings && J().openSettings()],
+  ];
+  for (const [name, c1, c2, path, go] of shortcuts) {
+    const b = el('button'); b.type = 'button'; b.innerHTML = TILE(c1, c2, path); b.append(document.createTextNode(name));
+    b.onclick = () => { tray_(false); buzz('tick'); setTimeout(go, 120); }; tiles.append(b);
+  }
+  grid.onclick = () => tray_(!B.contains('jv-tray'));
+  trayScrim.onclick = () => { tray_(false); B.remove('jv-end'); };
+
+  // ---- orders waiting while the face is up: a gold pill back to the route
+  const D = () => J() && J().delivery;
+  setInterval(() => {
+    const n = D() ? D().activeOrders().length : 0; B.toggle('jv-orders', n > 0);
+    const t = `${n} order${n !== 1 ? 's' : ''} · Resume route`; if (n && resume.dataset.t !== t) { resume.dataset.t = t; resume.innerHTML = ICON.go + t + `<span class="go">${ICON.next}</span>`; }
+  }, 1200);
+  resume.onclick = async () => { buzz('tick'); try { const r = await J().navsvc.startDelivery(); if (!/^Navigating/.test(r)) showToast(r); } catch {} };
+
+  // ---- the delivery card: add an order, or end the trip (asks first)
+  if (rp) {
+    const acts = el('div', 'rp-acts'), addB = el('button'), endB = el('button', 'end');
+    addB.type = endB.type = 'button'; addB.innerHTML = ICON.plus + 'Add order'; endB.innerHTML = ICON.x + 'End trip';
+    acts.append(addB, endB); rp.append(acts);
+    acts.addEventListener('click', e => e.stopPropagation());          // not a fold/unfold tap
+    addB.onclick = () => window.dispatchEvent(new CustomEvent('jv-dmode'));
+    endB.onclick = () => openEnd();
+  }
+  function openEnd() {
+    const n = D() ? D().activeOrders().length : 0;
+    endSheet.innerHTML = '';
+    const yes = el('button', 'end', `End trip and clear ${n} order${n !== 1 ? 's' : ''}`), keep = el('button', '', 'Keep orders, hide the map'), no = el('button', 'no', 'Cancel');
+    for (const b of [yes, keep, no]) b.type = 'button';
+    endSheet.append(el('h3', '', 'End this trip?'), el('p', '', 'Ending clears the orders from your stack. Your earnings so far are kept.'), yes, keep, no);
+    yes.onclick = async () => { B.remove('jv-end'); try { const r = await J().reg.exec('clear_deliveries', '{}'); J().navsvc.stop(); showToast('Trip ended. ' + r); } catch {} };
+    keep.onclick = async () => { B.remove('jv-end'); try { await J().navsvc.mapControl('hide_map'); } catch {} };
+    no.onclick = () => B.remove('jv-end');
+    B.add('jv-end'); buzz('tick');
+  }
+  // a tap on the small map opens it full screen
+  window.addEventListener('jv-map-tap', () => { try { J().navsvc.mapControl('show_map'); } catch {} });
   let ideasTimer = 0;
   const ideasList = () => {
     const ordersOn = !!(rp && rp.classList.contains('show')), shiftOn = B.contains('on-shift');
@@ -716,13 +853,18 @@ export function initUi() {
     const talking = B.contains('jv-talking') && !document.body.hasAttribute('data-nav');
     let topBelow = top.getBoundingClientRect().bottom;
     if (rp && rp.classList.contains('show') && rp.offsetHeight) topBelow = Math.max(topBelow, rp.getBoundingClientRect().bottom);
+    const home = !talking && !document.body.hasAttribute('data-nav') && !B.contains('jv-drive');
     const r = window.__jvPlan ? window.__jvPlan        // delivery mode's sheet sets its own room for the face
-      : talking ? stageFor({ H: window.innerHeight, W: window.innerWidth, cardTop: card.getBoundingClientRect().top, safeTop: topBelow - 52 }) : { ty: 0, s: 1 };
+      : talking ? stageFor({ H: window.innerHeight, W: window.innerWidth, cardTop: card.getBoundingClientRect().top, safeTop: topBelow - 52 })
+      : home ? stageFor({ H: window.innerHeight, W: window.innerWidth, cardTop: hello.getBoundingClientRect().top + 6, safeTop: topBelow - 52 }) : { ty: 0, s: 1 };
+    { const H = window.innerHeight, W = window.innerWidth, hh = W < H ? 0.5 * W : 0.21 * H, c = H / 2 + (H * 0.54 - H / 2) * r.s;
+      document.documentElement.style.setProperty('--face-bottom', Math.round(c + hh * r.s * 0.92 + r.ty) + 'px'); }
     const key = r.ty + '|' + r.s; if (key === stageKey) return; stageKey = key;
     window.__jvStage = r; window.__jvStageInstant = reduced();
     document.documentElement.style.setProperty('--stage-ty', r.ty + 'px'); document.documentElement.style.setProperty('--stage-s', String(r.s));
   };
   window.__jvRestage = stage;
+  setTimeout(stage, 50); setInterval(stage, 1500);   // the greeting moves when the resume pill comes and goes
   if (window.ResizeObserver) new ResizeObserver(() => stage()).observe(card);
   window.addEventListener('resize', () => setTimeout(stage, 60));
 

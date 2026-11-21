@@ -112,7 +112,9 @@ export function createNavService({ reg, config, delivery, broadcast, openUrl, na
     const org = origin();
     if (!org) { S.dashPending = true; S.view = 'dash'; cmd('view', { mode: 'dash' }); return 'waiting'; }   // the map starts GPS; the first fix routes it
     S.dashPending = false;
-    const [r, info] = await buildDelivery(org); if (r === null) { cmd('view', { mode: 'dash', center: org }); return info; }
+    const [r, info] = await buildDelivery(org);
+    if (S.active && S.view === 'full') return 'busy';                   // full navigation started while this was routing: keep it
+    if (r === null) { cmd('view', { mode: 'dash', center: org }); return info; }
     const wps = r.waypoints;
     Object.assign(S, { active: true, route: r, label: info, mode: 'auto', delivery: true, progress: null, view: 'dash', dest: wps.slice(1).map(w => [w.lat, w.lon, w.label]) });
     cmd('route', { route: r, meta: { label: info, delivery: true, view: 'dash' } });
