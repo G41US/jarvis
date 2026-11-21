@@ -23,6 +23,18 @@ const CSS = `
   background: #0a131c; clip-path: circle(0px at var(--orb-cx) var(--orb-cy));
   transition: clip-path .9s cubic-bezier(.22,.8,.24,1), opacity .5s; font-family: inherit; }
 #nav-map { position: absolute; inset: 0; }
+body[data-nav] #nav-frame { pointer-events: auto; }
+.nav-tools { position: absolute; right: 14px; top: 42%; display: none; flex-direction: column; gap: 10px; z-index: 3; }
+body[data-nav="full"] .nav-tools { display: flex; }
+.nav-tools button, .nav-recenter { -webkit-tap-highlight-color: transparent; border: 1px solid rgba(255,214,150,.18); color: #fff6e8; cursor: pointer;
+  background: rgba(24,18,10,.72); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); font-family: Roboto, system-ui, sans-serif; text-transform: none; letter-spacing: normal; }
+.nav-tools button { width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; padding: 0; }
+.nav-tools button svg { width: 22px; height: 22px; }
+.nav-tools button.on { color: #f5c97a; border-color: rgba(245,201,122,.5); }
+.nav-recenter { position: absolute; left: 50%; bottom: 150px; transform: translate(-50%, 12px); z-index: 3; display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 20px; border-radius: 23px;
+  background: #fff6e8; color: #1b1206; font-weight: 700; font-size: 15px; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; }
+.nav-recenter svg { width: 18px; height: 18px; }
+body[data-nav="full"] #nav-frame.free .nav-recenter { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
 #nav-map .nav-layer { position: absolute; inset: 0; opacity: 0; transition: opacity .6s; }
 #nav-map .nav-layer.ready { opacity: 1; }
 #nav-map canvas { width: 100%; height: 100%; display: block; }
@@ -243,6 +255,10 @@ export class MapLibreAdapter {
     const el = document.createElement('div'); el.className = 'nav-me'; el.innerHTML = ME_SVG;
     this.meEl = el.firstChild;
     this.me = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat([o.center[1], o.center[0]]).addTo(map);
+    for (const ev of ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart']) map.on(ev, e => { if (e.originalEvent && this.onUser) this.onUser(); });
+  }
+  interact(on) {   // the full-screen map can be dragged, pinched and turned; the small ones stay still
+    for (const h of ['dragPan', 'touchZoomRotate', 'doubleClickZoom', 'scrollZoom', 'dragRotate', 'touchPitch']) { try { this.map[h][on ? 'enable' : 'disable'](); } catch (e) {} }
   }
   _geo() { return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: this.coords.length > 1 ? this.coords : [[0, 0], [0, 0]] } }; }
   _layers() {
@@ -383,6 +399,7 @@ export class MapView {
     const layer = document.createElement('div'); layer.className = 'nav-layer'; this.host.appendChild(layer);
     try { await adapter.init(layer, o); } catch (e) { try { adapter.destroy(); } catch (e2) {} layer.remove(); throw e; }
     adapter.onFail = why => this.hooks.degrade && this.hooks.degrade(adapter.kind, why);
+    adapter.onUser = () => this.hooks.onUser && this.hooks.onUser();
     const old = this.adapter; this.adapter = adapter; this.layer = layer;
     this._replay();
     requestAnimationFrame(() => layer.classList.add('ready'));
@@ -395,6 +412,7 @@ export class MapView {
     a.setNight(s.night); a.setRoute(s.shape); a.setWaypoints(s.wps);
     if (s.pos) a.setPosition(s.pos[0], s.pos[1], s.pos[2]);
     if (s.overview) a.overview(s.overview); else if (s.follow) a.follow(s.follow);
+    if (a.interact) a.interact(!!s.interact);
   }
   async start(provider, center, night, cfg) {
     this.s.center = center; this.s.night = night; this.cfg = cfg;
@@ -434,6 +452,7 @@ export class MapView {
   follow(f) { this.s.follow = f; this.s.overview = null; this.adapter && this.adapter.follow(f); }
   overview(b) { this.s.overview = b; this.adapter && this.adapter.overview(b); }
   resize() { this.adapter && this.adapter.resize(); }
+  interact(on) { this.s.interact = on; this.adapter && this.adapter.interact && this.adapter.interact(on); }
 }
 
 // ---------------------------------------------------------------- the screen
@@ -446,7 +465,11 @@ export function createNav(env = {}) {
     <div class="nb"><div class="nb-icon"></div><div><div class="nb-dist"></div><div class="nb-text"></div></div></div>
     <div class="nb-then"></div>
     <div class="ne"></div>
-    <div id="nav-badge"></div><div id="nav-toast"></div>`;
+    <div id="nav-badge"></div><div id="nav-toast"></div>
+    <div class="nav-tools"><button type="button" data-t="north" aria-label="North up or heading up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l4 9-4-2-4 2z" fill="currentColor"/><path d="M12 21l-4-9 4 2 4-2z"/></svg></button>
+      <button type="button" data-t="overview" aria-label="Whole route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/></svg></button>
+      <button type="button" data-t="voice" aria-label="Voice guidance on or off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="w" d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></button></div>
+    <button type="button" class="nav-recenter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 21 3l-8.5 18-2-7.5z"/></svg>Recenter</button>`;
   const orb = document.createElement('div'); orb.id = 'nav-orb';
   const caption = document.createElement('div'); caption.id = 'nav-caption';
   frame.appendChild(caption);
@@ -462,6 +485,7 @@ export function createNav(env = {}) {
   const speak = (t, o = {}) => { if (S.voice) say(t, o); };
   const guide = new Guide({ say: speak, onUpdate: onGuide, onReroute: doReroute, onArrive });
   const mv = new MapView(dom.map, {
+    onUser: () => { if (S.view === 'full') { S.free = true; frame.classList.add('free'); } },   // he moved the map: stop following until Recenter
     toast: msg => toast(msg, 6000), say: t => say(t, { urgent: true }),
     fellBack: p => { S.cfg.provider = p; badge(); },
     degrade: (kind, why) => { toast(`${kind} map failed: ${why}`, 6000); say("That map stopped working, so I'm switching to my own.", { urgent: true }); S.cfg.provider = 'jarvis'; mv.use('jarvis'); },
@@ -519,6 +543,7 @@ export function createNav(env = {}) {
     if (mode === S.view) return;
     const prev = S.view; S.view = mode;
     clearTimeout(S.hideT);
+    mv.interact(mode === 'full'); S.free = false; frame.classList.remove('free');
     if (mode !== 'off') {
       layoutOrb();
       frame.style.display = 'block';
@@ -566,7 +591,7 @@ export function createNav(env = {}) {
     mv.setPosition(st.pos[0], st.pos[1], st.heading);
     const now = Date.now();
     if (now - S.lastShapeUpd > 1500) { S.lastShapeUpd = now; mv.setRoute([st.pos, ...S.route.shape.slice(st.idx + 1)]); }
-    if (!S.overview) refollow(st);
+    if (!S.overview && !S.free) refollow(st);
     // tell the server how we're doing (so "how far?" and "what's next?" work by voice)
     if (now - S.lastProg > 5000) {
       S.lastProg = now;
@@ -581,9 +606,20 @@ export function createNav(env = {}) {
     const base = mode === 'pedestrian' ? 18.2 : mode === 'bicycle' ? 17.4 : clamp(17.3 - sp / 8, 14.8, 17.4);
     return clamp(base + S.zoomOff, 11, 19.5);
   }
+  function recenter() { S.overview = false; S.free = false; frame.classList.remove('free'); refollow(); }
+  const tool = t => frame.querySelector(`.nav-tools [data-t="${t}"]`);
+  frame.querySelector('.nav-recenter').onclick = e => { e.stopPropagation(); recenter(); };
+  frame.querySelector('.nav-tools').onclick = e => {
+    const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
+    if (b.dataset.t === 'north') { S.north = !S.north; b.classList.toggle('on', S.north); if (!S.free && !S.overview) refollow(); }
+    else if (b.dataset.t === 'overview') { if (S.route) { S.overview = true; mv.overview(S.route.bbox); frame.classList.add('free'); } }
+    else if (b.dataset.t === 'voice') { S.voice = !S.voice; b.classList.toggle('on', !S.voice); b.querySelector('.w').style.opacity = S.voice ? 1 : 0; toast(S.voice ? 'Voice guidance on' : 'Voice guidance off', 1800); }
+  };
+  // a tap on the small map (the delivery card's map, or the mini map) opens it full screen
+  frame.addEventListener('click', () => { if (S.view === 'dash' || S.view === 'mini') window.dispatchEvent(new CustomEvent('jv-map-tap')); });
   function refollow(st = S.st) {
     if (!S.route) return;
-    const p = st ? st.pos : S.route.shape[0], h = st ? st.heading : 0;
+    const p = st ? st.pos : S.route.shape[0], h = st && !S.north ? st.heading : 0;
     mv.follow({ lat: p[0], lon: p[1], heading: h || 0, zoom: zoomFor(st) });
   }
 
@@ -683,10 +719,10 @@ export function createNav(env = {}) {
       case 'zoom': S.zoomOff = clamp(S.zoomOff + (m.dir === 'in' ? 1 : -1), -4, 4); S.overview = false; refollow(); break;
       case 'theme': S.cfg.theme = m.value; applyTheme(); break;
       case 'provider': Object.assign(S.cfg, m.cfg || {}, { provider: m.value }); badge(); if (S.view !== 'off') mv.use(m.value); break;
-      case 'voice': S.voice = !!m.on; break;
+      case 'voice': S.voice = !!m.on; { const b = tool('voice'); if (b) { b.classList.toggle('on', !S.voice); b.querySelector('.w').style.opacity = S.voice ? 1 : 0; } } break;
       case 'simulate': m.on ? (startSim() || toast('Start a route first, then I can simulate driving it.')) : stopSim(); break;
-      case 'overview': if (S.route) { S.overview = true; mv.overview(S.route.bbox); } break;
-      case 'recenter': S.overview = false; refollow(); break;
+      case 'overview': if (S.route) { S.overview = true; mv.overview(S.route.bbox); if (S.view === 'full') frame.classList.add('free'); } break;
+      case 'recenter': recenter(); break;
       case 'cfg': Object.assign(S.cfg, m.cfg || {}); if (S.cfg.use_gps === false) stopGps(); else startGps(); badge(); break;
     }
   }

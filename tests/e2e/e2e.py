@@ -546,13 +546,29 @@ def main():
         HOLD = "(() => { const o = document.getElementById('jv-orb'), r = o.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;"
         HOLD += " o.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 7, button: 0 }));"
         HOLD += " return new Promise(res => setTimeout(() => { o.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y, pointerId: 7 })); res(1); }, 700)); })()"
-        check('the main screen has no mute or settings buttons any more (just talk, type and conversation)', not ev("!!document.getElementById('jv-mute')") and ev("[...document.querySelectorAll('#jv-dock button')].filter(b => b.offsetParent).length") == 3
+        check('the main screen has no mute or settings buttons (just talk, type and the shortcuts grid)', not ev("!!document.getElementById('jv-mute')") and ev("[...document.querySelectorAll('#jv-dock button')].filter(b => b.offsetParent).length") == 3
               and ev("!!document.querySelector('#jv-hist-head #jv-gear')"))
         ev(HOLD); pg.wait_for_timeout(200)
         check('holding the talk button mutes, with a buzz', ev("window.__jv.state().muted") is True and ev("document.querySelector('#jv-status').textContent").startswith('Muted')
               and 'mute' in (ev("window.__native.vib") or []) and ev("getComputedStyle(document.getElementById('jv-status')).display") != 'none')
         ev(HOLD); pg.wait_for_timeout(200)
-        check('holding it again unmutes; the status pill hides again', ev("window.__jv.state().muted") is False and ev("getComputedStyle(document.getElementById('jv-status')).display") == 'none')
+        check('holding it again unmutes', ev("window.__jv.state().muted") is False and not ev("document.querySelector('#jv-status').textContent").startswith('Muted'))
+        # ---- the home screen: greeting low, one talk bar, the grid opens the shortcuts tray
+        ev("document.querySelector('#jv-card .x') && document.querySelector('#jv-card .x').click()"); pg.wait_for_timeout(700)
+        g = ev("""(()=>{ const r = id => document.getElementById(id).getBoundingClientRect(), d = r('jv-dock'), h = r('jv-hello'), gr = r('jv-grid'), t = r('jv-top');
+          return { dl: d.left, dr: d.right, db: d.bottom, dt: d.top, ht: h.top, hb: h.bottom, gl: gr.left, gr: gr.right, gb: gr.bottom, tb: t.bottom, W: innerWidth, H: innerHeight,
+                   fb: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--face-bottom')), s: window.__jvStage.s, ask: document.querySelector('#jv-keys .ask').offsetWidth,
+                   n: document.querySelector('#jv-hello .n').textContent }; })()""")
+        check('home: the talk bar and grid button sit on screen, side by side', g['dl'] >= 8 and g['gr'] <= g['W'] - 8 and g['gl'] > g['dr'] and g['db'] <= g['H'] and g['gb'] <= g['H'] and g['ask'] > 60, g)
+        check('home: "How can I help?" sits above the bar, and his face above it', g['n'] == 'How can I help?' and g['hb'] <= g['dt'] - 4 and g['fb'] <= g['ht'] + 30 and g['ht'] > g['tb'], g)
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/home.png'))
+        ev("document.getElementById('jv-grid').click()"); pg.wait_for_timeout(500)
+        tiles = ev("[...document.querySelectorAll('#jv-tray .tiles button')].map(b => b.textContent)")
+        check('the grid opens the shortcuts tray', ev("document.body.classList.contains('jv-tray')") and tiles == ['Delivery', 'Navigate', 'Earnings', 'Briefing', 'Shift', 'Chat', 'What I know', 'Settings'], tiles)
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/tray.png'))
+        ev("[...document.querySelectorAll('#jv-tray .tiles button')].find(b => b.textContent === 'Chat').click()"); pg.wait_for_timeout(400)
+        check('...Chat opens the conversation', ev("document.body.classList.contains('jv-history')") and not ev("document.body.classList.contains('jv-tray')"))
+        ev("document.getElementById('jv-hist').click()"); pg.wait_for_timeout(200)
         ev("""(() => { const o = document.getElementById('jv-orb'), r = o.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
               o.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 8, button: 0 }));
               o.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y - 60, pointerId: 8 }));
@@ -1018,6 +1034,32 @@ def main():
         check('Start: both orders in the stack, full map, head in the corner', ev("JARVIS.delivery.activeOrders().length") == 2 and ev("document.body.getAttribute('data-nav')") == 'full' and ev('JARVIS.navsvc.state.delivery') is True,
               (ev("JARVIS.delivery.activeOrders().length"), ev("document.body.getAttribute('data-nav')")))
         check('...and the face is back to normal size behind the map', ev("window.__jvStage.s") == 1)
+        # ---- the full map: side buttons; Whole route frees the camera and Recenter brings it back
+        check('full map: compass, whole-route and voice buttons', ev("getComputedStyle(document.querySelector('.nav-tools')).display") == 'flex' and ev("document.querySelectorAll('.nav-tools button').length") == 3)
+        ev("document.querySelector('.nav-tools [data-t=overview]').click()"); pg.wait_for_timeout(600)
+        check('...Whole route shows the Recenter pill', ev("document.getElementById('nav-frame').classList.contains('free')") and ev("getComputedStyle(document.querySelector('.nav-recenter')).opacity") == '1')
+        ev("document.querySelector('.nav-recenter').click()"); pg.wait_for_timeout(300)
+        check('...Recenter follows you again', not ev("document.getElementById('nav-frame').classList.contains('free')"))
+        g = ev("""(()=>{ const r = s => document.querySelector(s).getBoundingClientRect(), t = r('.nav-tools'), o = r('#nav-orb'), e = r('.ne'), rc = r('.nav-recenter'), d = r('#jv-orb'), p = r('#route-panel');
+          return { tl: t.left, tr: t.right, tt: t.top, tb: t.bottom, ol: o.left, rcb: rc.bottom, et: e.top, rcl: rc.left, rcr: rc.right, dt: d.top, dr: d.right, pb: p.bottom, W: innerWidth }; })()""")
+        check('...side buttons clear of the delivery card, the talk button and his head; Recenter clear of the trip numbers',
+              g['tl'] >= 8 and g['tt'] > g['pb'] and g['tb'] < g['dt'] and g['tr'] < g['ol'] and g['rcb'] < g['et'] and g['rcl'] > g['dr'] and g['rcr'] < g['ol'], g)
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/map_full.png'))
+        # ---- End trip: the card's button asks first; "keep" only hides the map
+        check('the delivery card has Add order and End trip', ev("[...document.querySelectorAll('#route-panel .rp-acts button')].map(b => b.textContent)") == ['Add order', 'End trip'])
+        ev("document.querySelector('#route-panel .rp-acts .end').click()"); pg.wait_for_timeout(300)
+        check('...End trip asks first', ev("document.body.classList.contains('jv-end')") and 'clear 2 orders' in ev("document.getElementById('jv-end').textContent"))
+        pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/end_trip.png'))
+        ev("[...document.querySelectorAll('#jv-end button')][1].click()"); pg.wait_for_timeout(800)
+        ev("document.querySelector('#jv-card .x') && document.querySelector('#jv-card .x').click()"); pg.wait_for_timeout(1500)
+        check('...Keep orders hides the map and keeps them', ev("JARVIS.delivery.activeOrders().length") == 2 and ev("document.body.getAttribute('data-nav')") in (None, 'dash') and not ev("document.body.classList.contains('jv-end')"))
+        pg.wait_for_timeout(1500)
+        check('with orders and no map, a gold Resume route pill shows', ev("getComputedStyle(document.getElementById('jv-resume')).display") == 'flex' and '2 orders' in ev("document.getElementById('jv-resume').textContent"),
+              (ev("getComputedStyle(document.getElementById('jv-resume')).display"), ev("document.body.getAttribute('data-nav')")))
+        r = ask0('end trip', 'End the trip')
+        check('voice "end trip" asks before clearing', 'End the trip and clear your 2 orders' in r and ev("JARVIS.delivery.activeOrders().length") == 2, r)
+        r = ask0('yes', 'Trip ended')
+        check('..."yes" ends it', 'Trip ended' in r and ev("JARVIS.delivery.activeOrders().length") == 0, r)
         pg.wait_for_timeout(1200); pg.screenshot(path=os.path.join(ROOT, 'tests/e2e/dmode_map.png'))
         ev("JARVIS.navsvc.stop(); JARVIS.delivery.clear(); JARVIS.reg.exec('plan_deliveries','{}')"); pg.wait_for_timeout(600)
 

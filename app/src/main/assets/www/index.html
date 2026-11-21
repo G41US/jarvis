@@ -1435,7 +1435,7 @@ async function handleServerTranscript(raw) {
   } else if (now - lastCommandTime < COMMAND_COOLDOWN_MS) { showDebug(text + ' cooldown', 'rejected'); return; }
   const words = cleanPunct(text).split(' ').filter(Boolean);
   if (words.length < (window.__jvInterpreting || (window.__jvShortOk && window.__jvShortOk(text)) ? 1 : MIN_WORDS)) { showDebug(`"${text}" too short`, 'rejected'); return; }
-  const ec = !speaking ? isEcho(text) : { echo: false };
+  const ec = !speaking && !(window.__jvShortOk && window.__jvShortOk(text)) ? isEcho(text) : { echo: false };
   if (ec.echo) { showDebug(`"${text}" sim=${ec.sim.toFixed(2)}`, 'echo'); return; }
   if (sessionActive) {
     showDebug(text, 'heard');

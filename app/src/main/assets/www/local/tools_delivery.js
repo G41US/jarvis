@@ -89,7 +89,18 @@ export function registerDeliveryTools(ctx) {
   const NEXT = /\b(next stop|where (do i go |to )?next|what.?s next|where am i going)\b/i;
   const DONE = /\b(picked (it |them |the \w+ )?up|got (the|my) (food|order)|pick.?up (is )?done|(just )?delivered|dropped (it |them )?off|drop.?off (is )?done|done with (this|that) stop)\b/i;
   const PLAN = /\b(plan|re-?plan|optimi[sz]e)\b.*\b(route|stack|deliver\w*)\b|\b(best|my) route\b/i;
-  const CLEAR = /\b(clear|cancel|reset|wipe)\b.*\b(all )?(my )?(orders|stack|route|deliveries)\b/i;
+  const CLEAR = /\b(clear|cancel|reset|wipe)\b.*\b(all )?(my )?(orders|stack|route|deliveries)\b|\b(end|stop|cancel|finish)\s+(the |my |this )?(trip|delivery run|deliveries|dash)\b|\bi'?m done (delivering|dashing|for (today|the day|tonight))\b/i;
+  // ending a trip throws orders away, so Jarvis asks first: yes ends it, "keep" just hides the map, no carries on
+  let endAsked = 0;
+  async function endTrip() { const r = await clearAll(); try { ctx.navsvc && ctx.navsvc.stop(); } catch {} return 'Trip ended. ' + r; }
+  function askEnd() { endAsked = Date.now(); const n = D.activeOrders().length; return `End the trip and clear your ${n} order${n !== 1 ? 's' : ''}? Say yes to end it, or keep to hide the map and keep them.`; }
+  async function answerEnd(t) {
+    if (!endAsked || Date.now() - endAsked > 45000) return null;
+    if (/^(yes|yeah|yep|yup|sure|ok(ay)?|end it|do it|confirm|go ahead)\b/i.test(t)) { endAsked = 0; return endTrip(); }
+    if (/\b(keep|hide)\b/i.test(t)) { endAsked = 0; if (ctx.navsvc) await ctx.navsvc.mapControl('hide_map'); return 'Map hidden. Your orders are kept.'; }
+    if (/^(no|nope|cancel|never ?mind|don'?t)\b/i.test(t)) { endAsked = 0; return 'Okay, the trip carries on.'; }
+    endAsked = 0; return null;
+  }
   const UNDO = /^(undo( that| it)?|not yet|that'?s wrong|i (haven'?t|didn'?t|did not|have not) (picked|pick|got|delivered|deliver|dropped|drop)( \w+)*( (it|them) (up|off))?( yet)?|(it|that) (wasn'?t|was not) (delivered|picked up)( yet)?)[.!]?$/i;
   const EARN = /\b(my earnings|how much (have )?i (made|earned)|earnings (so far|today))\b/i;
   // "it's 1420", "the number is 22B", "house number 1420" while an order still has only a rough address
@@ -110,7 +121,8 @@ export function registerDeliveryTools(ctx) {
     const nm = NUMBER_ONLY.exec(t);
     if (nm && D.activeOrders().some(o => o.drop_precision === 'street')) return reg.exec('update_delivery_address', JSON.stringify({ address: nm[1] }));
     if (t.includes('?') || /^(how|what|when|why|did|have|which|can|should)\b/i.test(t)) { if (!(NEXT.test(t) || PLAN.test(t))) return null; }
-    if (CLEAR.test(t)) return clearAll();
+    const ans = await answerEnd(t); if (ans) return ans;
+    if (CLEAR.test(t)) return askEnd();
     if (DONE.test(t)) {
       const ref = (D.activeOrders().find(o => t.toLowerCase().includes(o.restaurant.toLowerCase())) || {}).restaurant || '';
       const kind = /picked|pick.?up|got (the|my)/i.test(t) ? 'pickup' : /deliver|dropped|drop.?off/i.test(t) ? 'drop' : '';
@@ -120,5 +132,5 @@ export function registerDeliveryTools(ctx) {
     if (PLAN.test(t)) return D.spokenPlan(await refresh());
     return null;
   }
-  return { fastpath, refresh };
+  return { fastpath, refresh, endTrip };
 }

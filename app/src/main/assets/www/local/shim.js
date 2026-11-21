@@ -275,7 +275,7 @@ const SWITCHABLE = { flashlight: a => ({ state: a }), do_not_disturb: a => ({ on
 let lastSwitch = null;
 const PRONOUN = /^(?:(?:turn|switch|put|shut|flip)\s+(?:it|that|this|them)\s+(?:back\s+)?(on|off)|(?:turn|switch|shut)\s+(?:back\s+)?(on|off)(?:\s+(?:it|that|this))?|(?:back\s+)?(on|off)(?:\s+again)?|(?:kill|shut)\s+it(?:\s+off)?|turn\s+it\s+back)$/;
 // One-word commands the page would otherwise drop as too short to be meant ("delivered", "undo", "off")
-W.__jvShortOk = t => /^\s*(delivered|undo|picked|pickup|done|off|on|stop|enough|pause|resume|next|skip|louder|quieter|mute|unmute|flashlight|torch|torchlight|yes|no|yeah|yep|nope|cancel|back|home)\W*$/i.test(String(t || ''));
+W.__jvShortOk = t => /^\s*(delivered|undo|picked|pickup|done|off|on|stop|enough|pause|resume|next|skip|louder|quieter|mute|unmute|flashlight|torch|torchlight|yes|no|yeah|yep|nope|cancel|back|home|keep|sure|okay|ok)\W*$/i.test(String(t || ''));
 const instant = async text => {                                   // instant commands: no trip to the AI
   if (W.__jvInstantOff) return null;
   let m = matchIntent(text, n => reg.has(n));
