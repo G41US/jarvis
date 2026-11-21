@@ -30,7 +30,7 @@ export const GROUPS = {
   docs: [/\b(clipboard|copy|paste|copied|document|doc\b|pdf|word|docx|file|write (me )?(a|an|up)|letter|report|essay|resume|cv|share (it|that|the))/,
     ['get_clipboard', 'copy_to_clipboard', 'create_document', 'list_documents', 'open_document', 'delete_document']],
   delivery: [/\b(undo|not yet|doordash|door dash|dasher|uber|eats|grubhub|instacart|deliver\w*|order|orders|pick ?up|picked|drop ?off|dropped|stack|restaurant|customer|tip|payout|pay|offer|earn\w*|made|dash|route|next stop|stops|accepted|accept|decline)/,
-    ['add_delivery_order', 'update_delivery_address', 'plan_deliveries', 'next_stop', 'complete_stop', 'list_delivery_orders', 'remove_delivery_order', 'clear_deliveries',
+    ['delivery_mode', 'add_delivery_order', 'update_delivery_address', 'plan_deliveries', 'next_stop', 'complete_stop', 'list_delivery_orders', 'remove_delivery_order', 'clear_deliveries',
       'set_my_location', 'evaluate_delivery_offer', 'open_navigation', 'delivery_earnings', 'screen_offer', 'start_delivery_navigation', 'undo_stop', 'map_control', 'show_earnings', 'set_driving_mode']],
   nav: [/\b(navigat\w*|directions?|route|map|maps|take me|drive (me )?to|walk(ing)? to|get to|how far|eta|arriv|where am i|my location|location|gps|i'?m (in|at)|i am (in|at)|save (this|it|here|place)|home|work|zoom|traffic|toll|highway|reroute|stop navigation|guidance)/,
     ['navigate_to', 'start_delivery_navigation', 'stop_navigation', 'navigation_status', 'map_control', 'open_in_maps_app', 'save_place', 'where_am_i', 'set_my_location']],

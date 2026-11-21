@@ -6,6 +6,7 @@ import { initUi } from './ui.js';
 import { initPages } from './pages.js';
 import { createSetup } from './setup.js';
 import { initCards } from './cards.js';
+import { initDeliveryMode } from './dmode.js';
 // The globe's pictures: the blue marble ships in the app, the rest come straight from NASA's GIBS (it allows other sites to use them)
 const GIBS = (layer, [w, s, e, n], width, extra = '') => 'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1' +
   `&LAYERS=${layer}&STYLES=&SRS=EPSG:4326&BBOX=${w},${s},${e},${n}&WIDTH=${width}&HEIGHT=${Math.max(64, Math.min(2048, Math.round(width * (n - s) / (e - w))))}&FORMAT=image/jpeg${extra}`;
@@ -24,6 +25,7 @@ const go = () => {
   try { initPages(); } catch (e) { console.error('[JARVIS] pages failed', e); }
   try { initSettings(); } catch (e) { console.error('[JARVIS] settings failed', e); }
   try { initCards(); } catch (e) { console.error('[JARVIS] cards failed', e); }
+  try { initDeliveryMode(); } catch (e) { console.error('[JARVIS] delivery mode failed', e); }
   window.__jvGlobeUrl = globeUrl;
   import('../hud_extra.js').catch(e => console.error('[JARVIS] globe failed', e));     // the PC's globe (make_www.py copies it in)
   try {
